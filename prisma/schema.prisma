@@ -1,0 +1,126 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  admin
+  provider
+}
+
+enum OrderStatus {
+  nuevo
+  preparando
+  enviado
+  entregado
+  cancelado
+}
+
+model Provider {
+  id            String    @id @default(uuid())
+  name          String
+  slug          String    @unique
+  logoUrl       String?   @map("logo_url")
+  contactEmail  String    @map("contact_email")
+  contactPhone  String?   @map("contact_phone")
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  clients  Client[]
+  products Product[]
+  orders   Order[]
+  users    User[]
+
+  @@map("providers")
+}
+
+model User {
+  id         String    @id
+  name       String?
+  email      String    @unique
+  role       Role
+  providerId String?   @map("provider_id")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  provider Provider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+
+  @@map("users")
+}
+
+model Client {
+  id           String    @id @default(uuid())
+  providerId   String    @map("provider_id")
+  name         String
+  slug         String
+  contactName  String?   @map("contact_name")
+  contactPhone String?   @map("contact_phone")
+  contactEmail String?   @map("contact_email")
+  address      String?
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  orders   Order[]
+
+  @@unique([providerId, slug])
+  @@map("clients")
+}
+
+model Product {
+  id         String    @id @default(uuid())
+  providerId String    @map("provider_id")
+  name       String
+  description String?
+  price      Decimal
+  unit       String?
+  isActive   Boolean   @default(true) @map("is_active")
+  imageUrl   String?   @map("image_url")
+  category   String?
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
+
+  @@map("products")
+}
+
+model Order {
+  id            String      @id @default(uuid())
+  providerId    String      @map("provider_id")
+  clientId      String      @map("client_id")
+  status        OrderStatus @default(nuevo)
+  contactName   String      @map("contact_name")
+  contactPhone  String      @map("contact_phone")
+  deliveryMethod String?    @map("delivery_method")
+  note          String?
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  client   Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  items    OrderItem[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String   @id @default(uuid())
+  orderId   String   @map("order_id")
+  productId String   @map("product_id")
+  quantity  Int
+  unitPrice Decimal  @map("unit_price")
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@map("order_items")
+}
