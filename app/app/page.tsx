@@ -1,206 +1,228 @@
-"use client";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-import { motion } from "framer-motion";
-import {
-  ArrowUpRight,
-  MessageCircle,
-  Package,
-  ShoppingBag,
-  Users,
-} from "lucide-react";
-import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
+import { DashboardClient, type DashboardDebugInfo, type OrderSummary, type ProviderSummary } from "./dashboard-client";
+import { getDemoData } from "@/lib/demo-data";
+import { getProviderScope } from "@/lib/provider-scope";
+import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
-const metrics = [
-  { label: "Pedidos nuevos", value: "6", trend: "+2 hoy" },
-  { label: "En preparación", value: "4", trend: "al día" },
-  { label: "Entregados semana", value: "28", trend: "+12% vs pasada" },
-];
+function buildMetrics(orders: OrderSummary[]) {
+  const counts = orders.reduce(
+    (acc, order) => {
+      acc[order.status] = (acc[order.status] ?? 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
 
-const quickActions = [
-  {
-    label: "Ver pedidos",
-    href: "/app/orders",
-    icon: <ShoppingBag className="h-4 w-4" />,
-  },
-  {
-    label: "Crear invitación",
-    href: "/app/clients",
-    icon: <Users className="h-4 w-4" />,
-  },
-  {
-    label: "Agregar producto",
-    href: "/app/products",
-    icon: <Package className="h-4 w-4" />,
-  },
-];
+  return [
+    { label: "Pedidos nuevos", value: String(counts.nuevo ?? 0) },
+    { label: "En preparación", value: String(counts.preparando ?? 0) },
+    { label: "Entregados", value: String(counts.entregado ?? 0) },
+  ];
+}
 
-const recentOrders = [
-  {
-    id: "ord_1234",
-    client: "Nova Caballito",
-    status: "nuevo",
-    total: "$22.400",
-    time: "Hace 5 min",
-  },
-  {
-    id: "ord_1235",
-    client: "Mercado Azul",
-    status: "preparando",
-    total: "$15.800",
-    time: "Hace 20 min",
-  },
-  {
-    id: "ord_1236",
-    client: "Dietetica Centro",
-    status: "enviado",
-    total: "$9.200",
-    time: "Hace 1 h",
-  },
-];
+async function fetchData(preferredProvider?: string) {
+  const preferred = preferredProvider?.trim();
+  const debug: DashboardDebugInfo = { preferredSlug: preferred };
 
-const statusBadge: Record<string, string> = {
-  nuevo: "bg-primary/10 text-primary",
-  preparando: "bg-amber-500/10 text-amber-700 dark:text-amber-200",
-  enviado: "bg-blue-500/10 text-blue-700 dark:text-blue-200",
-  entregado: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-200",
-  cancelado: "bg-destructive/10 text-destructive",
-};
+  if (preferred === "demo") {
+    const demo = getDemoData();
+    const demoProvider: ProviderSummary = {
+      id: demo.provider.id,
+      name: demo.provider.name,
+      slug: demo.provider.slug,
+    };
+    const demoOrders: OrderSummary[] = demo.orders.map((order) => ({
+      id: order.id,
+      status: order.status,
+      clientName: demo.clients.find((client) => client.slug === order.clientSlug)?.name ?? "Cliente demo",
+      total: order.total,
+      createdAt: order.createdAt,
+    }));
 
-export default function AppDashboard() {
-  return (
-    <div className="relative isolate min-h-screen bg-gradient-to-b from-background via-background to-secondary/50 px-4 pb-12 pt-8 sm:px-8">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <motion.div
-          className="absolute -left-10 top-8 h-52 w-52 rounded-full bg-primary/10 blur-3xl"
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 0.6, scale: 1 }}
-          transition={{ duration: 0.9, ease: "easeOut" }}
-        />
-        <motion.div
-          className="absolute right-0 bottom-10 h-64 w-64 rounded-full bg-foreground/5 blur-3xl"
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 0.5, scale: 1 }}
-          transition={{ duration: 1, ease: "easeOut", delay: 0.05 }}
-        />
+    debug.demo = true;
+    debug.ordersLoaded = demoOrders.length;
+    debug.resolvedProvider = { id: demoProvider.id, name: demoProvider.name, slug: demoProvider.slug };
+
+    return {
+      providers: [demoProvider],
+      provider: demoProvider,
+      orders: demoOrders,
+      debug,
+    };
+  }
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return null;
+
+  if (preferred) {
+    const { data: provider, error: providerError } = await supabase
+      .from("providers")
+      .select("id, name, slug, is_active")
+      .eq("slug", preferred)
+      .maybeSingle();
+
+    if (providerError || !provider) {
+      debug.error = providerError?.message ?? "Proveedor no encontrado por slug preferido";
+      return { providers: [], provider: null, orders: [], debug };
+    }
+
+    debug.resolvedProvider = { id: provider.id, name: provider.name, slug: provider.slug };
+
+    const { data: orders, error: ordersError } = await supabase
+      .from("orders")
+      .select("id, status, created_at, client:clients(name), order_items(quantity, unit_price)")
+      .eq("provider_id", provider.id)
+      .order("created_at", { ascending: false })
+      .limit(8);
+
+    if (ordersError) {
+      debug.ordersError = ordersError.message;
+      return { providers: [provider], provider, orders: [], debug };
+    }
+
+    const parsedOrders: OrderSummary[] =
+      orders?.map((order) => {
+        const total =
+          order.order_items?.reduce(
+            (acc, item) => acc + Number(item.unit_price ?? 0) * item.quantity,
+            0,
+          ) ?? 0;
+        const clientName =
+          Array.isArray(order.client) && order.client.length > 0
+            ? order.client[0]?.name ?? "Cliente"
+            : (order as { client?: { name?: string } }).client?.name ?? "Cliente";
+
+        return {
+          id: order.id,
+          status: order.status,
+          clientName,
+          total,
+          createdAt: order.created_at,
+        };
+      }) ?? [];
+
+    debug.ordersLoaded = parsedOrders.length;
+
+    return { providers: [provider], provider, orders: parsedOrders, debug };
+  }
+
+  const scopeResult = await getProviderScope();
+  const scope = scopeResult.scope;
+  if (scope?.role === "provider") {
+    debug.scopeRole = "provider";
+    debug.scopeProviderSlug = scope.provider.slug;
+  } else if (scope?.role === "admin") {
+    debug.scopeRole = "admin";
+  } else if (scopeResult.error) {
+    debug.scopeError = scopeResult.error;
+  }
+
+  let providersQuery = supabase.from("providers").select("id, name, slug, is_active");
+
+  if (scope?.role === "provider") {
+    providersQuery = providersQuery.eq("id", scope.provider.id);
+  }
+
+  const { data: providers, error: providersError } = await providersQuery.order("created_at", {
+    ascending: false,
+  });
+
+  if (providersError) return null;
+  if (!providers || providers.length === 0) return { providers: [], provider: null, orders: [], debug };
+
+  debug.providersCount = providers.length;
+
+  const provider =
+    providers.find((p) => p.is_active !== false) || providers[0];
+
+  if (!provider) return { providers, provider: null, orders: [], debug };
+
+  debug.resolvedProvider = { id: provider.id, name: provider.name, slug: provider.slug };
+
+  const { data: orders, error: ordersError } = await supabase
+    .from("orders")
+    .select(
+      "id, status, created_at, client:clients(name), order_items(quantity, unit_price)",
+    )
+    .eq("provider_id", provider.id)
+    .order("created_at", { ascending: false })
+    .limit(8);
+
+  if (ordersError) {
+    debug.ordersError = ordersError.message;
+    return { providers, provider, orders: [], debug };
+  }
+
+  const parsedOrders: OrderSummary[] =
+    orders?.map((order) => {
+      const total =
+        order.order_items?.reduce(
+          (acc, item) => acc + Number(item.unit_price ?? 0) * item.quantity,
+          0,
+        ) ?? 0;
+      const clientName =
+        Array.isArray(order.client) && order.client.length > 0
+          ? order.client[0]?.name ?? "Cliente"
+          : (order as { client?: { name?: string } }).client?.name ?? "Cliente";
+
+      return {
+        id: order.id,
+        status: order.status,
+        clientName,
+        total,
+        createdAt: order.created_at,
+      };
+    }) ?? [];
+
+  debug.ordersLoaded = parsedOrders.length;
+
+  return {
+    providers,
+    provider: {
+      id: provider.id,
+      name: provider.name,
+      slug: provider.slug,
+    } as ProviderSummary,
+    orders: parsedOrders,
+    debug,
+  };
+}
+
+export default async function AppDashboard({
+  searchParams,
+  providerSlug,
+}: {
+  searchParams?: { provider?: string; debug?: string };
+  providerSlug?: string;
+}) {
+  const preferred = providerSlug ?? searchParams?.provider;
+  const data = await fetchData(preferred);
+  const debug = typeof searchParams?.debug !== "undefined";
+
+  if (!data || !data.provider) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-16 text-center">
+        <p className="text-2xl font-semibold">No hay proveedor seleccionado.</p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Crea un proveedor en /admin/providers o usa el parámetro ?provider=slug.
+        </p>
       </div>
+    );
+  }
 
-      <main className="relative mx-auto flex max-w-6xl flex-col gap-6">
-        <header className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-card/70 p-5 shadow-sm backdrop-blur md:flex-row md:items-center md:justify-between md:gap-6 md:p-6">
-          <div>
-            <p className="text-sm text-muted-foreground">MiProveedor</p>
-            <h1 className="text-2xl font-semibold md:text-3xl">
-              Dashboard de proveedor
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Gestiona pedidos, notifica por WhatsApp y mantiene tu catálogo al día.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {quickActions.map((action) => (
-              <Button key={action.href} asChild variant="outline">
-                <Link href={action.href}>
-                  {action.icon}
-                  <span className="ml-2">{action.label}</span>
-                  <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
-                </Link>
-              </Button>
-            ))}
-          </div>
-        </header>
+  const metrics = buildMetrics(data.orders);
+  const recentOrders = data.orders.slice(0, 5);
 
-        <section className="grid gap-4 sm:grid-cols-3">
-          {metrics.map((metric) => (
-            <Card
-              key={metric.label}
-              className="border-border/60 bg-card/80 shadow-sm backdrop-blur"
-            >
-              <CardHeader className="pb-2">
-                <p className="text-sm text-muted-foreground">{metric.label}</p>
-              </CardHeader>
-              <CardContent className="flex items-end justify-between">
-                <p className="text-2xl font-semibold">{metric.value}</p>
-                <Badge variant="secondary">{metric.trend}</Badge>
-              </CardContent>
-            </Card>
-          ))}
-        </section>
-
-        <section className="grid gap-5 md:grid-cols-[1.5fr_1fr]">
-          <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">Pedidos recientes</CardTitle>
-              <Button asChild variant="ghost" size="sm">
-                <Link href="/app/orders">
-                  Ver todos
-                  <ArrowUpRight className="ml-1 h-4 w-4" />
-                </Link>
-              </Button>
-            </CardHeader>
-            <CardContent className="divide-y divide-border/70 p-0">
-              {recentOrders.map((order) => (
-                <div
-                  key={order.id}
-                  className="flex items-center justify-between px-4 py-3"
-                >
-                  <div>
-                    <p className="text-sm font-semibold">{order.client}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {order.time}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadge[order.status]}`}
-                    >
-                      {order.status}
-                    </span>
-                    <p className="text-sm font-semibold">{order.total}</p>
-                    <Button asChild size="icon" variant="ghost">
-                      <Link href={`/app/orders/${order.id}`}>
-                        <ArrowUpRight className="h-4 w-4" />
-                      </Link>
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
-            <CardHeader>
-              <CardTitle className="text-lg">
-                Notifica por WhatsApp
-              </CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Envía el resumen del pedido al instante. Sin emails.
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between rounded-xl border border-border/70 bg-secondary/40 p-3">
-                <div>
-                  <p className="text-sm font-semibold">+54 9 11 5555-4422</p>
-                  <p className="text-xs text-muted-foreground">
-                    Edita este número en Ajustes
-                  </p>
-                </div>
-                <Badge variant="outline">Proveedor</Badge>
-              </div>
-              <Separator />
-              <Button className="w-full" variant="outline">
-                <MessageCircle className="mr-2 h-4 w-4" />
-                Abrir WhatsApp
-              </Button>
-              <Button className="w-full" variant="secondary" asChild>
-                <Link href="/app/orders">Ver pedidos</Link>
-              </Button>
-            </CardContent>
-          </Card>
-        </section>
-      </main>
-    </div>
+  return (
+    <DashboardClient
+      provider={data.provider}
+      metrics={metrics}
+      recentOrders={recentOrders}
+      activeSlug={preferred}
+      debug={debug}
+      debugInfo={data.debug}
+    />
   );
 }

@@ -4,8 +4,6 @@ generator client {
 
 datasource db {
   provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -28,6 +26,8 @@ model Provider {
   logoUrl       String?   @map("logo_url")
   contactEmail  String    @map("contact_email")
   contactPhone  String?   @map("contact_phone")
+  address       String?
+  cuit          String?
   isActive      Boolean   @default(true) @map("is_active")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")

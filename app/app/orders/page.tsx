@@ -1,44 +1,27 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect */
 
+import { Suspense, useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, ArrowUpRight, Filter, MessageCircle } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, MessageCircle, RefreshCcw } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-
-const orders = [
-  {
-    id: "ord_1234",
-    client: "Nova Caballito",
-    status: "nuevo",
-    total: "$22.400",
-    time: "Hace 5 min",
-  },
-  {
-    id: "ord_1235",
-    client: "Mercado Azul",
-    status: "preparando",
-    total: "$15.800",
-    time: "Hace 20 min",
-  },
-  {
-    id: "ord_1236",
-    client: "Dietetica Centro",
-    status: "enviado",
-    total: "$9.200",
-    time: "Hace 1 h",
-  },
-  {
-    id: "ord_1237",
-    client: "Natural Shop",
-    status: "entregado",
-    total: "$18.600",
-    time: "Hoy",
-  },
-];
+import { Skeleton } from "@/components/ui/skeleton";
+import { formatCurrency } from "@/lib/whatsapp";
+import {
+  listOrders,
+  listProviders,
+  updateOrderStatus,
+  type ListOrdersResult,
+  type OrderListItem,
+  type ProviderRow,
+} from "./actions";
 
 const statusBadge: Record<string, string> = {
   nuevo: "bg-primary/10 text-primary",
@@ -48,14 +31,97 @@ const statusBadge: Record<string, string> = {
   cancelado: "bg-destructive/10 text-destructive",
 };
 
-export default function OrdersPage() {
+export type OrdersPageProps = { initialProviderSlug?: string };
+
+function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
+  const [providers, setProviders] = useState<ProviderRow[]>([]);
+  const [providerSlug, setProviderSlug] = useState(initialProviderSlug ?? "");
+  const [orders, setOrders] = useState<OrderListItem[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+  const [ordersError, setOrdersError] = useState<string | null>(null);
+  const [providersError, setProvidersError] = useState<string | null>(null);
+  const [pendingUpdate, startUpdate] = useTransition();
+  const searchParams = useSearchParams();
+  const lockedProvider = Boolean(initialProviderSlug);
+  const preferredProvider = useMemo(() => {
+    if (lockedProvider) return initialProviderSlug ?? undefined;
+    return searchParams?.get("provider") ?? undefined;
+  }, [initialProviderSlug, lockedProvider, searchParams]);
+
+  const loadProviders = useCallback(async () => {
+    setProvidersError(null);
+    const response = await listProviders();
+    if (response.success) {
+      setProviders(response.providers);
+      if (!providerSlug && response.providers.length > 0) {
+        const foundPreferred = preferredProvider
+          ? response.providers.find((provider) => provider.slug === preferredProvider)
+          : undefined;
+        const firstActive =
+          foundPreferred ??
+          response.providers.find((provider) => provider.is_active !== false) ??
+          response.providers[0];
+        if (firstActive?.slug) setProviderSlug(firstActive.slug);
+      } else if (lockedProvider && preferredProvider) {
+        setProviderSlug(preferredProvider);
+      }
+    } else {
+      setProvidersError(response.errors.join("\n"));
+    }
+  }, [lockedProvider, preferredProvider, providerSlug]);
+
+  const loadOrders = useCallback(
+    async (slug: string) => {
+      if (!slug) return;
+      setLoadingOrders(true);
+      setOrdersError(null);
+      const response: ListOrdersResult = await listOrders(slug);
+      if (response.success) {
+        setOrders(response.orders);
+      } else {
+        setOrdersError(response.errors.join("\n"));
+      }
+      setLoadingOrders(false);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    void loadProviders();
+  }, [loadProviders]);
+
+  useEffect(() => {
+    void loadOrders(providerSlug);
+  }, [loadOrders, providerSlug]);
+
+  const provider = useMemo(
+    () => providers.find((item) => item.slug === providerSlug),
+    [providers, providerSlug],
+  );
+
+  const handleUpdateStatus = (orderId: string, status: OrderListItem["status"]) => {
+    if (!providerSlug) return;
+    startUpdate(async () => {
+      const response = await updateOrderStatus({ orderId, status, providerSlug });
+      if (response.success) {
+        if (providerSlug === "demo") {
+          setOrders((prev) => prev.map((order) => (order.id === orderId ? { ...order, status } : order)));
+        } else {
+          await loadOrders(providerSlug);
+        }
+      } else {
+        setOrdersError(response.errors.join("\n"));
+      }
+    });
+  };
+
   return (
     <div className="relative isolate min-h-screen bg-gradient-to-b from-background via-background to-secondary/50 px-4 pb-12 pt-6 sm:px-8">
       <main className="mx-auto flex max-w-5xl flex-col gap-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Button asChild variant="ghost" size="sm">
-              <Link href="/app">
+              <Link href={providerSlug ? `/app/${providerSlug}` : "/app"}>
                 <ArrowLeft className="mr-1 h-4 w-4" />
                 Dashboard
               </Link>
@@ -63,10 +129,37 @@ export default function OrdersPage() {
             <span>/</span>
             <Badge variant="secondary">Pedidos</Badge>
           </div>
-          <Button variant="outline" size="sm">
-            <Filter className="mr-2 h-4 w-4" />
-            Filtros
-          </Button>
+          <div className="flex items-center gap-2">
+            {lockedProvider ? (
+              <Badge variant="outline">{providerSlug || "Proveedor"}</Badge>
+            ) : (
+              <Select
+                value={providerSlug}
+                onValueChange={(value) => setProviderSlug(value)}
+                disabled={providers.length === 0}
+              >
+                <SelectTrigger className="w-[220px]">
+                  <SelectValue placeholder="Proveedor" />
+                </SelectTrigger>
+                <SelectContent>
+                  {providers.map((item) => (
+                    <SelectItem key={item.id} value={item.slug}>
+                      {item.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => void loadOrders(providerSlug)}
+              disabled={loadingOrders}
+              aria-label="Refrescar pedidos"
+            >
+              <RefreshCcw className={`h-4 w-4 ${loadingOrders ? "animate-spin" : ""}`} />
+            </Button>
+          </div>
         </div>
 
         <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
@@ -78,43 +171,92 @@ export default function OrdersPage() {
               </p>
             </div>
             <div className="w-56">
-              <Input placeholder="Buscar tienda" />
+              <Input placeholder="Buscar tienda (próximamente)" disabled />
             </div>
           </CardHeader>
           <CardContent className="divide-y divide-border/70 p-0">
-            {orders.map((order, index) => (
-              <motion.div
-                key={order.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.25, delay: index * 0.05 }}
-                className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="space-y-1">
-                  <p className="text-sm font-semibold">
-                    {order.client} · {order.total}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{order.time}</p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadge[order.status]}`}
+            {providersError ? (
+              <div className="px-4 py-3 text-sm text-destructive">{providersError}</div>
+            ) : null}
+            {ordersError ? (
+              <div className="px-4 py-3 text-sm text-destructive">{ordersError}</div>
+            ) : null}
+            {loadingOrders ? (
+              <div className="space-y-2 px-4 py-3">
+                {[0, 1, 2].map((index) => (
+                  <div
+                    key={index}
+                    className="flex flex-col gap-3 rounded-lg border border-border/60 bg-secondary/30 p-3 sm:flex-row sm:items-center sm:justify-between"
                   >
-                    {order.status}
-                  </span>
-                  <Button asChild variant="ghost" size="sm">
-                    <Link href={`/app/orders/${order.id}`}>
-                      Ver detalle
-                      <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
-                    </Link>
-                  </Button>
-                  <Button variant="outline" size="sm">
-                    <MessageCircle className="mr-2 h-4 w-4" />
-                    WhatsApp
-                  </Button>
-                </div>
-              </motion.div>
-            ))}
+                    <div className="space-y-2">
+                      <Skeleton className="h-3 w-32" />
+                      <Skeleton className="h-3 w-24" />
+                    </div>
+                    <Skeleton className="h-8 w-20" />
+                  </div>
+                ))}
+              </div>
+            ) : orders.length === 0 ? (
+              <div className="px-4 py-6 text-sm text-muted-foreground">
+                {provider ? "Aún no hay pedidos." : "Selecciona un proveedor para ver pedidos."}
+              </div>
+            ) : (
+              orders.map((order, index) => (
+                <motion.div
+                  key={order.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.25, delay: index * 0.05 }}
+                  className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold">
+                      {order.clientName} · {formatCurrency(order.total)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {order.createdAt
+                        ? new Date(order.createdAt).toLocaleString("es-AR", {
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          })
+                        : "Fecha no disponible"}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadge[order.status]}`}
+                    >
+                      {order.status}
+                    </span>
+                    <Button asChild variant="ghost" size="sm">
+                      <Link href={`/app/orders/${order.id}`}>
+                        Ver detalle
+                        <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
+                      </Link>
+                    </Button>
+                    <Button variant="outline" size="sm">
+                      <MessageCircle className="mr-2 h-4 w-4" />
+                      WhatsApp
+                    </Button>
+                    {order.status === "nuevo" || order.status === "preparando" ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={pendingUpdate}
+                        onClick={() =>
+                          handleUpdateStatus(
+                            order.id,
+                            order.status === "nuevo" ? "preparando" : "entregado",
+                          )
+                        }
+                      >
+                        {pendingUpdate ? "Actualizando..." : "Siguiente estado"}
+                      </Button>
+                    ) : null}
+                  </div>
+                </motion.div>
+              ))
+            )}
           </CardContent>
         </Card>
 
@@ -124,5 +266,23 @@ export default function OrdersPage() {
         </p>
       </main>
     </div>
+  );
+}
+
+export default function OrdersPage(props: OrdersPageProps) {
+  return (
+    <Suspense
+      fallback={
+        <div className="space-y-3 px-4 py-6 sm:px-8">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-8 w-48" />
+          {[0, 1, 2].map((index) => (
+            <Skeleton key={index} className="h-24 w-full" />
+          ))}
+        </div>
+      }
+    >
+      <OrdersPageContent {...props} />
+    </Suspense>
   );
 }
