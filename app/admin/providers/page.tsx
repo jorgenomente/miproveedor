@@ -8,14 +8,19 @@ import {
   ArrowUpRight,
   BadgeCheck,
   Building2,
+  BellRing,
   Clock,
   Mail,
   Link as LinkIcon,
+  Loader2,
   Pencil,
   Phone,
   RefreshCcw,
   Save,
   KeyRound,
+  Pause,
+  Play,
+  Receipt,
 } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
@@ -56,6 +61,10 @@ import {
   type ResetPasswordResult,
   updateProvider,
   type UpdateProviderResult,
+  toggleSubscription,
+  type ToggleSubscriptionResult,
+  listProviderPayments,
+  type ProviderPaymentRow,
 } from "./actions";
 
 export default function AdminProvidersPage() {
@@ -69,6 +78,8 @@ export default function AdminProvidersPage() {
   const [editEmail, setEditEmail] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editActive, setEditActive] = useState(true);
+  const [editSubscribedAt, setEditSubscribedAt] = useState("");
+  const [editRenewsAt, setEditRenewsAt] = useState("");
   const [updateState, startUpdate] = useTransition();
   const [updateResult, setUpdateResult] = useState<UpdateProviderResult | null>(null);
   const [origin, setOrigin] = useState("");
@@ -78,6 +89,13 @@ export default function AdminProvidersPage() {
   const [resettingId, setResettingId] = useState<string | null>(null);
   const [resetResult, setResetResult] = useState<Record<string, ResetPasswordResult>>({});
   const [resetState, startReset] = useTransition();
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [toggleResult, setToggleResult] = useState<Record<string, ToggleSubscriptionResult>>({});
+  const [toggleState, startToggle] = useTransition();
+  const [paymentsFor, setPaymentsFor] = useState<ProviderRow | null>(null);
+  const [paymentsByProvider, setPaymentsByProvider] = useState<Record<string, ProviderPaymentRow[]>>({});
+  const [loadingPayments, setLoadingPayments] = useState(false);
+  const [paymentsError, setPaymentsError] = useState<string | null>(null);
 
   const loadProviders = useCallback(async () => {
     setLoadingProviders(true);
@@ -100,12 +118,23 @@ export default function AdminProvidersPage() {
     setOrigin(window.location.origin);
   }, []);
 
+  const toDateTimeLocal = (value?: string | null) => {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const tzOffsetMs = date.getTimezoneOffset() * 60 * 1000;
+    const local = new Date(date.getTime() - tzOffsetMs);
+    return local.toISOString().slice(0, 16);
+  };
+
   useEffect(() => {
     if (editing) {
       setEditName(editing.name);
       setEditEmail(editing.contact_email ?? "");
       setEditPhone(editing.contact_phone ?? "");
       setEditActive(Boolean(editing.is_active ?? true));
+      setEditSubscribedAt(toDateTimeLocal(editing.subscribed_at));
+      setEditRenewsAt(toDateTimeLocal(editing.renews_at));
       setUpdateResult(null);
     }
   }, [editing]);
@@ -142,6 +171,8 @@ export default function AdminProvidersPage() {
         contact_email: editEmail.trim(),
         contact_phone: editPhone.trim(),
         is_active: editActive,
+        subscribed_at: editSubscribedAt ? new Date(editSubscribedAt).toISOString() : undefined,
+        renews_at: editRenewsAt ? new Date(editRenewsAt).toISOString() : undefined,
       });
       setUpdateResult(response);
       if (response.success) {
@@ -172,6 +203,34 @@ export default function AdminProvidersPage() {
     });
   };
 
+  const handleToggleSubscription = (provider: ProviderRow) => {
+    startToggle(async () => {
+      setTogglingId(provider.id);
+      const response = await toggleSubscription({ id: provider.id });
+      setToggleResult((prev) => ({ ...prev, [provider.id]: response }));
+      if (response.success) {
+        await loadProviders();
+      }
+      setTogglingId(null);
+    });
+  };
+
+  const handleOpenPayments = (provider: ProviderRow) => {
+    setPaymentsFor(provider);
+    setPaymentsError(null);
+    if (paymentsByProvider[provider.id]) return;
+
+    setLoadingPayments(true);
+    void listProviderPayments({ providerId: provider.id }).then((response) => {
+      if (response.success) {
+        setPaymentsByProvider((prev) => ({ ...prev, [provider.id]: response.payments }));
+      } else {
+        setPaymentsError(response.errors.join("\n"));
+      }
+      setLoadingPayments(false);
+    });
+  };
+
   const formatDate = (value?: string | null) => {
     if (!value) return "Fecha no disponible";
     const date = new Date(value);
@@ -183,6 +242,7 @@ export default function AdminProvidersPage() {
   };
 
   const activeCount = providers.filter((provider) => provider.is_active).length;
+  const currentPayments = paymentsFor ? paymentsByProvider[paymentsFor.id] ?? [] : [];
 
   return (
     <div className="relative isolate min-h-screen bg-gradient-to-b from-background via-background to-secondary/50 px-4 pb-12 pt-8 sm:px-8">
@@ -279,54 +339,137 @@ export default function AdminProvidersPage() {
                     >
                       <div className="absolute inset-0 bg-gradient-to-r from-primary/5 via-transparent to-secondary/10 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                       <div className="relative flex items-start justify-between gap-4">
-                        <div className="flex flex-1 items-start gap-3">
-                          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/10">
-                            <Building2 className="h-5 w-5" />
-                          </div>
-                          <div className="space-y-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="font-semibold leading-tight">{provider.name}</p>
-                              <Badge variant="secondary">/{provider.slug}</Badge>
+                          <div className="flex flex-1 items-start gap-3">
+                            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/10">
+                              <Building2 className="h-5 w-5" />
                             </div>
-                            <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-                              {provider.contact_email ? (
-                                <span className="inline-flex items-center gap-1">
-                                  <Mail className="h-3.5 w-3.5" />
-                                  {provider.contact_email}
-                                </span>
-                              ) : null}
-                              {provider.contact_phone ? (
-                                <span className="inline-flex items-center gap-1">
-                                  <Phone className="h-3.5 w-3.5" />
-                                  {provider.contact_phone}
-                                </span>
-                              ) : null}
+                            <div className="space-y-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="font-semibold leading-tight">{provider.name}</p>
+                                <Badge variant="secondary">/{provider.slug}</Badge>
+                              </div>
+                              <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                                {provider.contact_email ? (
+                                  <span className="inline-flex items-center gap-1">
+                                    <Mail className="h-3.5 w-3.5" />
+                                    {provider.contact_email}
+                                  </span>
+                                ) : null}
+                                {provider.contact_phone ? (
+                                  <span className="inline-flex items-center gap-1">
+                                    <Phone className="h-3.5 w-3.5" />
+                                    {provider.contact_phone}
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                <Badge
+                                  variant={
+                                    provider.subscription_status === "paused"
+                                      ? "outline"
+                                      : provider.subscription_status === "canceled"
+                                        ? "destructive"
+                                        : "secondary"
+                                  }
+                                >
+                                  {provider.subscription_status === "paused"
+                                    ? "Suscripción pausada"
+                                    : provider.subscription_status === "canceled"
+                                      ? "Suscripción cancelada"
+                                      : "Suscripción activa"}
+                                </Badge>
+                                <span>Suscripto desde: {formatDate(provider.subscribed_at)}</span>
+                                <span>Renueva el: {formatDate(provider.renews_at)}</span>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                {provider.pending_payments && provider.pending_payments > 0 ? (
+                                  <div className="inline-flex items-center gap-2 rounded-lg bg-amber-500/15 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:text-amber-100">
+                                    <BellRing className="h-4 w-4" />
+                                    {provider.pending_payments} pago(s) para revisar
+                                  </div>
+                                ) : provider.payments_total && provider.payments_total > 0 ? (
+                                  <Badge variant="outline" className="text-[11px]">
+                                    {provider.payments_total} pago(s) registrados
+                                  </Badge>
+                                ) : null}
+                                {provider.last_payment_period ? (
+                                  <Badge variant="secondary" className="text-[11px]">
+                                    Último: {provider.last_payment_period}
+                                  </Badge>
+                                ) : null}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                        <div className="flex flex-col items-end gap-2">
-                          <Badge variant={provider.is_active ? "default" : "outline"}>
-                            {provider.is_active ? "Activo" : "Inactivo"}
-                          </Badge>
-                          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                            <Clock className="h-3 w-3" />
-                            {formatDate(provider.created_at)}
-                          </span>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => setEditing(provider)}
-                            className="mt-1"
-                          >
-                            <Pencil className="mr-2 h-4 w-4" />
-                            Editar
-                          </Button>
-                          <div className="grid w-full gap-2 sm:min-w-[240px]">
+                          <div className="flex flex-col items-end gap-2">
+                            <Badge variant={provider.is_active ? "default" : "outline"}>
+                              {provider.is_active ? "Activo" : "Inactivo"}
+                            </Badge>
+                            <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                              <Clock className="h-3 w-3" />
+                              {formatDate(provider.created_at)}
+                            </span>
+                            {provider.subscription_status === "paused" && provider.paused_at ? (
+                              <span className="text-[11px] text-destructive">
+                                Pausado {formatDate(provider.paused_at)}
+                              </span>
+                            ) : null}
                             <Button
                               size="sm"
-                              variant="outline"
+                              variant="secondary"
+                              onClick={() => setEditing(provider)}
+                              className="mt-1"
+                            >
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Editar
+                            </Button>
+                            <div className="grid w-full gap-2 sm:min-w-[240px]">
+                            <Button
+                              size="sm"
+                              variant={provider.subscription_status === "paused" ? "default" : "outline"}
                               className="w-full justify-center"
-                              onClick={() => {
+                              onClick={() => handleToggleSubscription(provider)}
+                                disabled={
+                                  (toggleState && togglingId === provider.id) ||
+                                  provider.subscription_status === "canceled"
+                                }
+                              >
+                                {provider.subscription_status === "paused" ? (
+                                  <>
+                                    <Play className="mr-2 h-4 w-4" />
+                                    Activar suscripción
+                                  </>
+                                ) : (
+                                  <>
+                                    <Pause className="mr-2 h-4 w-4" />
+                                    Pausar suscripción
+                                  </>
+                                )}
+                              </Button>
+                              {toggleResult[provider.id] && (
+                                <p
+                                  className={`text-[11px] ${
+                                    toggleResult[provider.id]?.success ? "text-emerald-600" : "text-destructive"
+                                  }`}
+                                >
+                                  {toggleResult[provider.id]?.success
+                                    ? toggleResult[provider.id]?.message
+                                    : toggleResult[provider.id]?.errors?.join("\n")}
+                                </p>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                className="w-full justify-center"
+                                onClick={() => handleOpenPayments(provider)}
+                              >
+                                <Receipt className="mr-2 h-4 w-4" />
+                                Ver historial de pagos
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="w-full justify-center"
+                                onClick={() => {
                                 const url = `${origin || ""}/${provider.slug}/<slug-de-cliente>`;
                                 navigator.clipboard
                                   .writeText(url)
@@ -577,6 +720,72 @@ export default function AdminProvidersPage() {
         </div>
       </main>
 
+      <Dialog
+        open={Boolean(paymentsFor)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPaymentsFor(null);
+            setPaymentsError(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Pagos de {paymentsFor?.name ?? "—"}</DialogTitle>
+            <DialogDescription>
+              Comprobantes reportados por el proveedor. Haz clic para abrir el archivo.
+            </DialogDescription>
+          </DialogHeader>
+
+          {paymentsError ? (
+            <div className="rounded-md border border-destructive/50 bg-destructive/10 p-2 text-sm text-destructive">
+              {paymentsError}
+            </div>
+          ) : null}
+
+          {loadingPayments ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Cargando pagos...
+            </div>
+          ) : (
+            <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
+              {currentPayments.length ? (
+                currentPayments.map((payment) => (
+                  <div
+                    key={payment.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-secondary/30 px-3 py-2"
+                  >
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold leading-tight">{payment.period_label}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {payment.status === "pending"
+                          ? "Pendiente de revisión"
+                          : payment.status === "approved"
+                            ? "Aprobado"
+                            : "Revisar nuevamente"}
+                        {" · "}
+                        {formatDate(payment.created_at)}
+                      </p>
+                    </div>
+                    <Button asChild size="sm" variant="outline">
+                      <a href={payment.proof_url} target="_blank" rel="noreferrer">
+                        Abrir comprobante
+                        <ArrowUpRight className="ml-2 h-4 w-4" />
+                      </a>
+                    </Button>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-lg border border-dashed border-border/70 bg-secondary/30 p-3 text-sm text-muted-foreground">
+                  Aún no hay pagos registrados para este proveedor.
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
@@ -614,6 +823,28 @@ export default function AdminProvidersPage() {
                   onChange={(event) => setEditPhone(event.target.value)}
                   placeholder="+54 9 ..."
                 />
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="edit-subscribed-at">Suscripto desde</Label>
+                <Input
+                  id="edit-subscribed-at"
+                  type="datetime-local"
+                  value={editSubscribedAt}
+                  onChange={(event) => setEditSubscribedAt(event.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">Edita la fecha de alta real.</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-renews-at">Renueva el</Label>
+                <Input
+                  id="edit-renews-at"
+                  type="datetime-local"
+                  value={editRenewsAt}
+                  onChange={(event) => setEditRenewsAt(event.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">Próxima renovación/facturación.</p>
               </div>
             </div>
             <div className="flex items-center justify-between rounded-lg border border-border/70 bg-secondary/30 px-3 py-2">

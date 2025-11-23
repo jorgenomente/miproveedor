@@ -71,15 +71,20 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
 
   const { data: provider, error: providerError } = await supabase
     .from("providers")
-    .select("id, name, slug, contact_phone, is_active")
+    .select("id, name, slug, contact_phone, is_active, subscription_status")
     .eq("slug", params.providerSlug)
     .maybeSingle();
 
-  if (providerError || !provider || provider.is_active === false) {
+  if (
+    providerError ||
+    !provider ||
+    provider.is_active === false ||
+    (provider.subscription_status && provider.subscription_status !== "active")
+  ) {
     return {
       error:
         providerError?.message ||
-        "No se encontró el proveedor o está inactivo.",
+        "No se encontró el proveedor o está inactivo (suscripción pausada).",
     };
   }
 

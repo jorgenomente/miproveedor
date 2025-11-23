@@ -95,7 +95,7 @@ export async function createOrder(
 
   const { data: provider, error: providerError } = await supabase
     .from("providers")
-    .select("id, slug, is_active")
+    .select("id, slug, is_active, subscription_status")
     .eq("slug", parsed.data.providerSlug)
     .maybeSingle();
 
@@ -108,6 +108,10 @@ export async function createOrder(
 
   if (provider.is_active === false) {
     return { success: false, errors: ["El proveedor está inactivo."] };
+  }
+
+  if (provider.subscription_status && provider.subscription_status !== "active") {
+    return { success: false, errors: ["La suscripción del proveedor está pausada o inactiva."] };
   }
 
   const { data: client, error: clientError } = await supabase

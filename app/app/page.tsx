@@ -6,6 +6,24 @@ import { getDemoData } from "@/lib/demo-data";
 import { getProviderScope } from "@/lib/provider-scope";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
+function mapProviderRow(row: {
+  id: string;
+  name: string;
+  slug: string;
+  subscription_status?: "active" | "paused" | "canceled" | null;
+  subscribed_at?: string | null;
+  renews_at?: string | null;
+}): ProviderSummary {
+  return {
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    subscriptionStatus: row.subscription_status ?? null,
+    subscribedAt: row.subscribed_at ?? null,
+    renewsAt: row.renews_at ?? null,
+  };
+}
+
 function buildMetrics(orders: OrderSummary[]) {
   const counts = orders.reduce(
     (acc, order) => {
@@ -32,6 +50,9 @@ async function fetchData(preferredProvider?: string) {
       id: demo.provider.id,
       name: demo.provider.name,
       slug: demo.provider.slug,
+      subscriptionStatus: "active",
+      subscribedAt: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000).toISOString(),
+      renewsAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
     };
     const demoOrders: OrderSummary[] = demo.orders.map((order) => ({
       id: order.id,
@@ -59,7 +80,7 @@ async function fetchData(preferredProvider?: string) {
   if (preferred) {
     const { data: provider, error: providerError } = await supabase
       .from("providers")
-      .select("id, name, slug, is_active")
+      .select("id, name, slug, is_active, subscription_status, subscribed_at, renews_at")
       .eq("slug", preferred)
       .maybeSingle();
 
@@ -68,7 +89,9 @@ async function fetchData(preferredProvider?: string) {
       return { providers: [], provider: null, orders: [], debug };
     }
 
-    debug.resolvedProvider = { id: provider.id, name: provider.name, slug: provider.slug };
+    const providerSummary = mapProviderRow(provider);
+
+    debug.resolvedProvider = { id: providerSummary.id, name: providerSummary.name, slug: providerSummary.slug };
 
     const { data: orders, error: ordersError } = await supabase
       .from("orders")
@@ -79,7 +102,7 @@ async function fetchData(preferredProvider?: string) {
 
     if (ordersError) {
       debug.ordersError = ordersError.message;
-      return { providers: [provider], provider, orders: [], debug };
+      return { providers: [providerSummary], provider: providerSummary, orders: [], debug };
     }
 
     const parsedOrders: OrderSummary[] =
@@ -105,7 +128,7 @@ async function fetchData(preferredProvider?: string) {
 
     debug.ordersLoaded = parsedOrders.length;
 
-    return { providers: [provider], provider, orders: parsedOrders, debug };
+    return { providers: [providerSummary], provider: providerSummary, orders: parsedOrders, debug };
   }
 
   const scopeResult = await getProviderScope();
@@ -119,7 +142,9 @@ async function fetchData(preferredProvider?: string) {
     debug.scopeError = scopeResult.error;
   }
 
-  let providersQuery = supabase.from("providers").select("id, name, slug, is_active");
+  let providersQuery = supabase
+    .from("providers")
+    .select("id, name, slug, is_active, subscription_status, subscribed_at, renews_at");
 
   if (scope?.role === "provider") {
     providersQuery = providersQuery.eq("id", scope.provider.id);
@@ -134,12 +159,15 @@ async function fetchData(preferredProvider?: string) {
 
   debug.providersCount = providers.length;
 
+  const providerSummaries = providers.map(mapProviderRow);
+
   const provider =
     providers.find((p) => p.is_active !== false) || providers[0];
 
-  if (!provider) return { providers, provider: null, orders: [], debug };
+  if (!provider) return { providers: [], provider: null, orders: [], debug };
 
-  debug.resolvedProvider = { id: provider.id, name: provider.name, slug: provider.slug };
+  const providerSummary = mapProviderRow(provider);
+  debug.resolvedProvider = { id: providerSummary.id, name: providerSummary.name, slug: providerSummary.slug };
 
   const { data: orders, error: ordersError } = await supabase
     .from("orders")
@@ -152,7 +180,7 @@ async function fetchData(preferredProvider?: string) {
 
   if (ordersError) {
     debug.ordersError = ordersError.message;
-    return { providers, provider, orders: [], debug };
+    return { providers: providerSummaries, provider: providerSummary, orders: [], debug };
   }
 
   const parsedOrders: OrderSummary[] =
@@ -179,12 +207,8 @@ async function fetchData(preferredProvider?: string) {
   debug.ordersLoaded = parsedOrders.length;
 
   return {
-    providers,
-    provider: {
-      id: provider.id,
-      name: provider.name,
-      slug: provider.slug,
-    } as ProviderSummary,
+    providers: providerSummaries,
+    provider: providerSummary,
     orders: parsedOrders,
     debug,
   };

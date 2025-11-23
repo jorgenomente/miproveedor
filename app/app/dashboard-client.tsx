@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ArrowUpRight, MessageCircle, Package, ShoppingBag, Users } from "lucide-react";
+import { ArrowUpRight, CreditCard, MessageCircle, Package, ShoppingBag, Users } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,9 @@ export type ProviderSummary = {
   id: string;
   name: string;
   slug: string;
+  subscriptionStatus?: "active" | "paused" | "canceled" | null;
+  subscribedAt?: string | null;
+  renewsAt?: string | null;
 };
 
 export type OrderSummary = {
@@ -64,6 +67,18 @@ export function DashboardClient({
   debugInfo,
 }: Props) {
   const basePath = activeSlug ? `/app/${activeSlug}` : provider?.slug ? `/app/${provider.slug}` : "/app";
+  const formattedDate = (value?: string | null) => {
+    if (!value) return "No definido";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "No definido";
+    return new Intl.DateTimeFormat("es-AR", { dateStyle: "medium" }).format(date);
+  };
+  const subscriptionBadge =
+    provider?.subscriptionStatus === "paused"
+      ? { label: "Suscripción pausada", variant: "outline" as const }
+      : provider?.subscriptionStatus === "canceled"
+        ? { label: "Suscripción cancelada", variant: "destructive" as const }
+        : { label: "Suscripción activa", variant: "secondary" as const };
   const quickActions = [
     {
       label: "Ver pedidos",
@@ -79,6 +94,11 @@ export function DashboardClient({
       label: "Administrar artículos",
       href: `${basePath}/products`,
       icon: <Package className="h-4 w-4" />,
+    },
+    {
+      label: "Mi suscripción",
+      href: `${basePath}/subscription`,
+      icon: <CreditCard className="h-4 w-4" />,
     },
   ];
 
@@ -111,6 +131,13 @@ export function DashboardClient({
             <p className="text-sm text-muted-foreground">
               Gestiona pedidos, notifica por WhatsApp y mantiene tu catálogo al día.
             </p>
+            {provider ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <Badge variant={subscriptionBadge.variant}>{subscriptionBadge.label}</Badge>
+                <span>Suscripto desde: {formattedDate(provider.subscribedAt)}</span>
+                <span>Renueva el: {formattedDate(provider.renewsAt)}</span>
+              </div>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
             {quickActions.map((action) => (

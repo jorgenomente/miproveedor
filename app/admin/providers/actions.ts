@@ -39,7 +39,16 @@ export type ProviderRow = {
   address: string | null;
   cuit: string | null;
   is_active: boolean | null;
+  subscription_status: "active" | "paused" | "canceled" | null;
+  subscribed_at: string | null;
+  renews_at: string | null;
+  paused_at: string | null;
   created_at: string | null;
+  payments_total?: number;
+  pending_payments?: number;
+  last_payment_at?: string | null;
+  last_payment_period?: string | null;
+  last_payment_status?: "pending" | "approved" | "rejected" | null;
 };
 
 export type ListProvidersResult =
@@ -66,6 +75,18 @@ const updateSchema = z.object({
     .or(z.literal(""))
     .transform((value) => (value === "" ? null : value)),
   is_active: z.boolean(),
+  subscribed_at: z
+    .union([z.string().datetime(), z.literal("")])
+    .optional()
+    .transform((value) => (value === "" ? undefined : value)),
+  renews_at: z
+    .union([z.string().datetime(), z.literal("")])
+    .optional()
+    .transform((value) => (value === "" ? undefined : value)),
+});
+
+const toggleSubscriptionSchema = z.object({
+  id: z.string().uuid(),
 });
 
 export type UpdateProviderResult =
@@ -82,12 +103,38 @@ const deleteSchema = z.object({
   id: z.string().uuid(),
 });
 
+const paymentsSchema = z.object({
+  providerId: z.string().uuid(),
+});
+
 export type DeleteProviderResult =
   | { success: true; message: string }
   | { success: false; errors: string[] };
 
 export type ResetPasswordResult =
   | { success: true; message: string }
+  | { success: false; errors: string[] };
+
+export type ToggleSubscriptionResult =
+  | {
+      success: true;
+      status: "active" | "paused";
+      message: string;
+      renews_at?: string | null;
+    }
+  | { success: false; errors: string[] };
+
+export type ProviderPaymentRow = {
+  id: string;
+  provider_id: string;
+  period_label: string;
+  proof_url: string;
+  status: "pending" | "approved" | "rejected";
+  created_at: string | null;
+};
+
+export type ListProviderPaymentsResult =
+  | { success: true; payments: ProviderPaymentRow[] }
   | { success: false; errors: string[] };
 
 function getAppBaseUrl() {
@@ -115,7 +162,9 @@ export async function listProviders(): Promise<ListProvidersResult> {
 
   const { data, error } = await supabase
     .from("providers")
-    .select("id, name, slug, contact_email, contact_phone, address, cuit, is_active, created_at")
+    .select(
+      "id, name, slug, contact_email, contact_phone, address, cuit, is_active, subscription_status, subscribed_at, renews_at, paused_at, created_at",
+    )
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -125,10 +174,103 @@ export async function listProviders(): Promise<ListProvidersResult> {
     };
   }
 
+  const providers = data ?? [];
+  const providerIds = providers.map((provider) => provider.id).filter(Boolean);
+
+  const paymentSummary: Record<
+    string,
+    {
+      total: number;
+      pending: number;
+      lastAt: string | null;
+      lastPeriod: string | null;
+      lastStatus: "pending" | "approved" | "rejected" | null;
+    }
+  > = {};
+
+  if (providerIds.length > 0) {
+    const { data: payments, error: paymentsError } = await supabase
+      .from("provider_payments")
+      .select("provider_id, status, period_label, created_at")
+      .in("provider_id", providerIds)
+      .order("created_at", { ascending: false });
+
+    if (!paymentsError && payments) {
+      payments.forEach((payment) => {
+        if (!payment.provider_id) return;
+        if (!paymentSummary[payment.provider_id]) {
+          paymentSummary[payment.provider_id] = {
+            total: 0,
+            pending: 0,
+            lastAt: null,
+            lastPeriod: null,
+            lastStatus: null,
+          };
+        }
+
+        const summary = paymentSummary[payment.provider_id];
+        summary.total += 1;
+        if (payment.status === "pending") summary.pending += 1;
+
+        if (!summary.lastAt) {
+          summary.lastAt = payment.created_at ?? null;
+          summary.lastPeriod = payment.period_label ?? null;
+          summary.lastStatus = payment.status ?? null;
+        }
+      });
+    }
+  }
+
+  const providersWithPayments = providers.map((provider) => {
+    const summary =
+      paymentSummary[provider.id] ?? {
+        total: 0,
+        pending: 0,
+        lastAt: null,
+        lastPeriod: null,
+        lastStatus: null,
+      };
+
+    return {
+      ...provider,
+      payments_total: summary.total,
+      pending_payments: summary.pending,
+      last_payment_at: summary.lastAt,
+      last_payment_period: summary.lastPeriod,
+      last_payment_status: summary.lastStatus,
+    };
+  });
+
   return {
     success: true,
-    providers: data ?? [],
+    providers: providersWithPayments,
   };
+}
+
+export async function listProviderPayments(
+  payload: z.infer<typeof paymentsSchema>,
+): Promise<ListProviderPaymentsResult> {
+  const parsed = paymentsSchema.safeParse(payload);
+  if (!parsed.success) {
+    return { success: false, errors: parsed.error.issues.map((issue) => issue.message) };
+  }
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) {
+    return { success: false, errors: ["Faltan credenciales de Supabase (SERVICE_ROLE / URL)."] };
+  }
+
+  const { data, error } = await supabase
+    .from("provider_payments")
+    .select("id, provider_id, period_label, proof_url, status, created_at")
+    .eq("provider_id", parsed.data.providerId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return { success: false, errors: [`No se pudieron cargar los pagos: ${error.message}`] };
+  }
+
+  return { success: true, payments: data ?? [] };
 }
 
 export async function updateProvider(
@@ -157,6 +299,8 @@ export async function updateProvider(
       contact_email: parsed.data.contact_email,
       contact_phone: parsed.data.contact_phone,
       is_active: parsed.data.is_active,
+      subscribed_at: parsed.data.subscribed_at,
+      renews_at: parsed.data.renews_at,
     })
     .eq("id", parsed.data.id);
 
@@ -170,6 +314,69 @@ export async function updateProvider(
   return {
     success: true,
     message: "Proveedor actualizado.",
+  };
+}
+
+export async function toggleSubscription(
+  payload: z.infer<typeof toggleSubscriptionSchema>,
+): Promise<ToggleSubscriptionResult> {
+  const parsed = toggleSubscriptionSchema.safeParse(payload);
+  if (!parsed.success) {
+    return { success: false, errors: parsed.error.issues.map((issue) => issue.message) };
+  }
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) {
+    return { success: false, errors: ["Faltan credenciales de Supabase (SERVICE_ROLE / URL)."] };
+  }
+
+  const { data: provider, error: providerError } = await supabase
+    .from("providers")
+    .select("id, subscription_status, renews_at")
+    .eq("id", parsed.data.id)
+    .maybeSingle();
+
+  if (providerError || !provider) {
+    return {
+      success: false,
+      errors: [`Proveedor no encontrado: ${providerError?.message ?? "sin detalle"}`],
+    };
+  }
+
+  if (provider.subscription_status === "canceled") {
+    return {
+      success: false,
+      errors: ["La suscripción está cancelada. Reactívala desde billing para continuar."],
+    };
+  }
+
+  const now = Date.now();
+  const nextStatus = provider.subscription_status === "paused" ? "active" : "paused";
+  const updates: Record<string, string | null> = {
+    subscription_status: nextStatus,
+    paused_at: nextStatus === "paused" ? new Date(now).toISOString() : null,
+  };
+
+  const renewsAt = provider.renews_at ? new Date(provider.renews_at).getTime() : null;
+  if (nextStatus === "active" && (!renewsAt || renewsAt < now)) {
+    const nextRenew = new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString();
+    updates.renews_at = nextRenew;
+  }
+
+  const { error: updateError } = await supabase
+    .from("providers")
+    .update(updates)
+    .eq("id", provider.id);
+
+  if (updateError) {
+    return { success: false, errors: [`No se pudo actualizar la suscripción: ${updateError.message}`] };
+  }
+
+  return {
+    success: true,
+    status: nextStatus,
+    renews_at: updates.renews_at ?? provider.renews_at ?? null,
+    message: nextStatus === "paused" ? "Suscripción pausada y links desactivados." : "Suscripción reactivada.",
   };
 }
 
