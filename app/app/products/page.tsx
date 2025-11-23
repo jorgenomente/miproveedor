@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import NextImage from "next/image";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -218,6 +219,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
   const [editIsNew, setEditIsNew] = useState(false);
   const [editIsOutOfStock, setEditIsOutOfStock] = useState(false);
   const [bulkRows, setBulkRows] = useState<BulkRowPreview[]>([]);
+  const [showBulkModal, setShowBulkModal] = useState(false);
   const [bulkErrors, setBulkErrors] = useState<string[]>([]);
   const [bulkSummary, setBulkSummary] = useState<BulkUpsertSummary | null>(null);
   const [parsingBulk, setParsingBulk] = useState(false);
@@ -810,178 +812,12 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
             >
               <RefreshCcw className={`h-4 w-4 ${loadingProducts ? "animate-spin" : ""}`} />
             </Button>
+            <Button onClick={() => setShowBulkModal(true)} variant="secondary">
+              <Upload className="mr-2 h-4 w-4" />
+              Carga masiva
+            </Button>
           </div>
         </div>
-
-        <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
-          <CardHeader>
-            <CardTitle className="text-lg">Carga masiva (Excel)</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Descarga la plantilla, complétala y súbela para crear o actualizar productos rápido.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-[1.1fr,0.9fr]">
-              <div className="space-y-3 rounded-lg border border-border/60 bg-secondary/30 p-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={handleDownloadTemplate}
-                    disabled={downloadingTemplate || !providerSlug}
-                  >
-                    {downloadingTemplate ? (
-                      <span className="inline-flex items-center gap-2">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Preparando...
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-2">
-                        <Download className="h-4 w-4" />
-                        Descargar plantilla
-                      </span>
-                    )}
-                  </Button>
-                  <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border/60 bg-background px-3 py-2 text-sm shadow-sm">
-                    <Upload className="h-4 w-4 text-muted-foreground" />
-                    <span>{parsingBulk ? "Leyendo..." : "Subir XLSX"}</span>
-                    <Input
-                      type="file"
-                      accept=".xlsx,.xls"
-                      onChange={handleBulkFileChange}
-                      disabled={parsingBulk || !providerSlug}
-                      className="hidden"
-                    />
-                  </label>
-                  <Badge variant="outline">Máx {MAX_BULK_ROWS} filas</Badge>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Mantén las columnas de la plantilla. Usa URLs públicas para imágenes o deja vacío y súbelas luego
-                  desde cada producto.
-                </p>
-              </div>
-              <div className="space-y-3 rounded-lg border border-dashed border-border/60 bg-secondary/20 p-3 text-xs text-muted-foreground">
-                <div className="flex items-start gap-2">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-500" />
-                  <div>
-                    <p className="font-semibold text-foreground">Consejo rápido</p>
-                    <p>
-                      Copia/pega tus productos en la plantilla y deja las celdas de ID para que creemos nuevos. Si
-                      mantienes el ID, actualizamos ese producto.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-500" />
-                  <div>
-                    <p className="font-semibold text-foreground">Imágenes</p>
-                    <p>
-                      Solo se importan si apuntas a una URL pública (png/jpg/webp/avif &lt;1.2MB). De lo contrario
-                      puedes subirlas manualmente en cada producto.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {bulkErrors.length ? (
-              <div className="rounded-lg border border-destructive/60 bg-destructive/10 p-3 text-sm text-destructive">
-                {bulkErrors.join("\n")}
-              </div>
-            ) : null}
-
-            {bulkRows.length ? (
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="secondary">{validBulkCount} filas listas</Badge>
-                    <Badge variant="outline">
-                      {bulkRows.length - validBulkCount} con ajustes ({bulkRows.length} total)
-                    </Badge>
-                  </div>
-                  <Button
-                    size="sm"
-                    onClick={handleApplyBulk}
-                    disabled={applyingBulk || validBulkCount === 0 || !providerSlug}
-                  >
-                    {applyingBulk ? (
-                      <span className="inline-flex items-center gap-2">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Importando...
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-2">
-                        <Upload className="h-4 w-4" />
-                        Aplicar importación
-                      </span>
-                    )}
-                  </Button>
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {bulkRows.slice(0, 6).map((row) => (
-                    <div
-                      key={row.tempId}
-                      className="rounded-lg border border-border/60 bg-secondary/30 p-3 text-xs text-muted-foreground"
-                    >
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-semibold text-foreground">{row.name || "Sin nombre"}</p>
-                        <Badge variant={row.errors.length ? "outline" : "secondary"}>
-                          {row.errors.length ? "Revisar" : "OK"}
-                        </Badge>
-                      </div>
-                      <p className="mt-1 text-foreground">
-                        {Number.isFinite(row.price) ? formatCurrency(row.price) : "—"}
-                        {row.unit ? <span className="text-xs text-muted-foreground"> · {row.unit}</span> : null}
-                      </p>
-                      {row.brand ? (
-                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{row.brand}</p>
-                      ) : null}
-                      <div className="mt-1 flex flex-wrap gap-2">
-                        {row.tags.slice(0, 4).map((tag) => (
-                          <Badge key={`${row.tempId}-${tag}`} variant="outline" className="rounded-full px-2 py-0">
-                            #{tag}
-                          </Badge>
-                        ))}
-                      </div>
-                      {row.errors.length ? (
-                        <ul className="mt-2 list-disc space-y-1 pl-4 text-[11px] text-destructive">
-                          {row.errors.slice(0, 3).map((issue) => (
-                            <li key={`${row.tempId}-${issue}`}>{issue}</li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className="mt-2 text-[11px] uppercase text-muted-foreground">
-                          {row.productId ? "Actualizaremos este producto" : "Crearemos producto nuevo"}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                {bulkRows.length > 6 ? (
-                  <p className="text-xs text-muted-foreground">Vista previa de {bulkRows.length} filas (mostramos 6).</p>
-                ) : null}
-              </div>
-            ) : null}
-
-            {bulkSummary ? (
-              <div className="rounded-lg border border-border/70 bg-secondary/30 p-3 text-sm">
-                <p className="font-semibold text-foreground">Resultado de la importación</p>
-                <div className="mt-2 flex flex-wrap gap-3 text-xs">
-                  <Badge variant="secondary">Creados: {bulkSummary.created}</Badge>
-                  <Badge variant="secondary">Actualizados: {bulkSummary.updated}</Badge>
-                  <Badge variant="outline">Saltados: {bulkSummary.skipped}</Badge>
-                </div>
-                {bulkSummary.warnings.length ? (
-                  <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-amber-600 dark:text-amber-400">
-                    {bulkSummary.warnings.slice(0, 4).map((warning) => (
-                      <li key={warning}>{warning}</li>
-                    ))}
-                  </ul>
-                ) : null}
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
 
         <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
           <CardHeader className="flex flex-row items-center justify-between">
@@ -1036,10 +872,13 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                 <div className="flex flex-1 items-start gap-3">
                   <div className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/60 bg-secondary/40">
                     {product.image_url ? (
-                      <img
+                      <NextImage
                         src={product.image_url}
                         alt={`Imagen de ${product.name}`}
-                        className="h-full w-full object-cover"
+                        fill
+                        sizes="64px"
+                        className="object-cover"
+                        unoptimized
                       />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-[11px] uppercase text-muted-foreground">
@@ -1361,7 +1200,14 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                   {imagePreview ? (
                     <div className="flex items-center gap-3">
                       <div className="relative h-24 w-32 overflow-hidden rounded-lg border border-border/60 bg-background/60">
-                        <img src={imagePreview} alt="Previsualización del producto" className="h-full w-full object-cover" />
+                        <NextImage
+                          src={imagePreview}
+                          alt="Previsualización del producto"
+                          fill
+                          sizes="160px"
+                          className="object-cover"
+                          unoptimized
+                        />
                       </div>
                       <p className="text-xs text-muted-foreground">
                         Se guardará optimizada para que la página cargue rápido en mobile.
@@ -1653,10 +1499,13 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                   {editImagePreview || editingProduct.image_url ? (
                     <div className="flex items-center gap-3">
                       <div className="relative h-24 w-32 overflow-hidden rounded-lg border border-border/60 bg-background/60">
-                        <img
+                        <NextImage
                           src={editImagePreview ?? editingProduct.image_url ?? ""}
                           alt="Previsualización del producto"
-                          className="h-full w-full object-cover"
+                          fill
+                          sizes="160px"
+                          className="object-cover"
+                          unoptimized
                         />
                       </div>
                       <p className="text-xs text-muted-foreground">
@@ -1692,6 +1541,178 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
         </DialogContent>
       </Dialog>
 
+      <Dialog open={showBulkModal} onOpenChange={setShowBulkModal}>
+        <DialogContent className="max-w-5xl max-h-[88vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Carga masiva (Excel)</DialogTitle>
+            <DialogDescription>
+              Descarga la plantilla, complétala y súbela para crear o actualizar productos rápido.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-[1.1fr,0.9fr]">
+              <div className="space-y-3 rounded-lg border border-border/60 bg-secondary/30 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleDownloadTemplate}
+                    disabled={downloadingTemplate || !providerSlug}
+                  >
+                    {downloadingTemplate ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Preparando...
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-2">
+                        <Download className="h-4 w-4" />
+                        Descargar plantilla
+                      </span>
+                    )}
+                  </Button>
+                  <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border/60 bg-background px-3 py-2 text-sm shadow-sm">
+                    <Upload className="h-4 w-4 text-muted-foreground" />
+                    <span>{parsingBulk ? "Leyendo..." : "Subir XLSX"}</span>
+                    <Input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleBulkFileChange}
+                      disabled={parsingBulk || !providerSlug}
+                      className="hidden"
+                    />
+                  </label>
+                  <Badge variant="outline">Máx {MAX_BULK_ROWS} filas</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Mantén las columnas de la plantilla. Usa URLs públicas para imágenes o deja vacío y súbelas luego
+                  desde cada producto.
+                </p>
+              </div>
+              <div className="space-y-3 rounded-lg border border-dashed border-border/60 bg-secondary/20 p-3 text-xs text-muted-foreground">
+                <div className="flex items-start gap-2">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-500" />
+                  <div>
+                    <p className="font-semibold text-foreground">Consejo rápido</p>
+                    <p>
+                      Copia/pega tus productos en la plantilla y deja las celdas de ID para que creemos nuevos. Si
+                      mantienes el ID, actualizamos ese producto.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-500" />
+                  <div>
+                    <p className="font-semibold text-foreground">Imágenes</p>
+                    <p>
+                      Solo se importan si apuntas a una URL pública (png/jpg/webp/avif &lt;1.2MB). De lo contrario
+                      puedes subirlas manualmente en cada producto.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {bulkErrors.length ? (
+              <div className="rounded-lg border border-destructive/60 bg-destructive/10 p-3 text-sm text-destructive">
+                {bulkErrors.join("\n")}
+              </div>
+            ) : null}
+
+            {bulkRows.length ? (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary">{validBulkCount} filas listas</Badge>
+                    <Badge variant="outline">
+                      {bulkRows.length - validBulkCount} con ajustes ({bulkRows.length} total)
+                    </Badge>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={handleApplyBulk}
+                    disabled={applyingBulk || validBulkCount === 0 || !providerSlug}
+                  >
+                    {applyingBulk ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Importando...
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-2">
+                        <Upload className="h-4 w-4" />
+                        Aplicar importación
+                      </span>
+                    )}
+                  </Button>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {bulkRows.slice(0, 6).map((row) => (
+                    <div
+                      key={row.tempId}
+                      className="rounded-lg border border-border/60 bg-secondary/30 p-3 text-xs text-muted-foreground"
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-foreground">{row.name || "Sin nombre"}</p>
+                        <Badge variant={row.errors.length ? "outline" : "secondary"}>
+                          {row.errors.length ? "Revisar" : "OK"}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-foreground">
+                        {Number.isFinite(row.price) ? formatCurrency(row.price) : "—"}
+                        {row.unit ? <span className="text-xs text-muted-foreground"> · {row.unit}</span> : null}
+                      </p>
+                      {row.brand ? (
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{row.brand}</p>
+                      ) : null}
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        {row.tags.slice(0, 4).map((tag) => (
+                          <Badge key={`${row.tempId}-${tag}`} variant="outline" className="rounded-full px-2 py-0">
+                            #{tag}
+                          </Badge>
+                        ))}
+                      </div>
+                      {row.errors.length ? (
+                        <ul className="mt-2 list-disc space-y-1 pl-4 text-[11px] text-destructive">
+                          {row.errors.slice(0, 3).map((issue) => (
+                            <li key={`${row.tempId}-${issue}`}>{issue}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="mt-2 text-[11px] uppercase text-muted-foreground">
+                          {row.productId ? "Actualizaremos este producto" : "Crearemos producto nuevo"}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {bulkRows.length > 6 ? (
+                  <p className="text-xs text-muted-foreground">Vista previa de {bulkRows.length} filas (mostramos 6).</p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {bulkSummary ? (
+              <div className="rounded-lg border border-border/70 bg-secondary/30 p-3 text-sm">
+                <p className="font-semibold text-foreground">Resultado de la importación</p>
+                <div className="mt-2 flex flex-wrap gap-3 text-xs">
+                  <Badge variant="secondary">Creados: {bulkSummary.created}</Badge>
+                  <Badge variant="secondary">Actualizados: {bulkSummary.updated}</Badge>
+                  <Badge variant="outline">Saltados: {bulkSummary.skipped}</Badge>
+                </div>
+                {bulkSummary.warnings.length ? (
+                  <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-amber-600 dark:text-amber-400">
+                    {bulkSummary.warnings.slice(0, 4).map((warning) => (
+                      <li key={warning}>{warning}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={showCropper} onOpenChange={setShowCropper}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -1703,6 +1724,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
           {rawImage ? (
             <div className="space-y-4">
               <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg border border-border/60 bg-secondary/30">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={rawImage.dataUrl} alt="Imagen original" className="h-full w-full object-contain" />
                 {cropPreviewRect ? (
                   <div
@@ -1781,6 +1803,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
           {editRawImage ? (
             <div className="space-y-4">
               <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg border border-border/60 bg-secondary/30">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={editRawImage.dataUrl} alt="Imagen original" className="h-full w-full object-contain" />
                 {editCropPreviewRect ? (
                   <div

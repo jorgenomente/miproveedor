@@ -22,6 +22,7 @@ export type DemoProduct = {
   id: string;
   provider_id: string;
   name: string;
+  brand?: string | null;
   description?: string | null;
   price: number;
   unit?: string | null;
