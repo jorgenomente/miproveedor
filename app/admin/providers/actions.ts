@@ -96,6 +96,14 @@ function getAppBaseUrl() {
   return "http://localhost:3000";
 }
 
+function buildPasswordResetRedirect(providerSlug: string) {
+  const baseUrl = getAppBaseUrl();
+  const callbackUrl = new URL("/auth/callback", baseUrl);
+  const resetPath = `/auth/reset?next=${encodeURIComponent(`/app/${providerSlug}`)}`;
+  callbackUrl.searchParams.set("next", resetPath);
+  return callbackUrl.toString();
+}
+
 export async function listProviders(): Promise<ListProvidersResult> {
   const supabase = getSupabaseAdmin();
   if (!supabase) {
@@ -330,12 +338,10 @@ export async function sendPasswordReset(payload: z.infer<typeof resetSchema>): P
     };
   }
 
-  const appBaseUrl = getAppBaseUrl();
-  const callbackUrl = new URL("/auth/callback", appBaseUrl);
-  callbackUrl.searchParams.set("next", `/app/${provider.slug}`);
+  const redirectTo = buildPasswordResetRedirect(provider.slug);
 
   const { error: resetError } = await supabase.auth.resetPasswordForEmail(user.email, {
-    redirectTo: callbackUrl.toString(),
+    redirectTo,
   });
 
   if (resetError) {
@@ -458,15 +464,14 @@ export async function createProvider(payload: z.infer<typeof createSchema>): Pro
   }
 
   // 5) Generar link de invitación / set password
-  const appBaseUrl = getAppBaseUrl();
-  const callbackUrl = new URL("/auth/callback", appBaseUrl);
-  callbackUrl.searchParams.set("next", `/app/${parsed.data.slug}`);
+  const resetRedirectTo = buildPasswordResetRedirect(parsed.data.slug);
+
   const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink(
     {
       type: "invite",
       email: parsed.data.email,
       options: {
-        redirectTo: callbackUrl.toString(),
+        redirectTo: resetRedirectTo,
       },
     }
   );
@@ -474,7 +479,7 @@ export async function createProvider(payload: z.infer<typeof createSchema>): Pro
   const invitationLink = linkData?.properties?.action_link;
 
   const { error: resetError } = await supabase.auth.resetPasswordForEmail(parsed.data.email, {
-    redirectTo: callbackUrl.toString(),
+    redirectTo: resetRedirectTo,
   });
 
   if ((linkError || !invitationLink) && resetError) {

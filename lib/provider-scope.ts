@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 import { getSupabaseAdmin } from "./supabase-admin";
 
@@ -50,16 +51,46 @@ export async function getProviderScope(): Promise<{ scope?: ProviderScope; error
 
   const cookieStore = await cookies();
 
+  const extractAccessToken = () => {
+    const match = url.match(/https?:\/\/([^./]+)\.supabase\.(co|in)/i);
+    const projectRef = match?.[1];
+    if (!projectRef) return null;
+    const cookieName = `sb-${projectRef}-auth-token`;
+    const raw = cookieStore.get(cookieName)?.value;
+    if (!raw) return null;
+    try {
+      const decoded = decodeURIComponent(raw);
+      const parsed = JSON.parse(decoded);
+      return (
+        parsed?.currentSession?.access_token ??
+        parsed?.access_token ??
+        parsed?.accessToken ??
+        null
+      );
+    } catch {
+      return null;
+    }
+  };
+
   const supabase = createServerClient(url, anonKey, {
     cookies: {
       get(name) {
         return cookieStore.get(name)?.value;
       },
       set(name, value, options) {
-        cookieStore.set({ name, value, ...options });
+        try {
+          cookieStore.set({ name, value, ...options });
+        } catch (error) {
+          // Next.js solo permite mutar cookies en Server Actions o Route Handlers.
+          console.warn("No se pudo setear la cookie en este contexto", error);
+        }
       },
       remove(name, options) {
-        cookieStore.set({ name, value: "", ...options, maxAge: 0 });
+        try {
+          cookieStore.set({ name, value: "", ...options, maxAge: 0 });
+        } catch (error) {
+          console.warn("No se pudo eliminar la cookie en este contexto", error);
+        }
       },
     },
   });
@@ -69,7 +100,20 @@ export async function getProviderScope(): Promise<{ scope?: ProviderScope; error
     error: userError,
   } = await supabase.auth.getUser();
 
-  if (userError || !user) {
+  let resolvedUser = user;
+
+  if ((userError || !user) && !resolvedUser) {
+    const accessToken = extractAccessToken();
+    if (accessToken) {
+      const fallbackClient = createClient(url, anonKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const { data: tokenData } = await fallbackClient.auth.getUser(accessToken);
+      resolvedUser = tokenData?.user ?? null;
+    }
+  }
+
+  if (userError || !resolvedUser) {
     const fallbackScope = await resolveDevFallbackScope();
     if (fallbackScope) {
       return { scope: fallbackScope };
@@ -85,7 +129,7 @@ export async function getProviderScope(): Promise<{ scope?: ProviderScope; error
   const { data: profile, error: profileError } = await adminClient
     .from("users")
     .select("role, provider:providers(id, name, slug, is_active)")
-    .eq("id", user.id)
+    .eq("id", resolvedUser.id)
     .maybeSingle();
 
   if (profileError) {
