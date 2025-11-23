@@ -33,6 +33,8 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
   const [origin, setOrigin] = useState("");
   const [copyState, setCopyState] = useState<CopyState | null>(null);
   const [slugValue, setSlugValue] = useState("");
+  const [slugError, setSlugError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     setOrigin(window.location.origin);
@@ -60,6 +62,9 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setSlugError(null);
+    setFormError(null);
+    setResult(null);
     const formData = new FormData(event.currentTarget);
     const payload = {
       providerSlug,
@@ -77,6 +82,13 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
         await loadClients(providerSlug);
         (event.target as HTMLFormElement).reset();
         setSlugValue("");
+        setSlugError(null);
+        setFormError(null);
+      } else {
+        const slugMessage = response.errors.find((error) => /slug/i.test(error));
+        if (slugMessage) setSlugError(slugMessage);
+        const firstError = response.errors[0] ?? null;
+        if (firstError) setFormError(firstError);
       }
     });
   };
@@ -245,10 +257,15 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
             </CardHeader>
             <CardContent>
               <form className="space-y-4" onSubmit={handleSubmit}>
+                {formError ? (
+                  <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                    {formError}
+                  </div>
+                ) : null}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="name">Nombre</Label>
-                    <Input id="name" name="name" required placeholder="Ej: Nova Caballito" />
+                    <Input id="name" name="name" required placeholder="Ej: Tienda Caballito" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="slug" className="flex items-center justify-between gap-2">
@@ -267,7 +284,11 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
                       pattern="^[a-z0-9-]+$"
                       title="Solo minúsculas, números y guiones"
                       placeholder="nombredelatienda"
+                      aria-invalid={Boolean(slugError)}
                     />
+                    {slugError ? (
+                      <p className="text-xs text-destructive">{slugError}</p>
+                    ) : null}
                   </div>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -306,7 +327,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
 
               <Separator className="my-4" />
               <AnimatePresence>
-                {result ? (
+                {result && result.success ? (
                   <motion.div
                     key="result"
                     initial={{ opacity: 0, y: 8 }}
@@ -315,14 +336,28 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
                     className="space-y-3 rounded-xl border border-border/70 bg-secondary/40 p-4"
                   >
                     <p className="text-sm font-semibold">Resultado</p>
-                    {result.success ? (
-                      <div className="space-y-2 text-sm">
-                        <p>{result.message}</p>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Link de pedidos</p>
-                          <div className="flex items-center gap-2">
-                            <code className="flex-1 truncate rounded-md bg-card px-2 py-1 text-xs">
-                              {buildOrderLink({
+                    <div className="space-y-2 text-sm">
+                      <p>{result.message}</p>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Link de pedidos</p>
+                        <div className="flex items-center gap-2">
+                          <code className="flex-1 truncate rounded-md bg-card px-2 py-1 text-xs">
+                            {buildOrderLink({
+                              id: result.client.id,
+                              name: "",
+                              slug: result.client.slug,
+                              contact_name: null,
+                              contact_phone: null,
+                              contact_email: null,
+                              address: null,
+                              created_at: null,
+                            })}
+                          </code>
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            onClick={() => {
+                              const link = buildOrderLink({
                                 id: result.client.id,
                                 name: "",
                                 slug: result.client.slug,
@@ -331,39 +366,17 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
                                 contact_email: null,
                                 address: null,
                                 created_at: null,
-                              })}
-                            </code>
-                            <Button
-                              size="icon"
-                              variant="outline"
-                              onClick={() => {
-                                const link = buildOrderLink({
-                                  id: result.client.id,
-                                  name: "",
-                                  slug: result.client.slug,
-                                  contact_name: null,
-                                  contact_phone: null,
-                                  contact_email: null,
-                                  address: null,
-                                  created_at: null,
-                                });
-                                navigator.clipboard.writeText(link).catch(() => {
-                                  // ignore copy errors
-                                });
-                              }}
-                            >
-                              <Copy className="h-4 w-4" />
-                            </Button>
-                          </div>
+                              });
+                              navigator.clipboard.writeText(link).catch(() => {
+                                // ignore copy errors
+                              });
+                            }}
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
-                    ) : (
-                      <div className="space-y-1 text-sm text-destructive">
-                        {result.errors.map((error) => (
-                          <p key={error}>{error}</p>
-                        ))}
-                      </div>
-                    )}
+                    </div>
                   </motion.div>
                 ) : null}
               </AnimatePresence>

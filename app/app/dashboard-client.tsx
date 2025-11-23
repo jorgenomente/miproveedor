@@ -71,12 +71,12 @@ export function DashboardClient({
       icon: <ShoppingBag className="h-4 w-4" />,
     },
     {
-      label: "Tiendas y links",
+      label: "Clientes y links",
       href: `${basePath}/clients`,
       icon: <Users className="h-4 w-4" />,
     },
     {
-      label: "Agregar producto",
+      label: "Administrar artículos",
       href: `${basePath}/products`,
       icon: <Package className="h-4 w-4" />,
     },

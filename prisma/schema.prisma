@@ -79,6 +79,7 @@ model Product {
   providerId String    @map("provider_id")
   name       String
   description String?
+  brand      String?
   price      Decimal
   unit       String?
   isActive   Boolean   @default(true) @map("is_active")

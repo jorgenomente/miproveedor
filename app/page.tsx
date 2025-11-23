@@ -106,7 +106,7 @@ const faqs = [
 
 export default function Home() {
   return (
-    <div className="relative isolate min-h-screen bg-gradient-to-b from-background via-background to-secondary/60">
+    <div className="relative isolate min-h-screen bg-linear-to-b from-background via-background to-secondary/60">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <motion.div
           className="absolute -left-24 top-4 h-72 w-72 rounded-full bg-primary/10 blur-3xl"
@@ -478,7 +478,7 @@ export default function Home() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-80px" }}
           transition={{ duration: 0.45 }}
-          className="rounded-3xl border border-border/60 bg-gradient-to-r from-primary/10 via-card to-secondary/20 p-6 shadow-sm backdrop-blur"
+          className="rounded-3xl border border-border/60 bg-linear-to-r from-primary/10 via-card to-secondary/20 p-6 shadow-sm backdrop-blur"
         >
           <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
             <div className="space-y-2">

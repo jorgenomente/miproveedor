@@ -2,7 +2,21 @@
 
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, ImagePlus, Loader2, Plus, RefreshCcw, Tag, ToggleLeft, Trash2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  CheckCircle2,
+  Download,
+  ImagePlus,
+  Loader2,
+  Plus,
+  RefreshCcw,
+  Tag,
+  ToggleLeft,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,7 +41,10 @@ import {
   listProducts,
   toggleProductActive,
   updateProduct,
+  bulkUpsertProducts,
+  exportProductsTemplate,
   type CreateProductResult,
+  type BulkUpsertSummary,
   type ProductRow,
   type UpdateProductResult,
 } from "./actions";
@@ -37,6 +54,7 @@ export type ProductsPageProps = { initialProviderSlug?: string };
 const MAX_IMAGE_SIDE = 720;
 const MAX_IMAGE_BYTES = 900 * 1024; // mantener <1MB para evitar límites de body
 const TARGET_CROP_ASPECT = 4 / 3;
+const MAX_BULK_ROWS = 500;
 
 type OptimizedImage = {
   dataUrl: string;
@@ -51,6 +69,24 @@ type LoadedImage = {
   width: number;
   height: number;
   size: number;
+};
+
+type BulkRowPreview = {
+  tempId: string;
+  productId?: string;
+  name: string;
+  brand?: string | null;
+  price: number;
+  discountPercent?: number;
+  unit?: string | null;
+  category?: string | null;
+  description?: string | null;
+  tags: string[];
+  isActive?: boolean;
+  isNew?: boolean;
+  isOutOfStock?: boolean;
+  imageUrl?: string;
+  errors: string[];
 };
 
 const readFileAsDataUrl = (file: Blob) =>
@@ -154,9 +190,11 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
   const [showCropper, setShowCropper] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductRow | null>(null);
   const [editName, setEditName] = useState("");
+  const [brandInput, setBrandInput] = useState("");
   const [editPrice, setEditPrice] = useState<number | "">("");
   const [editUnit, setEditUnit] = useState("");
   const [editCategory, setEditCategory] = useState("");
+  const [editBrand, setEditBrand] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [pendingEdit, startEdit] = useTransition();
   const [editRawImage, setEditRawImage] = useState<LoadedImage | null>(null);
@@ -179,6 +217,12 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
   const [isOutOfStock, setIsOutOfStock] = useState(false);
   const [editIsNew, setEditIsNew] = useState(false);
   const [editIsOutOfStock, setEditIsOutOfStock] = useState(false);
+  const [bulkRows, setBulkRows] = useState<BulkRowPreview[]>([]);
+  const [bulkErrors, setBulkErrors] = useState<string[]>([]);
+  const [bulkSummary, setBulkSummary] = useState<BulkUpsertSummary | null>(null);
+  const [parsingBulk, setParsingBulk] = useState(false);
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
+  const [applyingBulk, startApplyingBulk] = useTransition();
 
   const loadProducts = useCallback(
     async (slug: string) => {
@@ -376,6 +420,52 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
     return Array.from(unique.values()).slice(0, 24);
   }, [products]);
 
+  const validBulkCount = useMemo(() => bulkRows.filter((row) => row.errors.length === 0).length, [bulkRows]);
+
+  const parseBooleanCell = useCallback((value: unknown): boolean | undefined => {
+    if (typeof value === "boolean") return value;
+    if (typeof value === "number") return value > 0;
+    if (typeof value === "string") {
+      const clean = value.trim().toLowerCase();
+      if (["si", "sí", "yes", "y", "true", "1"].includes(clean)) return true;
+      if (["no", "false", "0"].includes(clean)) return false;
+    }
+    return undefined;
+  }, []);
+
+  const parseTagsCell = useCallback((value: unknown): string[] => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value.map((tag) => String(tag));
+    if (typeof value === "string") {
+      return value
+        .split(/[;,]/)
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+        .slice(0, 14);
+    }
+    return [];
+  }, []);
+
+  const parseStringCell = useCallback((value: unknown, max = 400) => {
+    if (typeof value !== "string") return "";
+    return value.trim().slice(0, max);
+  }, []);
+
+  const parseNumberCell = useCallback((value: unknown) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : NaN;
+  }, []);
+
+  const isValidUrl = useCallback((value?: string) => {
+    if (!value) return false;
+    try {
+      new URL(value);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
   const addTag = useCallback((value: string) => {
     const clean = value.trim();
     if (!clean) return;
@@ -404,6 +494,169 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
     setEditTags((prev) => prev.filter((tag) => tag !== value));
   };
 
+  const handleDownloadTemplate = useCallback(async () => {
+    if (!providerSlug) return;
+    setDownloadingTemplate(true);
+    setBulkErrors([]);
+    try {
+      const response = await exportProductsTemplate(providerSlug);
+      if (!response.success) {
+        setBulkErrors(response.errors);
+        return;
+      }
+      const binary = atob(response.base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = response.fileName;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setBulkErrors([error instanceof Error ? error.message : "No se pudo descargar la plantilla."]);
+    } finally {
+      setDownloadingTemplate(false);
+    }
+  }, [providerSlug]);
+
+  const handleBulkFileChange = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      setBulkErrors([]);
+      setBulkSummary(null);
+      setBulkRows([]);
+      if (!file) return;
+      if (!providerSlug) {
+        setBulkErrors(["Falta el slug del proveedor."]);
+        return;
+      }
+
+      setParsingBulk(true);
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const XLSX = await import("xlsx");
+        const workbook = XLSX.read(arrayBuffer, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        if (!sheetName) throw new Error("El archivo está vacío.");
+        const sheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json<(string | number | undefined)[]>(sheet, { header: 1, defval: "" });
+        if (!rows.length) throw new Error("No encontramos datos en la hoja.");
+        const headerIndex = rows.findIndex(
+          (row) => Array.isArray(row) && row.some((cell) => String(cell ?? "").trim().toLowerCase() === "name"),
+        );
+        if (headerIndex === -1) throw new Error("No encontramos la fila de encabezados (name, price...).");
+        const header = (rows[headerIndex] as unknown[]).map((cell) => String(cell ?? "").trim().toLowerCase());
+        const getValue = (row: unknown[], key: string) => {
+          const index = header.indexOf(key);
+          if (index === -1) return "";
+          return row[index] ?? "";
+        };
+
+        const previews: BulkRowPreview[] = [];
+        const now = Date.now();
+        for (let rowIndex = headerIndex + 1; rowIndex < rows.length; rowIndex += 1) {
+          const row = rows[rowIndex] as unknown[];
+          if (!row || row.every((cell) => String(cell ?? "").trim() === "")) continue;
+          if (previews.length >= MAX_BULK_ROWS) break;
+
+          const name = parseStringCell(getValue(row, "name"), 160);
+          const price = parseNumberCell(getValue(row, "price"));
+          const discountPercent = parseNumberCell(getValue(row, "discount_percent"));
+          const unit = parseStringCell(getValue(row, "unit"), 80);
+          const brand = parseStringCell(getValue(row, "brand"), 120);
+          const category = parseStringCell(getValue(row, "category"), 120);
+          const description = parseStringCell(getValue(row, "description"), 400);
+          const tags = parseTagsCell(getValue(row, "tags"));
+          const isActive = parseBooleanCell(getValue(row, "is_active"));
+          const isNewValue = parseBooleanCell(getValue(row, "is_new"));
+          const isOutOfStock = parseBooleanCell(getValue(row, "is_out_of_stock"));
+          const productId = parseStringCell(getValue(row, "product_id"));
+          const imageUrl = parseStringCell(getValue(row, "image_url"), 800);
+
+          const errors: string[] = [];
+          if (!name) errors.push("Falta nombre");
+          if (!Number.isFinite(price) || price <= 0) errors.push("Precio inválido");
+          if (!Number.isNaN(discountPercent) && (discountPercent < 0 || discountPercent > 100)) {
+            errors.push("Descuento fuera de rango");
+          }
+          if (tags.length > 14) errors.push("Máximo 14 etiquetas");
+          if (imageUrl && !isValidUrl(imageUrl)) errors.push("URL de imagen inválida");
+
+          previews.push({
+            tempId: `${rowIndex}-${now}`,
+            productId: productId || undefined,
+            name,
+            brand: brand || undefined,
+            price: Number.isFinite(price) ? price : 0,
+            discountPercent: Number.isNaN(discountPercent) ? 0 : discountPercent,
+            unit: unit || undefined,
+            category: category || undefined,
+            description: description || undefined,
+            tags,
+            isActive,
+            isNew: isNewValue,
+            isOutOfStock,
+            imageUrl: imageUrl || undefined,
+            errors,
+          });
+        }
+
+        if (!previews.length) {
+          throw new Error("No se encontraron filas con datos.");
+        }
+
+        setBulkRows(previews);
+      } catch (error) {
+        setBulkRows([]);
+        setBulkErrors([error instanceof Error ? error.message : "No se pudo leer el archivo."]);
+      } finally {
+        setParsingBulk(false);
+      }
+    },
+    [parseBooleanCell, parseTagsCell, parseNumberCell, parseStringCell, isValidUrl, providerSlug],
+  );
+
+  const handleApplyBulk = () => {
+    if (!providerSlug) return;
+    const validRows = bulkRows.filter((row) => row.errors.length === 0);
+    if (!validRows.length) {
+      setBulkErrors(["Necesitas al menos una fila válida para importar."]);
+      return;
+    }
+    startApplyingBulk(async () => {
+      const response = await bulkUpsertProducts({
+        providerSlug,
+        rows: validRows.map((row) => ({
+          id: row.productId,
+          name: row.name,
+          brand: row.brand ?? "",
+          price: row.price,
+          discountPercent: row.discountPercent ?? 0,
+          unit: row.unit ?? "",
+          category: row.category ?? "",
+          description: row.description ?? "",
+          tags: row.tags,
+          isNew: row.isNew,
+          isOutOfStock: row.isOutOfStock,
+          isActive: row.isActive,
+          imageUrl: row.imageUrl,
+        })),
+      });
+      if (response.success) {
+        setBulkSummary(response.summary);
+        await loadProducts(providerSlug);
+      } else {
+        setBulkErrors(response.errors);
+      }
+    });
+  };
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!providerSlug) return;
@@ -415,12 +668,14 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
     const priceValue = Number((formData.get("price") as string) ?? "0");
     const discountValue = Math.max(0, Math.min(100, Number(discount || "0")));
     const categoryValue = categoryInput.trim();
+    const brandValue = brandInput.trim();
     startCreate(async () => {
       const response = await createProduct({
         providerSlug,
         name: (formData.get("name") as string) ?? "",
         price: priceValue,
         discountPercent: discountValue,
+        brand: brandValue,
         unit: (formData.get("unit") as string) ?? "",
         description: (formData.get("description") as string) ?? "",
         category: categoryValue,
@@ -435,6 +690,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
         clearImage();
         setDiscount("");
         setCategoryInput("");
+        setBrandInput("");
         setTags([]);
         setTagInput("");
         setIsNew(false);
@@ -447,6 +703,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
   const openEditModal = (product: ProductRow) => {
     setEditingProduct(product);
     setEditName(product.name);
+    setEditBrand(product.brand ?? "");
     setEditPrice(product.price);
     setEditUnit(product.unit ?? "");
     setEditCategory(product.category ?? "");
@@ -483,6 +740,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
         name: editName,
         price: priceValue,
         discountPercent: discountValue,
+        brand: editBrand,
         unit: editUnit || "",
         description: editDescription || "",
         category: editCategory || "",
@@ -556,6 +814,176 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
         </div>
 
         <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
+          <CardHeader>
+            <CardTitle className="text-lg">Carga masiva (Excel)</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Descarga la plantilla, complétala y súbela para crear o actualizar productos rápido.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-[1.1fr,0.9fr]">
+              <div className="space-y-3 rounded-lg border border-border/60 bg-secondary/30 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleDownloadTemplate}
+                    disabled={downloadingTemplate || !providerSlug}
+                  >
+                    {downloadingTemplate ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Preparando...
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-2">
+                        <Download className="h-4 w-4" />
+                        Descargar plantilla
+                      </span>
+                    )}
+                  </Button>
+                  <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border/60 bg-background px-3 py-2 text-sm shadow-sm">
+                    <Upload className="h-4 w-4 text-muted-foreground" />
+                    <span>{parsingBulk ? "Leyendo..." : "Subir XLSX"}</span>
+                    <Input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleBulkFileChange}
+                      disabled={parsingBulk || !providerSlug}
+                      className="hidden"
+                    />
+                  </label>
+                  <Badge variant="outline">Máx {MAX_BULK_ROWS} filas</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Mantén las columnas de la plantilla. Usa URLs públicas para imágenes o deja vacío y súbelas luego
+                  desde cada producto.
+                </p>
+              </div>
+              <div className="space-y-3 rounded-lg border border-dashed border-border/60 bg-secondary/20 p-3 text-xs text-muted-foreground">
+                <div className="flex items-start gap-2">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-500" />
+                  <div>
+                    <p className="font-semibold text-foreground">Consejo rápido</p>
+                    <p>
+                      Copia/pega tus productos en la plantilla y deja las celdas de ID para que creemos nuevos. Si
+                      mantienes el ID, actualizamos ese producto.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-500" />
+                  <div>
+                    <p className="font-semibold text-foreground">Imágenes</p>
+                    <p>
+                      Solo se importan si apuntas a una URL pública (png/jpg/webp/avif &lt;1.2MB). De lo contrario
+                      puedes subirlas manualmente en cada producto.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {bulkErrors.length ? (
+              <div className="rounded-lg border border-destructive/60 bg-destructive/10 p-3 text-sm text-destructive">
+                {bulkErrors.join("\n")}
+              </div>
+            ) : null}
+
+            {bulkRows.length ? (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary">{validBulkCount} filas listas</Badge>
+                    <Badge variant="outline">
+                      {bulkRows.length - validBulkCount} con ajustes ({bulkRows.length} total)
+                    </Badge>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={handleApplyBulk}
+                    disabled={applyingBulk || validBulkCount === 0 || !providerSlug}
+                  >
+                    {applyingBulk ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Importando...
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-2">
+                        <Upload className="h-4 w-4" />
+                        Aplicar importación
+                      </span>
+                    )}
+                  </Button>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {bulkRows.slice(0, 6).map((row) => (
+                    <div
+                      key={row.tempId}
+                      className="rounded-lg border border-border/60 bg-secondary/30 p-3 text-xs text-muted-foreground"
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-foreground">{row.name || "Sin nombre"}</p>
+                        <Badge variant={row.errors.length ? "outline" : "secondary"}>
+                          {row.errors.length ? "Revisar" : "OK"}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-foreground">
+                        {Number.isFinite(row.price) ? formatCurrency(row.price) : "—"}
+                        {row.unit ? <span className="text-xs text-muted-foreground"> · {row.unit}</span> : null}
+                      </p>
+                      {row.brand ? (
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{row.brand}</p>
+                      ) : null}
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        {row.tags.slice(0, 4).map((tag) => (
+                          <Badge key={`${row.tempId}-${tag}`} variant="outline" className="rounded-full px-2 py-0">
+                            #{tag}
+                          </Badge>
+                        ))}
+                      </div>
+                      {row.errors.length ? (
+                        <ul className="mt-2 list-disc space-y-1 pl-4 text-[11px] text-destructive">
+                          {row.errors.slice(0, 3).map((issue) => (
+                            <li key={`${row.tempId}-${issue}`}>{issue}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="mt-2 text-[11px] uppercase text-muted-foreground">
+                          {row.productId ? "Actualizaremos este producto" : "Crearemos producto nuevo"}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {bulkRows.length > 6 ? (
+                  <p className="text-xs text-muted-foreground">Vista previa de {bulkRows.length} filas (mostramos 6).</p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {bulkSummary ? (
+              <div className="rounded-lg border border-border/70 bg-secondary/30 p-3 text-sm">
+                <p className="font-semibold text-foreground">Resultado de la importación</p>
+                <div className="mt-2 flex flex-wrap gap-3 text-xs">
+                  <Badge variant="secondary">Creados: {bulkSummary.created}</Badge>
+                  <Badge variant="secondary">Actualizados: {bulkSummary.updated}</Badge>
+                  <Badge variant="outline">Saltados: {bulkSummary.skipped}</Badge>
+                </div>
+                {bulkSummary.warnings.length ? (
+                  <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-amber-600 dark:text-amber-400">
+                    {bulkSummary.warnings.slice(0, 4).map((warning) => (
+                      <li key={warning}>{warning}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle className="text-lg">Catálogo</CardTitle>
@@ -622,6 +1050,11 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                     <div className="space-y-1 flex-1">
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-semibold">{product.name}</p>
+                        {product.brand ? (
+                          <Badge variant="outline" className="rounded-full px-2 py-0 text-[11px]">
+                            {product.brand}
+                          </Badge>
+                        ) : null}
                         {product.is_new ? (
                           <Badge variant="default" className="rounded-full px-2 py-0 text-[11px]">
                             Nuevo
@@ -736,10 +1169,20 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                   </p>
                 </div>
               </div>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-2">
                   <Label htmlFor="unit">Unidad</Label>
                   <Input id="unit" name="unit" placeholder="kg, unidad, caja x12" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="brand">Marca</Label>
+                  <Input
+                    id="brand"
+                    name="brand"
+                    placeholder="Ej: MiMarca"
+                    value={brandInput}
+                    onChange={(event) => setBrandInput(event.target.value)}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="category">Categoría</Label>
@@ -1008,7 +1451,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                   </p>
                 </div>
               </div>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-2">
                   <Label htmlFor="edit-unit">Unidad</Label>
                   <Input
@@ -1016,6 +1459,15 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                     value={editUnit}
                     onChange={(event) => setEditUnit(event.target.value)}
                     placeholder="kg, unidad, caja x12"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-brand">Marca</Label>
+                  <Input
+                    id="edit-brand"
+                    value={editBrand}
+                    onChange={(event) => setEditBrand(event.target.value)}
+                    placeholder="Ej: MiMarca"
                   />
                 </div>
                 <div className="space-y-2">
