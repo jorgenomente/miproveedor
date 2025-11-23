@@ -16,8 +16,15 @@ export type Product = {
   id: string;
   name: string;
   description?: string | null;
-  price: number;
+  price: number; // precio final con descuento aplicado
+  basePrice?: number;
+  discountPercent?: number | null;
   unit?: string | null;
+  image_url?: string | null;
+  category?: string | null;
+  tags?: string[] | null;
+  is_new?: boolean | null;
+  is_out_of_stock?: boolean | null;
 };
 
 export type Provider = {
@@ -62,17 +69,64 @@ export function ClientOrder({ provider, client, products }: Props) {
   const [serverTotal, setServerTotal] = useState<number | null>(null);
   const [orderId, setOrderId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [activeTag, setActiveTag] = useState<string | null>(null);
+  const safeQuantities = useMemo(() => {
+    const outIds = new Set(products.filter((product) => product.is_out_of_stock).map((p) => p.id));
+    if (!outIds.size) return quantities;
+    const next: Record<string, number> = {};
+    Object.entries(quantities).forEach(([id, value]) => {
+      if (outIds.has(id)) return;
+      next[id] = value;
+    });
+    return next;
+  }, [products, quantities]);
 
   const items = useMemo(
     () =>
       products
-        .filter((product) => (quantities[product.id] ?? 0) > 0)
+        .filter((product) => (safeQuantities[product.id] ?? 0) > 0)
         .map((product) => ({
           ...product,
-          quantity: quantities[product.id] ?? 0,
+          quantity: safeQuantities[product.id] ?? 0,
         })),
-    [products, quantities],
+    [products, safeQuantities],
   );
+
+  const availableCategories = useMemo(() => {
+    const unique = new Set<string>();
+    products.forEach((product) => {
+      if (product.category) unique.add(product.category);
+    });
+    return Array.from(unique.values()).slice(0, 12);
+  }, [products]);
+
+  const availableTags = useMemo(() => {
+    const unique = new Map<string, string>();
+    products.forEach((product) => {
+      (product.tags ?? []).forEach((tag) => {
+        const key = tag.toLowerCase();
+        if (!unique.has(key)) unique.set(key, tag);
+      });
+    });
+    return Array.from(unique.values()).slice(0, 18);
+  }, [products]);
+
+  const filteredProducts = useMemo(() => {
+    const normalizedCategory = activeCategory?.toLowerCase();
+    const normalizedTag = activeTag?.toLowerCase();
+    return products.filter((product) => {
+      const matchesCategory = normalizedCategory
+        ? product.category?.toLowerCase() === normalizedCategory
+        : true;
+      const matchesTag = normalizedTag
+        ? (product.tags ?? []).some((tag) => tag.toLowerCase() === normalizedTag)
+        : true;
+      return matchesCategory && matchesTag;
+    });
+  }, [activeCategory, activeTag, products]);
+
+  const hasFilters = Boolean(activeCategory || activeTag);
 
   const summaryItems: SummaryItem[] =
     serverItems?.map((item) => ({
@@ -147,33 +201,156 @@ export function ClientOrder({ provider, client, products }: Props) {
 
         <section className="grid gap-5 md:grid-cols-[2fr_1fr]">
           <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.45, ease: "easeOut", delay: 0.05 }}
-            className="flex flex-col gap-4"
-          >
-            <div className="flex items-center justify-between">
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, ease: "easeOut", delay: 0.05 }}
+          className="flex flex-col gap-4"
+        >
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold">Catálogo</h2>
               <Badge variant="secondary">Mobile-first</Badge>
             </div>
+            {hasFilters ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setActiveCategory(null);
+                  setActiveTag(null);
+                }}
+              >
+                Quitar filtros
+              </Button>
+            ) : null}
+          </div>
 
-            {products.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-border/70 bg-secondary/30 p-4 text-sm text-muted-foreground">
-                Este proveedor aún no tiene productos activos.
+          <div className="space-y-3 rounded-xl border border-border/60 bg-secondary/30 p-3 shadow-sm">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold">Filtrar por categoría o etiqueta</p>
+              <span className="text-xs text-muted-foreground">Ayuda a encontrar rápido</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {availableCategories.length ? (
+                availableCategories.map((category) => (
+                  <Button
+                    key={category}
+                    type="button"
+                    size="sm"
+                    variant={activeCategory === category ? "secondary" : "outline"}
+                    className="h-8 rounded-full px-3 text-xs"
+                    onClick={() => setActiveCategory(activeCategory === category ? null : category)}
+                  >
+                    {category}
+                  </Button>
+                ))
+              ) : (
+                <p className="text-xs text-muted-foreground">Aún no hay categorías cargadas.</p>
+              )}
+            </div>
+            {availableTags.length ? (
+              <div className="flex flex-wrap gap-2">
+                {availableTags.map((tag) => (
+                  <Button
+                    key={tag}
+                    type="button"
+                    size="sm"
+                    variant={activeTag === tag ? "secondary" : "ghost"}
+                    className="h-8 rounded-full px-3 text-xs"
+                    onClick={() => setActiveTag(activeTag === tag ? null : tag)}
+                  >
+                    #{tag}
+                  </Button>
+                ))}
               </div>
-            ) : (
+            ) : null}
+          </div>
+
+          {products.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border/70 bg-secondary/30 p-4 text-sm text-muted-foreground">
+              Este proveedor aún no tiene productos activos.
+            </div>
+          ) : filteredProducts.length === 0 ? (
+            <div className="space-y-3 rounded-xl border border-dashed border-border/70 bg-secondary/30 p-4 text-sm text-muted-foreground">
+              <p>No hay productos que coincidan con los filtros aplicados.</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-fit"
+                onClick={() => {
+                  setActiveCategory(null);
+                  setActiveTag(null);
+                }}
+              >
+                Ver todo el catálogo
+              </Button>
+            </div>
+          ) : (
               <div className="grid gap-4 sm:grid-cols-2">
-                {products.map((product) => (
-                  <Card key={product.id} className="border-border/70 bg-card/80 shadow-sm">
+              {filteredProducts.map((product) => {
+                const hasDiscount = (product.discountPercent ?? 0) > 0;
+                const outOfStock = Boolean(product.is_out_of_stock);
+                return (
+                  <Card key={product.id} className="overflow-hidden border-border/70 bg-card/80 shadow-sm">
+                    {product.image_url ? (
+                      <div className="h-40 w-full overflow-hidden bg-secondary/40">
+                        <img
+                          src={product.image_url}
+                          alt={`Imagen de ${product.name}`}
+                          className="h-full w-full object-cover"
+                        />
+                      </div>
+                    ) : null}
                     <CardHeader className="space-y-1">
-                      <CardTitle className="text-base font-semibold">{product.name}</CardTitle>
-                      <p className="text-sm text-muted-foreground">{product.description}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <CardTitle className="text-base font-semibold">{product.name}</CardTitle>
+                        {product.is_new ? (
+                          <Badge variant="default" className="rounded-full px-2 py-0 text-[11px]">
+                            Nuevo
+                          </Badge>
+                        ) : null}
+                        {outOfStock ? (
+                          <Badge variant="destructive" className="rounded-full px-2 py-0 text-[11px]">
+                            Sin stock
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {product.description || "Sin descripción"}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        {product.category ? (
+                          <Badge variant="outline" className="rounded-full px-2 py-0 text-[11px]">
+                            {product.category}
+                          </Badge>
+                        ) : null}
+                        {(product.tags ?? []).slice(0, 4).map((tag) => (
+                          <Badge key={`${product.id}-${tag}`} variant="secondary" className="rounded-full px-2 py-0 text-[11px]">
+                            #{tag}
+                          </Badge>
+                        ))}
+                      </div>
                     </CardHeader>
                     <CardContent className="flex items-end justify-between gap-3">
                       <div className="space-y-1">
-                        <div className="text-lg font-semibold">{formatCurrency(product.price)}</div>
-                        {product.unit ? (
-                          <p className="text-xs text-muted-foreground">{product.unit}</p>
+                        {hasDiscount ? (
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span className="line-through">{formatCurrency(product.basePrice ?? product.price)}</span>
+                            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+                              -{Math.round(product.discountPercent ?? 0)}%
+                            </span>
+                          </div>
+                        ) : null}
+                        <div className="text-lg font-semibold">
+                          {formatCurrency(product.price)}
+                          {product.unit ? (
+                            <span className="text-xs text-muted-foreground"> · {product.unit}</span>
+                          ) : null}
+                        </div>
+                        {outOfStock ? (
+                          <p className="text-xs text-destructive">No disponible para agregar.</p>
                         ) : null}
                       </div>
                       <div className="flex items-center gap-2 rounded-full border border-border/70 bg-secondary px-2 py-1">
@@ -182,6 +359,7 @@ export function ClientOrder({ provider, client, products }: Props) {
                           size="icon"
                           variant="ghost"
                           aria-label={`Restar ${product.name}`}
+                          disabled={outOfStock}
                           onClick={() =>
                             setQuantities((prev) => ({
                               ...prev,
@@ -192,13 +370,14 @@ export function ClientOrder({ provider, client, products }: Props) {
                           -
                         </Button>
                         <span className="w-6 text-center text-sm font-semibold">
-                          {quantities[product.id] ?? 0}
+                          {safeQuantities[product.id] ?? 0}
                         </span>
                         <Button
                           type="button"
                           size="icon"
                           variant="ghost"
                           aria-label={`Sumar ${product.name}`}
+                          disabled={outOfStock}
                           onClick={() =>
                             setQuantities((prev) => ({
                               ...prev,
@@ -211,10 +390,11 @@ export function ClientOrder({ provider, client, products }: Props) {
                       </div>
                     </CardContent>
                   </Card>
-                ))}
-              </div>
-            )}
-          </motion.div>
+                );
+              })}
+            </div>
+          )}
+        </motion.div>
 
           <motion.aside
             initial={{ opacity: 0, y: 16 }}

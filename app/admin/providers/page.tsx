@@ -15,6 +15,7 @@ import {
   Phone,
   RefreshCcw,
   Save,
+  KeyRound,
 } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
@@ -51,6 +52,8 @@ import {
   type CreateProviderResult,
   type DeleteProviderResult,
   type ProviderRow,
+  sendPasswordReset,
+  type ResetPasswordResult,
   updateProvider,
   type UpdateProviderResult,
 } from "./actions";
@@ -72,6 +75,9 @@ export default function AdminProvidersPage() {
   const [deleteResult, setDeleteResult] = useState<DeleteProviderResult | null>(null);
   const [pendingDelete, startDelete] = useTransition();
   const [deleting, setDeleting] = useState<ProviderRow | null>(null);
+  const [resettingId, setResettingId] = useState<string | null>(null);
+  const [resetResult, setResetResult] = useState<Record<string, ResetPasswordResult>>({});
+  const [resetState, startReset] = useTransition();
 
   const loadProviders = useCallback(async () => {
     setLoadingProviders(true);
@@ -154,6 +160,15 @@ export default function AdminProvidersPage() {
         await loadProviders();
         setDeleting(null);
       }
+    });
+  };
+
+  const handleResetPassword = (provider: ProviderRow) => {
+    setResettingId(provider.id);
+    startReset(async () => {
+      const response = await sendPasswordReset({ providerId: provider.id });
+      setResetResult((prev) => ({ ...prev, [provider.id]: response }));
+      setResettingId(null);
     });
   };
 
@@ -329,6 +344,33 @@ export default function AdminProvidersPage() {
                                 Ir al panel / pedidos
                               </Link>
                             </Button>
+                            <div className="space-y-1">
+                              {(() => {
+                                const resetEntry = resetResult[provider.id];
+                                if (!resetEntry) return null;
+                                return (
+                                  <p
+                                    className={`text-[11px] ${
+                                      resetEntry.success ? "text-emerald-600" : "text-destructive"
+                                    }`}
+                                  >
+                                    {resetEntry.success
+                                      ? resetEntry.message
+                                      : resetEntry.errors.join("\n")}
+                                  </p>
+                                );
+                              })()}
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="w-full justify-center"
+                                onClick={() => handleResetPassword(provider)}
+                                disabled={resetState && resettingId === provider.id}
+                              >
+                                <KeyRound className="mr-2 h-4 w-4" />
+                                Reenviar restablecer contraseña
+                              </Button>
+                            </div>
                             <AlertDialog
                               open={deleting?.id === provider.id}
                               onOpenChange={(open) => {
@@ -405,7 +447,7 @@ export default function AdminProvidersPage() {
                 Alta manual de proveedor (Supabase)
               </CardTitle>
               <p className="text-sm text-muted-foreground">
-                Crea el proveedor + usuario owner y genera link de invitación desde Supabase Auth.
+                Crea el proveedor + usuario principal y genera link de invitación desde Supabase Auth.
               </p>
             </CardHeader>
             <CardContent>
@@ -429,12 +471,12 @@ export default function AdminProvidersPage() {
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="email">Email del owner</Label>
+                    <Label htmlFor="email">Email del proveedor</Label>
                     <Input
                       id="email"
                       name="email"
                       type="email"
-                      placeholder="owner@proveedor.com"
+                      placeholder="contacto@proveedor.com"
                       required
                     />
                   </div>
@@ -485,19 +527,38 @@ export default function AdminProvidersPage() {
               >
                 <p className="text-sm font-semibold">Resultado</p>
                 {result?.success ? (
-                  <div className="space-y-2 text-sm">
-                    <p>{result.message}</p>
-                    <p className="text-muted-foreground">
-                      Envia este link al owner para setear su contraseña:
+                  <div className="space-y-3 text-sm">
+                    <p>
+                      {result.message} {result.resetEmailSent ? "Se envió un correo de restablecimiento automáticamente." : ""}
                     </p>
-                    <Button asChild variant="outline" size="sm" className="w-full">
-                      <a href={result.setPasswordLink} target="_blank" rel="noreferrer">
-                        {result.setPasswordLink}
-                      </a>
-                    </Button>
-                    <p className="text-xs text-muted-foreground">
-                      Se usa Supabase Auth (service role). Si necesitas reenviar, vuelve a generar link.
-                    </p>
+                    {result.warning ? (
+                      <div className="space-y-1 rounded-lg border border-amber-500/50 bg-amber-50/80 p-3 text-amber-800 shadow-sm dark:border-amber-400/40 dark:bg-amber-950/30 dark:text-amber-100">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide">
+                          Link de invitación pendiente
+                        </p>
+                        <p>{result.warning}</p>
+                      </div>
+                    ) : null}
+                    {result.setPasswordLink ? (
+                      <>
+                        <p className="text-muted-foreground">
+                          Envía este link al proveedor para setear su contraseña si aún no usó el correo:
+                        </p>
+                        <Button asChild variant="outline" size="sm" className="w-full">
+                          <a href={result.setPasswordLink} target="_blank" rel="noreferrer">
+                            {result.setPasswordLink}
+                          </a>
+                        </Button>
+                        <p className="text-xs text-muted-foreground">
+                          Se usa Supabase Auth (service role). También se envió un correo de restablecimiento automático.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        El proveedor quedó creado y el usuario ya existe. Genera un link de reset de contraseña
+                        manual desde Supabase Auth si necesita acceder.
+                      </p>
+                    )}
                   </div>
                 ) : result ? (
                   <div className="space-y-1 text-sm text-destructive">

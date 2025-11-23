@@ -22,11 +22,7 @@ const timeline = [
   },
 ];
 
-const stats = [
-  { label: "Pedidos nuevos", value: "18" },
-  { label: "Entregados este mes", value: "62" },
-  { label: "Tiempo promedio de armado", value: "12 min" },
-];
+const stats: { label: string; value: string }[] = [];
 
 const solutionBullets = [
   "Pedidos siempre ordenados",
@@ -104,7 +100,7 @@ const faqs = [
   { q: "¿Puedo usarlo desde el celular?", a: "Sí, 100%." },
   {
     q: "¿Qué necesito para empezar?",
-    a: "Crear tu cuenta e invitar a tus tiendas.",
+    a: "Crear tu cuenta e invitar a tus clientes.",
   },
 ];
 
@@ -126,7 +122,7 @@ export default function Home() {
         />
       </div>
 
-      <main className="relative mx-auto flex max-w-6xl flex-col gap-12 px-5 pb-16 pt-14 md:px-10">
+      <main className="relative mx-auto flex max-w-6xl flex-col gap-8 px-5 pb-16 pt-14 md:px-10">
         <motion.header
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -255,7 +251,6 @@ export default function Home() {
         >
           <div className="flex items-center justify-between gap-2">
             <div>
-              <p className="text-sm text-muted-foreground">Sección 2 · La solución</p>
               <h2 className="text-xl font-semibold md:text-2xl">
                 MiProveedor.app organiza todo por vos.
               </h2>
@@ -287,9 +282,9 @@ export default function Home() {
         >
           <div className="flex items-center justify-between gap-2">
             <div>
-              <p className="text-sm text-muted-foreground">Sección 3 · Flujo</p>
+              
               <h2 className="text-xl font-semibold md:text-2xl">
-                Cómo funciona (flujo completo)
+                Cómo funciona 
               </h2>
             </div>
             <Badge variant="outline">Diseñado para distribuidores</Badge>
@@ -325,9 +320,9 @@ export default function Home() {
         >
           <div className="flex items-center justify-between gap-2">
             <div>
-              <p className="text-sm text-muted-foreground">Sección 4 · Módulos</p>
+              
               <h2 className="text-xl font-semibold md:text-2xl">
-                Módulos principales (MVP realista)
+                Módulos principales
               </h2>
             </div>
             <Badge variant="outline">Listos para usar</Badge>
@@ -359,9 +354,7 @@ export default function Home() {
           className="grid gap-4 rounded-3xl border border-border/60 bg-card/70 p-6 backdrop-blur md:grid-cols-2"
         >
           <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Sección 5 · Ventajas para distribuidores y tiendas
-            </p>
+            
             <h3 className="text-lg font-semibold md:text-xl">Para distribuidores</h3>
             <div className="grid gap-2 sm:grid-cols-2">
               {advantages.distribuidores.map((item) => (
@@ -393,7 +386,7 @@ export default function Home() {
           className="grid gap-4 md:grid-cols-[1.2fr_1fr]"
         >
           <div className="space-y-3 rounded-3xl border border-border/60 bg-card/70 p-6 backdrop-blur">
-            <p className="text-sm text-muted-foreground">Sección 6 · Testimonios</p>
+            
             <h3 className="text-xl font-semibold md:text-2xl">Testimonios iniciales</h3>
             <div className="grid gap-3 sm:grid-cols-2">
               {testimonials.map((testimonial) => (
@@ -413,7 +406,7 @@ export default function Home() {
           </div>
           <div className="space-y-4 rounded-3xl border border-border/60 bg-card/70 p-6 shadow-sm backdrop-blur">
             <div className="space-y-1">
-              <p className="text-sm text-muted-foreground">Sección 7 · Precios</p>
+             
               <h3 className="text-xl font-semibold md:text-2xl">
                 Tu distribuidora organizada desde el día uno.
               </h3>
@@ -458,7 +451,7 @@ export default function Home() {
           className="rounded-3xl border border-border/60 bg-card/70 p-6 backdrop-blur"
         >
           <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">Sección 8 · FAQ</p>
+            
             <h3 className="text-xl font-semibold md:text-2xl">
               Preguntas frecuentes
             </h3>
@@ -489,7 +482,7 @@ export default function Home() {
         >
           <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
             <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Sección 9 · CTA final</p>
+              
               <h3 className="text-2xl font-semibold md:text-3xl">
                 Listo para dejar atrás WhatsApp y tener todo ordenado?
               </h3>

@@ -8,7 +8,7 @@ type LoadedData =
   | {
       provider: Provider;
       client: Client;
-      products: Product[];
+  products: Product[];
       error?: undefined;
     }
   | { provider?: undefined; client?: undefined; products?: undefined; error: string };
@@ -36,13 +36,25 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
         contactPhone: client.contact_phone ?? undefined,
         address: client.address ?? undefined,
       },
-      products: demo.products.map((product) => ({
-        id: product.id,
-        name: product.name,
-        description: product.description,
-        price: Number(product.price ?? 0),
-        unit: product.unit,
-      })),
+      products: demo.products.map((product) => {
+        const basePrice = Number(product.price ?? 0);
+        const discount = Number(product.discount_percent ?? 0);
+        const finalPrice = Number((basePrice * (1 - Math.max(0, Math.min(100, discount)) / 100)).toFixed(2));
+        return {
+          id: product.id,
+          name: product.name,
+          description: product.description,
+          price: finalPrice,
+          basePrice,
+          discountPercent: discount,
+          unit: product.unit,
+          image_url: product.image_url ?? undefined,
+          category: product.category ?? undefined,
+          tags: product.tags ?? [],
+          is_new: product.is_new ?? false,
+          is_out_of_stock: product.is_out_of_stock ?? false,
+        };
+      }),
     };
   }
 
@@ -86,7 +98,9 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
 
   const { data: products, error: productsError } = await supabase
     .from("products")
-    .select("id, name, description, price, unit, is_active")
+    .select(
+      "id, name, description, price, unit, image_url, discount_percent, is_active, category, tags, is_new, is_out_of_stock",
+    )
     .eq("provider_id", provider.id)
     .eq("is_active", true)
     .order("name");
@@ -107,13 +121,25 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
       contactPhone: client.contact_phone ?? undefined,
       address: client.address ?? undefined,
     },
-    products: (products ?? []).map((product) => ({
-      id: product.id,
-      name: product.name,
-      description: product.description,
-      price: Number(product.price ?? 0),
-      unit: product.unit,
-    })),
+    products: (products ?? []).map((product) => {
+      const basePrice = Number(product.price ?? 0);
+      const discount = Number(product.discount_percent ?? 0);
+      const finalPrice = Number((basePrice * (1 - Math.max(0, Math.min(100, discount)) / 100)).toFixed(2));
+      return {
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        price: finalPrice,
+        basePrice,
+        discountPercent: discount,
+        unit: product.unit,
+        image_url: product.image_url ?? undefined,
+        category: product.category ?? undefined,
+        tags: Array.isArray(product.tags) ? product.tags : [],
+        is_new: Boolean(product.is_new),
+        is_out_of_stock: Boolean(product.is_out_of_stock),
+      };
+    }),
   };
 }
 

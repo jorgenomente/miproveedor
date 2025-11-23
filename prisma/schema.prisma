@@ -84,6 +84,9 @@ model Product {
   isActive   Boolean   @default(true) @map("is_active")
   imageUrl   String?   @map("image_url")
   category   String?
+  tags       String[]  @db.Text @default([])
+  isNew      Boolean   @default(false) @map("is_new")
+  isOutOfStock Boolean @default(false) @map("is_out_of_stock")
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
 

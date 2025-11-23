@@ -20,8 +20,10 @@ export type CreateProviderResult =
       success: true;
       providerId: string;
       userId: string;
-      setPasswordLink: string;
+      setPasswordLink?: string;
+      resetEmailSent?: boolean;
       message: string;
+      warning?: string;
     }
   | {
       success: false;
@@ -81,6 +83,10 @@ const deleteSchema = z.object({
 });
 
 export type DeleteProviderResult =
+  | { success: true; message: string }
+  | { success: false; errors: string[] };
+
+export type ResetPasswordResult =
   | { success: true; message: string }
   | { success: false; errors: string[] };
 
@@ -279,6 +285,72 @@ export async function deleteProvider(payload: z.infer<typeof deleteSchema>): Pro
   return { success: true, message: `Proveedor "${provider.name}" eliminado con sus datos.` };
 }
 
+const resetSchema = z.object({
+  providerId: z.string().uuid(),
+});
+
+export async function sendPasswordReset(payload: z.infer<typeof resetSchema>): Promise<ResetPasswordResult> {
+  const parsed = resetSchema.safeParse(payload);
+  if (!parsed.success) {
+    return { success: false, errors: parsed.error.issues.map((issue) => issue.message) };
+  }
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) {
+    return { success: false, errors: ["Faltan credenciales de Supabase (SERVICE_ROLE / URL)."] };
+  }
+
+  const { data: provider, error: providerError } = await supabase
+    .from("providers")
+    .select("id, slug, name")
+    .eq("id", parsed.data.providerId)
+    .maybeSingle();
+
+  if (providerError || !provider) {
+    return {
+      success: false,
+      errors: [`Proveedor no encontrado: ${providerError?.message ?? "sin detalle"}`],
+    };
+  }
+
+  const { data: user, error: userError } = await supabase
+    .from("users")
+    .select("email")
+    .eq("provider_id", provider.id)
+    .eq("role", "provider")
+    .limit(1)
+    .maybeSingle();
+
+  if (userError || !user?.email) {
+    return {
+      success: false,
+      errors: [
+        `No se encontró usuario principal (proveedor) para este proveedor: ${userError?.message ?? "sin detalle"}.`,
+      ],
+    };
+  }
+
+  const appBaseUrl = getAppBaseUrl();
+  const callbackUrl = new URL("/auth/callback", appBaseUrl);
+  callbackUrl.searchParams.set("next", `/app/${provider.slug}`);
+
+  const { error: resetError } = await supabase.auth.resetPasswordForEmail(user.email, {
+    redirectTo: callbackUrl.toString(),
+  });
+
+  if (resetError) {
+    return {
+      success: false,
+      errors: [`No se pudo enviar el correo de restablecimiento: ${resetError.message}`],
+    };
+  }
+
+  return {
+    success: true,
+    message: `Se envió un correo de restablecimiento a ${user.email} para ${provider.name}.`,
+  };
+}
+
 export async function createProvider(payload: z.infer<typeof createSchema>): Promise<CreateProviderResult> {
   const parsed = createSchema.safeParse(payload);
   if (!parsed.success) {
@@ -343,7 +415,7 @@ export async function createProvider(payload: z.infer<typeof createSchema>): Pro
     };
   }
 
-  // 3) Crear usuario owner en Auth
+  // 3) Crear usuario proveedor en Auth
   const { data: authUser, error: authError } = await supabase.auth.admin.createUser(
     {
       email: parsed.data.email,
@@ -387,27 +459,35 @@ export async function createProvider(payload: z.infer<typeof createSchema>): Pro
 
   // 5) Generar link de invitación / set password
   const appBaseUrl = getAppBaseUrl();
-  const callbackUrl = `${appBaseUrl}/auth/callback?next=${encodeURIComponent(`/app/${parsed.data.slug}`)}`;
+  const callbackUrl = new URL("/auth/callback", appBaseUrl);
+  callbackUrl.searchParams.set("next", `/app/${parsed.data.slug}`);
   const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink(
     {
       type: "invite",
       email: parsed.data.email,
       options: {
-        redirectTo: callbackUrl,
+        redirectTo: callbackUrl.toString(),
       },
     }
   );
 
   const invitationLink = linkData?.properties?.action_link;
 
-  if (linkError || !invitationLink) {
+  const { error: resetError } = await supabase.auth.resetPasswordForEmail(parsed.data.email, {
+    redirectTo: callbackUrl.toString(),
+  });
+
+  if ((linkError || !invitationLink) && resetError) {
     return {
-      success: false,
-      errors: [
-        `No se pudo generar link de invitación: ${
-          linkError?.message ?? "sin detalle"
-        }`,
-      ],
+      success: true,
+      providerId: providerRow.id,
+      userId: authUser.user.id,
+      setPasswordLink: undefined,
+      resetEmailSent: false,
+      warning: `Proveedor creado, pero no se pudo generar link ni enviar correo de restablecimiento: ${
+        linkError?.message ?? resetError?.message ?? "sin detalle"
+      }. Genera un reset manual desde Supabase Auth.`,
+      message: `Proveedor ${parsed.data.name} creado.`,
     };
   }
 
@@ -416,6 +496,13 @@ export async function createProvider(payload: z.infer<typeof createSchema>): Pro
     providerId: providerRow.id,
     userId: authUser.user.id,
     setPasswordLink: invitationLink,
+    resetEmailSent: !resetError,
     message: `Proveedor ${parsed.data.name} creado.`,
+    warning:
+      resetError && !linkError
+        ? `Link generado, pero el correo de restablecimiento no pudo enviarse automáticamente: ${resetError.message}.`
+        : !invitationLink
+          ? "El correo se envió, pero no se pudo obtener un link directo; reenvía si es necesario."
+          : undefined,
   };
 }

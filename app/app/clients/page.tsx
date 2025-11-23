@@ -32,6 +32,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
   const [pendingCreate, startCreate] = useTransition();
   const [origin, setOrigin] = useState("");
   const [copyState, setCopyState] = useState<CopyState | null>(null);
+  const [slugValue, setSlugValue] = useState("");
 
   useEffect(() => {
     setOrigin(window.location.origin);
@@ -75,6 +76,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
       if (response.success) {
         await loadClients(providerSlug);
         (event.target as HTMLFormElement).reset();
+        setSlugValue("");
       }
     });
   };
@@ -96,7 +98,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
   }
 
   return (
-    <div className="relative isolate min-h-screen bg-gradient-to-b from-background via-background to-secondary/50 px-4 pb-12 pt-8 sm:px-8">
+    <div className="relative isolate min-h-screen bg-linear-to-b from-background via-background to-secondary/50 px-4 pb-12 pt-8 sm:px-8">
       <main className="mx-auto flex max-w-5xl flex-col gap-6">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Button asChild variant="ghost" size="sm">
@@ -184,7 +186,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
                       transition={{ delay: index * 0.04 }}
                       className="group relative overflow-hidden rounded-xl border border-border/70 bg-card/70 p-4 shadow-sm"
                     >
-                      <div className="absolute inset-0 bg-gradient-to-r from-primary/5 via-transparent to-secondary/10 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+                      <div className="absolute inset-0 bg-linear-to-r from-primary/5 via-transparent to-secondary/10 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                       <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex items-start gap-3">
                           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/10">
@@ -249,14 +251,22 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
                     <Input id="name" name="name" required placeholder="Ej: Nova Caballito" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="slug">Slug</Label>
+                    <Label htmlFor="slug" className="flex items-center justify-between gap-2">
+                      <span>Link</span>
+                      <span className="text-right text-[11px] font-normal text-muted-foreground">
+                        {(origin || "https://miproveedor.app") +
+                          `/${providerSlug || "[proveedor]"}/${slugValue || "[tienda]"}`}
+                      </span>
+                    </Label>
                     <Input
                       id="slug"
                       name="slug"
                       required
+                      value={slugValue}
+                      onChange={(event) => setSlugValue(event.target.value)}
                       pattern="^[a-z0-9-]+$"
                       title="Solo minúsculas, números y guiones"
-                      placeholder="nova-caballito"
+                      placeholder="nombredelatienda"
                     />
                   </div>
                 </div>

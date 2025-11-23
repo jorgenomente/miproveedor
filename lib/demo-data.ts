@@ -27,6 +27,11 @@ export type DemoProduct = {
   unit?: string | null;
   is_active?: boolean | null;
   category?: string | null;
+  tags?: string[] | null;
+  image_url?: string | null;
+  discount_percent?: number | null;
+  is_new?: boolean | null;
+  is_out_of_stock?: boolean | null;
 };
 
 type DemoOrderSeed = {
@@ -102,6 +107,8 @@ const products: DemoProduct[] = [
     unit: "bolsa 500g",
     is_active: true,
     category: "Snacks",
+    tags: ["destacado", "sin tacc"],
+    is_new: true,
   },
   {
     id: "00000000-0000-4000-8000-00000000p002",
@@ -112,6 +119,8 @@ const products: DemoProduct[] = [
     unit: "paquete 1kg",
     is_active: true,
     category: "Infusiones",
+    tags: ["yerba", "orgánico"],
+    is_new: false,
   },
   {
     id: "00000000-0000-4000-8000-00000000p003",
@@ -122,6 +131,8 @@ const products: DemoProduct[] = [
     unit: "bolsa 1kg",
     is_active: true,
     category: "Snacks",
+    tags: ["mix", "premium"],
+    is_out_of_stock: true,
   },
   {
     id: "00000000-0000-4000-8000-00000000p004",
@@ -132,6 +143,7 @@ const products: DemoProduct[] = [
     unit: "caja x12",
     is_active: true,
     category: "Snacks",
+    tags: ["box", "impulsivos"],
   },
   {
     id: "00000000-0000-4000-8000-00000000p005",
@@ -142,6 +154,8 @@ const products: DemoProduct[] = [
     unit: "frasco 500ml",
     is_active: true,
     category: "Despensa",
+    tags: ["vegano", "aceites"],
+    is_new: true,
   },
 ];
 
@@ -248,4 +262,3 @@ export function getDemoData() {
     orders: resolvedOrders,
   };
 }
-

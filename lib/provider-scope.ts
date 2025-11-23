@@ -10,8 +10,7 @@ export type ProviderScope =
     };
 
 async function resolveDevFallbackScope() {
-  const allowBypass =
-    process.env.ALLOW_DEV_AUTH_BYPASS === "true" || process.env.NODE_ENV !== "production";
+  const allowBypass = process.env.ALLOW_DEV_AUTH_BYPASS === "true";
 
   if (!allowBypass) return null;
 

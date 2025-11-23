@@ -132,7 +132,7 @@ export async function createOrder(
 
   const { data: products, error: productsError } = await supabase
     .from("products")
-    .select("id, name, unit, price")
+    .select("id, name, unit, price, discount_percent, is_out_of_stock")
     .eq("provider_id", provider.id)
     .in("id", productIds);
 
@@ -144,11 +144,20 @@ export async function createOrder(
   }
 
   const productMap = new Map(
-    (products ?? []).map((product) => [product.id, { ...product, price: Number(product.price ?? 0) }]),
+    (products ?? []).map((product) => {
+      const basePrice = Number(product.price ?? 0);
+      const discount = Number(product.discount_percent ?? 0);
+      const finalPrice = Number((basePrice * (1 - Math.max(0, Math.min(100, discount)) / 100)).toFixed(2));
+      return [product.id, { ...product, price: finalPrice }];
+    }),
   );
 
   if (productMap.size !== productIds.length) {
     return { success: false, errors: ["Algunos productos ya no están disponibles."] };
+  }
+
+  if ([...productMap.values()].some((product) => product.is_out_of_stock)) {
+    return { success: false, errors: ["Uno de los productos seleccionados está sin stock."] };
   }
 
   const orderItems: OrderSummaryItem[] = parsed.data.items.map((item) => {
