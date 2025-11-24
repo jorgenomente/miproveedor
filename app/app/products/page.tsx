@@ -177,6 +177,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [productsError, setProductsError] = useState<string | null>(null);
   const [result, setResult] = useState<CreateProductResult | UpdateProductResult | null>(null);
+  const [resultSource, setResultSource] = useState<"create" | "edit" | null>(null);
   const [pendingCreate, startCreate] = useTransition();
   const [pendingToggle, startToggle] = useTransition();
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -218,6 +219,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
   const [isOutOfStock, setIsOutOfStock] = useState(false);
   const [editIsNew, setEditIsNew] = useState(false);
   const [editIsOutOfStock, setEditIsOutOfStock] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [bulkRows, setBulkRows] = useState<BulkRowPreview[]>([]);
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [bulkErrors, setBulkErrors] = useState<string[]>([]);
@@ -686,6 +688,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
         isOutOfStock,
         imageBase64: imageDataUrl,
       });
+      setResultSource("create");
       setResult(response);
       if (response.success) {
         (event.target as HTMLFormElement).reset();
@@ -752,6 +755,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
         imageBase64: editImageDataUrl,
         removeImage: removeEditImage && !editImageDataUrl,
       });
+      setResultSource("edit");
       setResult(response);
       if (response.success) {
         setEditingProduct(null);
@@ -803,6 +807,10 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="outline">{providerSlug || "Proveedor"}</Badge>
+            <Button onClick={() => setShowCreateModal(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Agregar producto
+            </Button>
             <Button
               size="icon"
               variant="outline"
@@ -818,6 +826,18 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
             </Button>
           </div>
         </div>
+
+        {!showCreateModal && result ? (
+          result.success ? (
+            <div className="rounded-lg border border-border/70 bg-secondary/30 p-3 text-sm">
+              {result.message}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-destructive/60 bg-destructive/10 p-3 text-sm text-destructive">
+              {result.errors.join("\n")}
+            </div>
+          )
+        ) : null}
 
         <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
           <CardHeader className="flex flex-row items-center justify-between">
@@ -964,291 +984,285 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
           </CardContent>
         </Card>
 
-        <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
-          <CardHeader>
-            <CardTitle className="text-lg">Agregar producto</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Los productos activos aparecen en el link público de la tienda.
-            </p>
-          </CardHeader>
-          <CardContent>
-            <form className="space-y-4" onSubmit={handleSubmit}>
-              <div className="grid gap-4 sm:grid-cols-3">
+      </main>
+
+      <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
+        <DialogContent className="max-w-4xl max-h-[88vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Agregar producto</DialogTitle>
+            <DialogDescription>
+              Los productos activos aparecen en el link público de la tienda. Carga, recorta y previsualiza antes de
+              guardar.
+            </DialogDescription>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={handleSubmit}>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="name">Nombre</Label>
+                <Input id="name" name="name" required placeholder="Ej: Granola premium" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="price">Precio</Label>
+                <Input id="price" name="price" type="number" step="0.01" min="0" required placeholder="5500" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="discount">Descuento %</Label>
+                <Input
+                  id="discount"
+                  name="discount"
+                  type="number"
+                  min="0"
+                  max="90"
+                  step="1"
+                  value={discount}
+                  onChange={(event) => setDiscount(event.target.value)}
+                  placeholder="0"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Precio final: <span className="font-semibold">{formatCurrency(liveAddPrice)}</span>
+                </p>
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="unit">Unidad</Label>
+                <Input id="unit" name="unit" placeholder="kg, unidad, caja x12" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="brand">Marca</Label>
+                <Input
+                  id="brand"
+                  name="brand"
+                  placeholder="Ej: MiMarca"
+                  value={brandInput}
+                  onChange={(event) => setBrandInput(event.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="category">Categoría</Label>
                 <div className="space-y-2">
-                  <Label htmlFor="name">Nombre</Label>
-                  <Input id="name" name="name" required placeholder="Ej: Granola premium" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="price">Precio</Label>
                   <Input
-                    id="price"
-                    name="price"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    required
-                    placeholder="5500"
+                    id="category"
+                    name="category"
+                    placeholder="Snacks, bebidas..."
+                    value={categoryInput}
+                    list="category-suggestions"
+                    onChange={(event) => setCategoryInput(event.target.value)}
                   />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="discount">Descuento %</Label>
-                  <Input
-                    id="discount"
-                    name="discount"
-                    type="number"
-                    min="0"
-                    max="90"
-                    step="1"
-                    value={discount}
-                    onChange={(event) => setDiscount(event.target.value)}
-                    placeholder="0"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Precio final: <span className="font-semibold">{formatCurrency(liveAddPrice)}</span>
-                  </p>
+                  <datalist id="category-suggestions">
+                    {availableCategories.map((category) => (
+                      <option key={category} value={category} />
+                    ))}
+                  </datalist>
+                  {availableCategories.length ? (
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                      <span className="font-semibold uppercase tracking-wide">Rápidas:</span>
+                      {availableCategories.slice(0, 4).map((category) => (
+                        <Button
+                          key={category}
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="h-7 rounded-full px-3 text-[11px]"
+                          onClick={() => setCategoryInput(category)}
+                        >
+                          {category}
+                        </Button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </div>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="unit">Unidad</Label>
-                  <Input id="unit" name="unit" placeholder="kg, unidad, caja x12" />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex items-center justify-between rounded-lg border border-border/60 bg-secondary/30 px-3 py-2">
+                <div>
+                  <p className="text-sm font-semibold">Marcar como nuevo</p>
+                  <p className="text-xs text-muted-foreground">Destaca el producto con una etiqueta.</p>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="brand">Marca</Label>
-                  <Input
-                    id="brand"
-                    name="brand"
-                    placeholder="Ej: MiMarca"
-                    value={brandInput}
-                    onChange={(event) => setBrandInput(event.target.value)}
-                  />
+                <Switch checked={isNew} onCheckedChange={setIsNew} aria-label="Marcar producto como nuevo" />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-border/60 bg-secondary/30 px-3 py-2">
+                <div>
+                  <p className="text-sm font-semibold">Sin stock</p>
+                  <p className="text-xs text-muted-foreground">Bloquea el agregado en el link público.</p>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="category">Categoría</Label>
-                  <div className="space-y-2">
+                <Switch
+                  checked={isOutOfStock}
+                  onCheckedChange={setIsOutOfStock}
+                  aria-label="Marcar producto sin stock"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="tags">Etiquetas</Label>
+              <div className="space-y-3 rounded-lg border border-border/60 bg-secondary/30 p-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                  <div className="flex flex-1 items-center gap-2">
                     <Input
-                      id="category"
-                      name="category"
-                      placeholder="Snacks, bebidas..."
-                      value={categoryInput}
-                      list="category-suggestions"
-                      onChange={(event) => setCategoryInput(event.target.value)}
+                      id="tags"
+                      value={tagInput}
+                      onChange={(event) => setTagInput(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === ",") {
+                          event.preventDefault();
+                          addTag(tagInput);
+                        }
+                      }}
+                      placeholder="Agrega etiquetas: sin tacc, vegano..."
                     />
-                    <datalist id="category-suggestions">
-                      {availableCategories.map((category) => (
-                        <option key={category} value={category} />
-                      ))}
-                    </datalist>
-                    {availableCategories.length ? (
-                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                        <span className="font-semibold uppercase tracking-wide">Rápidas:</span>
-                        {availableCategories.slice(0, 4).map((category) => (
-                          <Button
-                            key={category}
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            className="h-7 rounded-full px-3 text-[11px]"
-                            onClick={() => setCategoryInput(category)}
-                          >
-                            {category}
-                          </Button>
-                        ))}
-                      </div>
+                    <Button type="button" variant="secondary" size="sm" onClick={() => addTag(tagInput)}>
+                      <Plus className="mr-1 h-4 w-4" />
+                      Añadir
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Sirven para filtrar rápido en el link público. Max 14 etiquetas.
+                  </p>
+                </div>
+                {tags.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {tags.map((tag) => (
+                      <Badge key={tag} variant="secondary" className="gap-1">
+                        #{tag}
+                        <button
+                          type="button"
+                          className="rounded-full p-0.5 hover:bg-background"
+                          onClick={() => removeTag(tag)}
+                          aria-label={`Quitar etiqueta ${tag}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Sin etiquetas todavía.</p>
+                )}
+                {availableTags.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {availableTags.slice(0, 6).map((tag) => (
+                      <Button
+                        key={tag}
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 rounded-full px-3 text-[11px]"
+                        onClick={() => addTag(tag)}
+                      >
+                        #{tag}
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="description">Descripción</Label>
+              <Textarea id="description" name="description" rows={3} placeholder="Notas para el cliente" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="image">Imagen (opcional)</Label>
+              <div className="flex flex-col gap-3 rounded-lg border border-dashed border-border/60 bg-secondary/30 p-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-full bg-primary/10 p-2">
+                      <ImagePlus className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-foreground">Carga y recorta</p>
+                      <p className="text-xs text-muted-foreground">
+                        Ajusta el encuadre (4:3) antes de guardar. Se optimiza a {MAX_IMAGE_SIDE}px máx (&lt;1MB).
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="image"
+                      name="image"
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageInput}
+                      disabled={pendingCreate || optimizingImage}
+                      className="cursor-pointer"
+                    />
+                    {rawImage ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowCropper(true)}
+                        disabled={optimizingImage}
+                      >
+                        Editar recorte
+                      </Button>
+                    ) : null}
+                    {imagePreview ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={clearImage}
+                        aria-label="Quitar imagen"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     ) : null}
                   </div>
                 </div>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="flex items-center justify-between rounded-lg border border-border/60 bg-secondary/30 px-3 py-2">
-                  <div>
-                    <p className="text-sm font-semibold">Marcar como nuevo</p>
-                    <p className="text-xs text-muted-foreground">Destaca el producto con una etiqueta.</p>
-                  </div>
-                  <Switch checked={isNew} onCheckedChange={setIsNew} aria-label="Marcar producto como nuevo" />
-                </div>
-                <div className="flex items-center justify-between rounded-lg border border-border/60 bg-secondary/30 px-3 py-2">
-                  <div>
-                    <p className="text-sm font-semibold">Sin stock</p>
-                    <p className="text-xs text-muted-foreground">Bloquea el agregado en el link público.</p>
-                  </div>
-                  <Switch
-                    checked={isOutOfStock}
-                    onCheckedChange={setIsOutOfStock}
-                    aria-label="Marcar producto sin stock"
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="tags">Etiquetas</Label>
-                <div className="space-y-3 rounded-lg border border-border/60 bg-secondary/30 p-3">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                    <div className="flex flex-1 items-center gap-2">
-                      <Input
-                        id="tags"
-                        value={tagInput}
-                        onChange={(event) => setTagInput(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === ",") {
-                            event.preventDefault();
-                            addTag(tagInput);
-                          }
-                        }}
-                        placeholder="Agrega etiquetas: sin tacc, vegano..."
+                {imageStatus ? <p className="text-xs text-emerald-600 dark:text-emerald-400">{imageStatus}</p> : null}
+                {imageError ? <p className="text-xs text-destructive">{imageError}</p> : null}
+                {imagePreview ? (
+                  <div className="flex items-center gap-3">
+                    <div className="relative h-24 w-32 overflow-hidden rounded-lg border border-border/60 bg-background/60">
+                      <NextImage
+                        src={imagePreview}
+                        alt="Previsualización del producto"
+                        fill
+                        sizes="160px"
+                        className="object-cover"
+                        unoptimized
                       />
-                      <Button type="button" variant="secondary" size="sm" onClick={() => addTag(tagInput)}>
-                        <Plus className="mr-1 h-4 w-4" />
-                        Añadir
-                      </Button>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Sirven para filtrar rápido en el link público. Max 14 etiquetas.
+                      Se guardará optimizada para que la página cargue rápido en mobile.
                     </p>
                   </div>
-                  {tags.length ? (
-                    <div className="flex flex-wrap gap-2">
-                      {tags.map((tag) => (
-                        <Badge key={tag} variant="secondary" className="gap-1">
-                          #{tag}
-                          <button
-                            type="button"
-                            className="rounded-full p-0.5 hover:bg-background"
-                            onClick={() => removeTag(tag)}
-                            aria-label={`Quitar etiqueta ${tag}`}
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">Sin etiquetas todavía.</p>
-                  )}
-                  {availableTags.length ? (
-                    <div className="flex flex-wrap gap-2">
-                      {availableTags.slice(0, 6).map((tag) => (
-                        <Button
-                          key={tag}
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="h-7 rounded-full px-3 text-[11px]"
-                          onClick={() => addTag(tag)}
-                        >
-                          #{tag}
-                        </Button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
+                ) : null}
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="description">Descripción</Label>
-                <Textarea id="description" name="description" rows={3} placeholder="Notas para el cliente" />
+            </div>
+            <div className="flex justify-end">
+              <Button type="submit" disabled={pendingCreate || !providerSlug || optimizingImage}>
+                {pendingCreate ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Guardando...
+                  </span>
+                ) : optimizingImage ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Optimiza imagen...
+                  </span>
+                ) : (
+                  "Crear producto"
+                )}
+              </Button>
+            </div>
+          </form>
+          <Separator className="my-4" />
+          {resultSource === "create" && result ? (
+            result.success ? (
+              <div className="rounded-lg border border-border/70 bg-secondary/30 p-3 text-sm">
+                {result.message}
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="image">Imagen (opcional)</Label>
-                <div className="flex flex-col gap-3 rounded-lg border border-dashed border-border/60 bg-secondary/30 p-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-start gap-3">
-                      <div className="rounded-full bg-primary/10 p-2">
-                        <ImagePlus className="h-4 w-4 text-primary" />
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-sm font-medium text-foreground">Carga y recorta</p>
-                        <p className="text-xs text-muted-foreground">
-                          Ajusta el encuadre (4:3) antes de guardar. Se optimiza a {MAX_IMAGE_SIDE}px máx (&lt;1MB).
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        id="image"
-                        name="image"
-                        type="file"
-                        accept="image/*"
-                        onChange={handleImageInput}
-                        disabled={pendingCreate || optimizingImage}
-                        className="cursor-pointer"
-                      />
-                      {rawImage ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setShowCropper(true)}
-                          disabled={optimizingImage}
-                        >
-                          Editar recorte
-                        </Button>
-                      ) : null}
-                      {imagePreview ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={clearImage}
-                          aria-label="Quitar imagen"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                  {imageStatus ? <p className="text-xs text-emerald-600 dark:text-emerald-400">{imageStatus}</p> : null}
-                  {imageError ? <p className="text-xs text-destructive">{imageError}</p> : null}
-                  {imagePreview ? (
-                    <div className="flex items-center gap-3">
-                      <div className="relative h-24 w-32 overflow-hidden rounded-lg border border-border/60 bg-background/60">
-                        <NextImage
-                          src={imagePreview}
-                          alt="Previsualización del producto"
-                          fill
-                          sizes="160px"
-                          className="object-cover"
-                          unoptimized
-                        />
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Se guardará optimizada para que la página cargue rápido en mobile.
-                      </p>
-                    </div>
-                  ) : null}
-                </div>
+            ) : (
+              <div className="rounded-lg border border-destructive/60 bg-destructive/10 p-3 text-sm text-destructive">
+                {result.errors.join("\n")}
               </div>
-              <div className="flex justify-end">
-                <Button type="submit" disabled={pendingCreate || !providerSlug || optimizingImage}>
-                  {pendingCreate ? (
-                    <span className="inline-flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Guardando...
-                    </span>
-                  ) : optimizingImage ? (
-                    <span className="inline-flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Optimiza imagen...
-                    </span>
-                  ) : (
-                    "Crear producto"
-                  )}
-                </Button>
-              </div>
-            </form>
-            <Separator className="my-4" />
-            {result ? (
-              result.success ? (
-                <div className="rounded-lg border border-border/70 bg-secondary/30 p-3 text-sm">
-                  {result.message}
-                </div>
-              ) : (
-                <div className="rounded-lg border border-destructive/60 bg-destructive/10 p-3 text-sm text-destructive">
-                  {result.errors.join("\n")}
-                </div>
-              )
-            ) : null}
-          </CardContent>
-        </Card>
-      </main>
+            )
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(editingProduct)} onOpenChange={(open) => (!open ? setEditingProduct(null) : null)}>
         <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">

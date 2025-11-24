@@ -3,7 +3,9 @@ import { SubscriptionPageContent } from "./subscription-page";
 export default async function SubscriptionPage({
   searchParams,
 }: {
-  searchParams?: { provider?: string };
+  searchParams?: Promise<{ provider?: string }>;
 }) {
-  return <SubscriptionPageContent searchParams={searchParams} />;
+  const resolvedSearchParams = (await searchParams) ?? undefined;
+
+  return <SubscriptionPageContent searchParams={resolvedSearchParams} />;
 }

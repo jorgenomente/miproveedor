@@ -445,17 +445,21 @@ export default function AdminProvidersPage() {
                                   </>
                                 )}
                               </Button>
-                              {toggleResult[provider.id] && (
-                                <p
-                                  className={`text-[11px] ${
-                                    toggleResult[provider.id]?.success ? "text-emerald-600" : "text-destructive"
-                                  }`}
-                                >
-                                  {toggleResult[provider.id]?.success
-                                    ? toggleResult[provider.id]?.message
-                                    : toggleResult[provider.id]?.errors?.join("\n")}
-                                </p>
-                              )}
+                              {(() => {
+                                const toggleEntry = toggleResult[provider.id];
+                                if (!toggleEntry) return null;
+                                return (
+                                  <p
+                                    className={`text-[11px] ${
+                                      toggleEntry.success ? "text-emerald-600" : "text-destructive"
+                                    }`}
+                                  >
+                                    {toggleEntry.success
+                                      ? toggleEntry.message
+                                      : toggleEntry.errors.join("\n")}
+                                  </p>
+                                );
+                              })()}
                               <Button
                                 size="sm"
                                 variant="secondary"

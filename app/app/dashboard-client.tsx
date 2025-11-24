@@ -1,12 +1,11 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ArrowUpRight, CreditCard, MessageCircle, Package, ShoppingBag, Users } from "lucide-react";
+import { ArrowUpRight, CreditCard, Package, ShoppingBag, Users } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { formatCurrency } from "@/lib/whatsapp";
 
 type Metric = { label: string; value: string; trend?: string };
@@ -103,7 +102,7 @@ export function DashboardClient({
   ];
 
   return (
-    <div className="relative isolate min-h-screen bg-gradient-to-b from-background via-background to-secondary/50 px-4 pb-12 pt-8 sm:px-8">
+    <div className="relative isolate min-h-screen bg-linear-to-b from-background via-background to-secondary/50 px-4 pb-12 pt-8 sm:px-8">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <motion.div
           className="absolute -left-10 top-8 h-52 w-52 rounded-full bg-primary/10 blur-3xl"
@@ -120,17 +119,15 @@ export function DashboardClient({
       </div>
 
       <main className="relative mx-auto flex max-w-6xl flex-col gap-6">
-        <header className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-card/70 p-5 shadow-sm backdrop-blur md:flex-row md:items-center md:justify-between md:gap-6 md:p-6">
+        <header className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-card/70 p-5 shadow-sm backdrop-blur">
           <div>
             <p className="text-sm text-muted-foreground">
               MiProveedor {provider ? `· ${provider.slug}` : ""}
             </p>
             <h1 className="text-2xl font-semibold md:text-3xl">
-              Dashboard de proveedor
+              Panel de control
             </h1>
-            <p className="text-sm text-muted-foreground">
-              Gestiona pedidos, notifica por WhatsApp y mantiene tu catálogo al día.
-            </p>
+        
             {provider ? (
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <Badge variant={subscriptionBadge.variant}>{subscriptionBadge.label}</Badge>
@@ -139,18 +136,22 @@ export function DashboardClient({
               </div>
             ) : null}
           </div>
-          <div className="flex flex-wrap gap-2">
+        </header>
+
+        <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
+          
+          <CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {quickActions.map((action) => (
-              <Button key={action.href} asChild variant="outline">
+              <Button key={action.href} asChild variant="outline" className="justify-start">
                 <Link href={action.href}>
                   {action.icon}
                   <span className="ml-2">{action.label}</span>
-                  <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
+                  <ArrowUpRight className="ml-auto h-3.5 w-3.5" />
                 </Link>
               </Button>
             ))}
-          </div>
-        </header>
+          </CardContent>
+        </Card>
 
         {debug ? (
           <Card className="border-primary/50 bg-primary/5 shadow-sm">
@@ -191,7 +192,7 @@ export function DashboardClient({
           ))}
         </section>
 
-        <section className="grid gap-5 md:grid-cols-[1.5fr_1fr]">
+        <section className="grid gap-5">
           <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg">Pedidos recientes</CardTitle>
@@ -242,38 +243,6 @@ export function DashboardClient({
                   </div>
                 ))
               )}
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
-            <CardHeader>
-              <CardTitle className="text-lg">
-                Notifica por WhatsApp
-              </CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Envía el resumen del pedido al instante. Sin emails.
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between rounded-xl border border-border/70 bg-secondary/40 p-3">
-                <div>
-                  <p className="text-sm font-semibold">
-                    +54 9 11 5555-4422
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Edita este número en Ajustes
-                  </p>
-                </div>
-                <Badge variant="outline">Proveedor</Badge>
-              </div>
-              <Separator />
-              <Button className="w-full" variant="outline">
-                <MessageCircle className="mr-2 h-4 w-4" />
-                Abrir WhatsApp
-              </Button>
-              <Button className="w-full" variant="secondary" asChild>
-                <Link href={`${basePath}/orders`}>Ver pedidos</Link>
-              </Button>
             </CardContent>
           </Card>
         </section>
