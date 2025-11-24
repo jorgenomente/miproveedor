@@ -1,16 +1,20 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { CreditCard, FileUp, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { ORDER_STATUS_LABEL } from "@/lib/order-status";
 import { buildWhatsAppLink, formatCurrency } from "@/lib/whatsapp";
-import { createOrder, type OrderSummaryItem } from "./actions";
+import { WEEKDAYS, pickNextDelivery, type DeliveryRule } from "@/lib/delivery-windows";
+import { createOrder, updatePaymentProof, type OrderSummaryItem } from "./actions";
 
 export type Product = {
   id: string;
@@ -43,6 +47,34 @@ export type Client = {
   address?: string;
 };
 
+export type PaymentSettings = {
+  cashEnabled: boolean;
+  transferEnabled: boolean;
+  transferAlias?: string | null;
+  transferCbu?: string | null;
+  transferNotes?: string | null;
+};
+
+export type PublicOrderHistory = {
+  id: string;
+  status: string;
+  paymentMethod?: "efectivo" | "transferencia" | null;
+  paymentProofStatus?: "no_aplica" | "pendiente" | "subido" | null;
+  paymentProofUrl?: string | null;
+  total?: number | null;
+  createdAt?: string | null;
+  deliveryDate?: string | null;
+  deliveryRuleId?: string | null;
+  cutoffDate?: string | null;
+  items?: {
+    productName: string;
+    unit?: string | null;
+    quantity: number;
+    unitPrice: number;
+    subtotal: number;
+  }[];
+};
+
 type SummaryItem = {
   id: string;
   name: string;
@@ -55,13 +87,38 @@ type Props = {
   provider: Provider;
   client: Client;
   products: Product[];
+  paymentSettings: PaymentSettings;
+  deliveryRules: DeliveryRule[];
+  history: PublicOrderHistory[];
 };
 
-export function ClientOrder({ provider, client, products }: Props) {
+export function ClientOrder({ provider, client, products, paymentSettings, history, deliveryRules }: Props) {
+  const defaultPaymentMethod =
+    paymentSettings.cashEnabled && !paymentSettings.transferEnabled
+      ? "efectivo"
+      : !paymentSettings.cashEnabled && paymentSettings.transferEnabled
+        ? "transferencia"
+        : paymentSettings.cashEnabled
+          ? "efectivo"
+          : "";
+
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [contactName, setContactName] = useState(() => client.contactName ?? "");
   const [contactPhone, setContactPhone] = useState(() => client.contactPhone ?? "");
   const [deliveryMethod, setDeliveryMethod] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"efectivo" | "transferencia" | "">(defaultPaymentMethod as
+    | "efectivo"
+    | "transferencia"
+    | "");
+  const [paymentProofData, setPaymentProofData] = useState<{
+    filename: string;
+    contentType: string;
+    base64: string;
+    size: number;
+  } | null>(null);
+  const [paymentProofPreview, setPaymentProofPreview] = useState<string | null>(null);
+  const [paymentProofError, setPaymentProofError] = useState<string | null>(null);
+  const [uploadingProofFor, setUploadingProofFor] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [orderSent, setOrderSent] = useState(false);
   const [pendingOrder, startOrder] = useTransition();
@@ -69,8 +126,11 @@ export function ClientOrder({ provider, client, products }: Props) {
   const [serverTotal, setServerTotal] = useState<number | null>(null);
   const [orderId, setOrderId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [confirmedDeliveryDate, setConfirmedDeliveryDate] = useState<string | null>(null);
+  const [confirmedCutoffDate, setConfirmedCutoffDate] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [historyItems, setHistoryItems] = useState<PublicOrderHistory[]>(history);
   const safeQuantities = useMemo(() => {
     const outIds = new Set(products.filter((product) => product.is_out_of_stock).map((p) => p.id));
     if (!outIds.size) return quantities;
@@ -128,6 +188,246 @@ export function ClientOrder({ provider, client, products }: Props) {
 
   const hasFilters = Boolean(activeCategory || activeTag);
 
+  const availablePaymentMethods = useMemo(() => {
+    const methods: ("efectivo" | "transferencia")[] = [];
+    if (paymentSettings.cashEnabled) methods.push("efectivo");
+    if (paymentSettings.transferEnabled) methods.push("transferencia");
+    return methods;
+  }, [paymentSettings]);
+
+const paymentStatusLabel: Record<string, { label: string; tone: "muted" | "warn" | "ok" }> = {
+  no_aplica: { label: "A pagar en la entrega", tone: "muted" },
+  pendiente: { label: "Comprobante pendiente", tone: "warn" },
+  subido: { label: "Comprobante cargado", tone: "ok" },
+};
+
+  const statusBadge: Record<string, string> = {
+    nuevo: "bg-primary/10 text-primary",
+    preparando: "bg-amber-500/10 text-amber-700 dark:text-amber-200",
+    enviado: "bg-blue-500/10 text-blue-700 dark:text-blue-200",
+    entregado: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-200",
+    cancelado: "bg-destructive/10 text-destructive",
+  };
+
+  const deliverySlot = useMemo(() => {
+    if (!deliveryRules.length) return null;
+    return pickNextDelivery(deliveryRules, new Date());
+  }, [deliveryRules]);
+
+  const formatDayLabel = useCallback((value?: string | null | Date) => {
+    if (!value) return null;
+    const date = value instanceof Date ? value : new Date(value);
+    return date.toLocaleDateString("es-AR", { weekday: "long", month: "short", day: "numeric" });
+  }, []);
+
+  const formatTimeLabel = useCallback((value?: string | null | Date) => {
+    if (!value) return null;
+    const date = value instanceof Date ? value : new Date(value);
+    return date.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+  }, []);
+
+  const formatDateTime = (value?: string | null) =>
+    value
+      ? new Date(value).toLocaleString("es-AR", { dateStyle: "medium", timeStyle: "short" })
+      : "Fecha no disponible";
+
+  const isCompleted = (order: PublicOrderHistory) =>
+    order.status === "entregado" &&
+    (order.paymentMethod !== "transferencia" || order.paymentProofStatus === "subido");
+
+  const pendingHistory = useMemo(
+    () => historyItems.filter((item) => !isCompleted(item)),
+    [historyItems],
+  );
+  const completedHistory = useMemo(
+    () => historyItems.filter((item) => isCompleted(item)),
+    [historyItems],
+  );
+
+  const uploadHistoryProof = async (orderId: string, file?: File | null) => {
+    if (!file) return;
+    try {
+      setUploadingProofFor(orderId);
+      const { payload, preview } = await compressProofFile(file);
+      const response = await updatePaymentProof({
+        providerSlug: provider.slug,
+        clientSlug: client.slug,
+        orderId,
+        paymentProof: payload,
+      });
+
+      if (!response.success) {
+        setFormError(response.errors.join("\n"));
+        return;
+      }
+
+      setHistoryItems((prev) =>
+        prev.map((item) =>
+          item.id === orderId
+            ? {
+                ...item,
+                paymentProofStatus: response.paymentProofStatus,
+                paymentProofUrl: response.paymentProofUrl ?? preview ?? item.paymentProofUrl ?? null,
+              }
+            : item,
+        ),
+      );
+    } catch (err) {
+      setFormError((err as Error).message);
+    } finally {
+      setUploadingProofFor(null);
+    }
+  };
+
+  const handleProofFile = async (file?: File | null) => {
+    setPaymentProofError(null);
+    if (!file) {
+      setPaymentProofData(null);
+      setPaymentProofPreview(null);
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setPaymentProofError("El comprobante no puede superar los 5MB.");
+      setPaymentProofData(null);
+      setPaymentProofPreview(null);
+      return;
+    }
+
+    const allowedType =
+      file.type?.startsWith("image/") || file.type === "application/pdf" || file.type?.includes("pdf");
+
+    if (!allowedType) {
+      setPaymentProofError("Sube una imagen o PDF.");
+      setPaymentProofData(null);
+      setPaymentProofPreview(null);
+      return;
+    }
+
+    const compressImage = async (source: File): Promise<{ dataUrl: string; contentType: string }> => {
+      if (!source.type.startsWith("image/")) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve({ dataUrl: typeof reader.result === "string" ? reader.result : "", contentType: source.type || "application/pdf" });
+          reader.onerror = () => reject(new Error("No se pudo leer el archivo"));
+          reader.readAsDataURL(source);
+        });
+      }
+
+      const imageDataUrl: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+        reader.onerror = () => reject(new Error("No se pudo leer la imagen"));
+        reader.readAsDataURL(source);
+      });
+
+      const img = document.createElement("img");
+      img.src = imageDataUrl;
+
+      await new Promise((resolve, reject) => {
+        img.onload = () => resolve(true);
+        img.onerror = () => reject(new Error("No se pudo procesar la imagen"));
+      });
+
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return { dataUrl: imageDataUrl, contentType: source.type || "image/jpeg" };
+
+      const maxSize = 1400;
+      let { width, height } = img;
+      if (width > maxSize || height > maxSize) {
+        const ratio = Math.min(maxSize / width, maxSize / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+      canvas.width = width;
+      canvas.height = height;
+      ctx.drawImage(img, 0, 0, width, height);
+
+      const compressed = canvas.toDataURL("image/webp", 0.55);
+      return { dataUrl: compressed, contentType: "image/webp" };
+    };
+
+    const { dataUrl, contentType } = await compressImage(file);
+
+    const [, base64Content] = dataUrl.split(",");
+    const base64Clean = (base64Content || dataUrl || "").replace(/^data:[^,]+,/, "");
+
+    setPaymentProofData({
+      filename: file.name,
+      contentType: contentType || file.type || "application/octet-stream",
+      base64: base64Clean,
+      size: file.size,
+    });
+    setPaymentProofPreview(contentType.startsWith("image/") ? dataUrl : null);
+  };
+
+  const compressProofFile = async (file: File) => {
+    const allowedType =
+      file.type?.startsWith("image/") || file.type === "application/pdf" || file.type?.includes("pdf");
+    if (!allowedType) throw new Error("Sube una imagen o PDF.");
+    if (file.size > 5 * 1024 * 1024) throw new Error("El comprobante no puede superar los 5MB.");
+
+    const compressImage = async (source: File): Promise<{ dataUrl: string; contentType: string }> => {
+      if (!source.type.startsWith("image/")) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () =>
+            resolve({ dataUrl: typeof reader.result === "string" ? reader.result : "", contentType: source.type || "application/pdf" });
+          reader.onerror = () => reject(new Error("No se pudo leer el archivo"));
+          reader.readAsDataURL(source);
+        });
+      }
+
+      const imageDataUrl: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+        reader.onerror = () => reject(new Error("No se pudo leer la imagen"));
+        reader.readAsDataURL(source);
+      });
+
+      const img = document.createElement("img");
+      img.src = imageDataUrl;
+
+      await new Promise((resolve, reject) => {
+        img.onload = () => resolve(true);
+        img.onerror = () => reject(new Error("No se pudo procesar la imagen"));
+      });
+
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return { dataUrl: imageDataUrl, contentType: source.type || "image/jpeg" };
+
+      const maxSize = 1400;
+      let { width, height } = img;
+      if (width > maxSize || height > maxSize) {
+        const ratio = Math.min(maxSize / width, maxSize / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+      canvas.width = width;
+      canvas.height = height;
+      ctx.drawImage(img, 0, 0, width, height);
+
+      const compressed = canvas.toDataURL("image/webp", 0.55);
+      return { dataUrl: compressed, contentType: "image/webp" };
+    };
+
+    const { dataUrl, contentType } = await compressImage(file);
+    const [, base64Content] = dataUrl.split(",");
+    const base64Clean = (base64Content || dataUrl || "").replace(/^data:[^,]+,/, "");
+
+    return {
+      payload: {
+        filename: file.name,
+        contentType: contentType || file.type || "application/octet-stream",
+        base64: base64Clean,
+        size: file.size,
+      },
+      preview: contentType.startsWith("image/") ? dataUrl : null,
+    };
+  };
+
   const summaryItems: SummaryItem[] =
     serverItems?.map((item) => ({
       id: item.productId,
@@ -154,6 +454,13 @@ export function ClientOrder({ provider, client, products }: Props) {
     contactPhone,
     deliveryMethod,
     note,
+    paymentMethod: (paymentMethod || undefined) as "efectivo" | "transferencia" | undefined,
+    paymentProofStatus:
+      paymentMethod === "transferencia"
+        ? paymentProofData
+          ? "subido"
+          : "pendiente"
+        : "no_aplica",
     items: summaryItems.map((item) => ({
       name: item.name,
       quantity: item.quantity,
@@ -444,12 +751,86 @@ export function ClientOrder({ provider, client, products }: Props) {
               <span>Total estimado</span>
               <span>{formatCurrency(total)}</span>
             </div>
+            <div className="rounded-lg border border-border/60 bg-secondary/30 p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] font-semibold uppercase text-muted-foreground">Entrega estimada</p>
+                {deliverySlot ? (
+                  <Badge variant="outline" className="text-[11px]">
+                    Corte {formatTimeLabel(deliverySlot.cutoffDate)} · {WEEKDAYS[deliverySlot.cutoffDate.getDay()]}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-[11px] text-destructive">
+                    Sin reglas
+                  </Badge>
+                )}
+              </div>
+              {deliverySlot ? (
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold leading-tight">
+                    Se agenda para {formatDayLabel(deliverySlot.deliveryDate)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Ventana actual: {WEEKDAYS[deliverySlot.windowStartDate.getDay()]} {formatTimeLabel(deliverySlot.windowStartDate)} →{" "}
+                    {WEEKDAYS[deliverySlot.cutoffDate.getDay()]} {formatTimeLabel(deliverySlot.cutoffDate)}.
+                  </p>
+                  {confirmedDeliveryDate ? (
+                    <p className="text-xs text-emerald-600 dark:text-emerald-300">
+                      Tu pedido se guardó para {formatDayLabel(confirmedDeliveryDate)}.
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-xs text-destructive">
+                  El proveedor aún no configuró horarios de entrega, avísale o vuelve más tarde.
+                </p>
+              )}
+            </div>
+            <div className="rounded-lg border border-border/60 bg-secondary/30 p-3">
+              <p className="text-[11px] font-semibold uppercase text-muted-foreground">Pago seleccionado</p>
+              <div className="mt-1 flex items-center gap-2 text-sm">
+                {paymentMethod === "transferencia" ? (
+                  <CreditCard className="h-4 w-4 text-primary" />
+                ) : paymentMethod === "efectivo" ? (
+                  <Wallet className="h-4 w-4 text-primary" />
+                ) : null}
+                <span className="font-semibold">
+                  {paymentMethod === "transferencia"
+                    ? "Transferencia"
+                    : paymentMethod === "efectivo"
+                      ? "Efectivo"
+                      : "Elegí un método de pago"}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {paymentMethod === "transferencia"
+                  ? "Podrás adjuntar o enviar luego el comprobante."
+                  : paymentMethod === "efectivo"
+                    ? "Marcaremos el pedido como a pagar al recibir."
+                    : "Selecciona un método para continuar."}
+              </p>
+            </div>
 
             <form
               className="space-y-3 pt-2"
               onSubmit={(event) => {
                 event.preventDefault();
                 if (items.length === 0) return;
+                if (!paymentMethod) {
+                  setFormError("Selecciona un método de pago.");
+                  return;
+                }
+                if (!availablePaymentMethods.includes(paymentMethod as "efectivo" | "transferencia")) {
+                  setFormError("El proveedor desactivó este método de pago.");
+                  return;
+                }
+                if (paymentProofError) {
+                  setFormError(paymentProofError);
+                  return;
+                }
+                if (!deliverySlot) {
+                  setFormError("El proveedor todavía no configuró las ventanas de entrega.");
+                  return;
+                }
                 setFormError(null);
                 startOrder(async () => {
                   const response = await createOrder({
@@ -457,7 +838,9 @@ export function ClientOrder({ provider, client, products }: Props) {
                     clientSlug: client.slug,
                     contactName,
                     contactPhone,
-                    deliveryMethod,
+                    deliveryMethod: deliveryMethod || undefined,
+                    paymentMethod: paymentMethod as "efectivo" | "transferencia",
+                    paymentProof: paymentMethod === "transferencia" ? paymentProofData ?? undefined : undefined,
                     note,
                     items: items.map((item) => ({
                       productId: item.id,
@@ -469,6 +852,32 @@ export function ClientOrder({ provider, client, products }: Props) {
                     setServerItems(response.items);
                     setServerTotal(response.total);
                     setOrderId(response.orderId);
+                    setConfirmedDeliveryDate(response.deliveryDate ?? null);
+                    setConfirmedCutoffDate(response.cutoffDate ?? null);
+                    setPaymentProofData(null);
+                    setPaymentProofPreview(null);
+                    setHistoryItems((prev) => [
+                      {
+                        id: response.orderId,
+                        status: "nuevo",
+                        paymentMethod: response.paymentMethod,
+                        paymentProofStatus: response.paymentProofStatus,
+                        paymentProofUrl: response.paymentProofUrl ?? null,
+                        total: response.total,
+                        deliveryDate: response.deliveryDate ?? null,
+                        deliveryRuleId: response.deliveryRuleId ?? null,
+                        cutoffDate: response.cutoffDate ?? null,
+                        items: response.items.map((item) => ({
+                          productName: item.name,
+                          unit: item.unit,
+                          quantity: item.quantity,
+                          unitPrice: item.unitPrice,
+                          subtotal: item.unitPrice * item.quantity,
+                        })),
+                        createdAt: new Date().toISOString(),
+                      },
+                      ...prev,
+                    ]);
                     setOrderSent(true);
                   } else {
                     setFormError(response.errors.join("\n"));
@@ -500,12 +909,115 @@ export function ClientOrder({ provider, client, products }: Props) {
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="deliveryMethod">Método de entrega</Label>
-                <Input
-                  id="deliveryMethod"
-                  placeholder="Retiro o envío"
-                  value={deliveryMethod}
-                  onChange={(event) => setDeliveryMethod(event.target.value)}
-                />
+                <Select
+                  value={deliveryMethod || "none"}
+                  onValueChange={(value) =>
+                    setDeliveryMethod(value === "none" ? "" : (value as "retiro" | "envio"))
+                  }
+                >
+                  <SelectTrigger id="deliveryMethod">
+                    <SelectValue placeholder="Selecciona entrega" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sin especificar</SelectItem>
+                    <SelectItem value="retiro">Retiro</SelectItem>
+                    <SelectItem value="envio">Envío</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="paymentMethod">Método de pago</Label>
+                <Select
+                  value={paymentMethod || "none"}
+                  onValueChange={(value) => {
+                    const normalized = value === "none" ? "" : (value as "efectivo" | "transferencia");
+                    setPaymentMethod(normalized);
+                    if (normalized !== "transferencia") {
+                      setPaymentProofData(null);
+                      setPaymentProofPreview(null);
+                      setPaymentProofError(null);
+                    }
+                  }}
+                  disabled={availablePaymentMethods.length === 0}
+                >
+                  <SelectTrigger id="paymentMethod">
+                    <SelectValue
+                      placeholder={
+                        availablePaymentMethods.length === 0
+                          ? "Sin métodos activos"
+                          : "Selecciona pago"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availablePaymentMethods.length === 0 ? (
+                      <SelectItem value="none" disabled>
+                        El proveedor no tiene pagos activos
+                      </SelectItem>
+                    ) : null}
+                    {paymentSettings.cashEnabled ? <SelectItem value="efectivo">Efectivo</SelectItem> : null}
+                    {paymentSettings.transferEnabled ? (
+                      <SelectItem value="transferencia">Transferencia</SelectItem>
+                    ) : null}
+                  </SelectContent>
+                </Select>
+                {paymentMethod === "efectivo" ? (
+                  <p className="text-xs text-muted-foreground">
+                    Marcaremos el pedido como <span className="font-semibold">“A pagar en la entrega”</span>.
+                  </p>
+                ) : null}
+                {paymentMethod === "transferencia" ? (
+                  <div className="space-y-3 rounded-lg border border-border/60 bg-secondary/30 p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold uppercase text-muted-foreground">Datos de transferencia</p>
+                      <Badge variant="outline" className="flex items-center gap-1 text-[11px]">
+                        <CreditCard className="h-3.5 w-3.5" />
+                        Transferencia
+                      </Badge>
+                    </div>
+                    {paymentSettings.transferAlias ? (
+                      <p className="text-sm font-semibold">Alias: {paymentSettings.transferAlias}</p>
+                    ) : null}
+                    {paymentSettings.transferCbu ? (
+                      <p className="text-sm font-semibold">CBU/CVU: {paymentSettings.transferCbu}</p>
+                    ) : null}
+                    {!paymentSettings.transferAlias && !paymentSettings.transferCbu ? (
+                      <p className="text-xs text-muted-foreground">El proveedor no cargó alias/CBU.</p>
+                    ) : null}
+                    {paymentSettings.transferNotes ? (
+                      <p className="text-xs text-muted-foreground">{paymentSettings.transferNotes}</p>
+                    ) : null}
+                    <div className="space-y-2">
+                      <Label htmlFor="paymentProof" className="text-xs">
+                        Comprobante (opcional)
+                      </Label>
+                      <Input
+                        id="paymentProof"
+                        type="file"
+                        accept="image/*,application/pdf"
+                        onChange={(event) => void handleProofFile(event.target.files?.[0])}
+                      />
+                      {paymentProofPreview ? (
+                        <div className="overflow-hidden rounded-lg border border-border/60 bg-card/80">
+                          <img src={paymentProofPreview} alt="Comprobante de pago" className="w-full object-cover" />
+                        </div>
+                      ) : paymentProofData ? (
+                        <div className="flex items-center gap-2 rounded-md border border-border/60 bg-card/70 px-2 py-1 text-xs">
+                          <FileUp className="h-4 w-4 text-primary" />
+                          <span className="truncate">{paymentProofData.filename}</span>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Puedes subir la captura ahora o enviarla luego por WhatsApp.
+                        </p>
+                      )}
+                      {paymentProofError ? (
+                        <p className="text-xs text-destructive">{paymentProofError}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="note">Nota del pedido</Label>
@@ -517,7 +1029,7 @@ export function ClientOrder({ provider, client, products }: Props) {
                   rows={3}
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={items.length === 0}>
+              <Button type="submit" className="w-full" disabled={items.length === 0 || !deliverySlot}>
                 {pendingOrder ? "Enviando..." : "Enviar pedido"}
               </Button>
             </form>
@@ -565,6 +1077,300 @@ export function ClientOrder({ provider, client, products }: Props) {
             </AnimatePresence>
           </motion.aside>
         </section>
+
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, ease: "easeOut", delay: 0.1 }}
+          className="space-y-4 rounded-2xl border border-border/60 bg-card/80 p-4 shadow-sm backdrop-blur"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold">Historial de pedidos</h3>
+              <p className="text-sm text-muted-foreground">
+                Revisa estados anteriores y el estado del comprobante.
+              </p>
+            </div>
+            <Badge variant="secondary">{historyItems.length} pedidos</Badge>
+          </div>
+          <Separator />
+          {historyItems.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Aún no hay pedidos registrados para esta tienda.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold">Pendientes</h4>
+                  <Badge variant="outline">{pendingHistory.length}</Badge>
+                </div>
+                {pendingHistory.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Sin pedidos pendientes.</p>
+                ) : (
+                  pendingHistory.map((order, index) => {
+                    const paymentStatus =
+                      paymentStatusLabel[order.paymentProofStatus ?? "no_aplica"] ??
+                      paymentStatusLabel.no_aplica;
+                    const paymentLabel =
+                      order.paymentMethod === "transferencia"
+                        ? "Transferencia"
+                        : order.paymentMethod === "efectivo"
+                          ? "Efectivo"
+                          : "Pago";
+                    const statusText =
+                      order.status === "entregado"
+                        ? "Completado"
+                        : ORDER_STATUS_LABEL[order.status as keyof typeof ORDER_STATUS_LABEL] ?? order.status;
+                    return (
+                      <motion.div
+                        key={order.id}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.03 }}
+                        className="space-y-2 rounded-xl border border-border/60 bg-secondary/30 px-3 py-3"
+                      >
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="space-y-1">
+                            <p className="text-sm font-semibold">
+                              Pedido #{order.id.slice(0, 8)} · {formatCurrency(order.total ?? 0)}
+                            </p>
+                            <p className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadge[order.status] ?? "bg-border text-foreground"}`}
+                            >
+                              {statusText}
+                            </span>
+                            <Badge variant="outline" className="flex items-center gap-1 text-xs">
+                              {order.paymentMethod === "transferencia" ? (
+                                <CreditCard className="h-3.5 w-3.5" />
+                              ) : (
+                                <Wallet className="h-3.5 w-3.5" />
+                              )}
+                              {paymentLabel}
+                            </Badge>
+                            <Badge
+                              variant={
+                                paymentStatus.tone === "ok"
+                                  ? "secondary"
+                                  : paymentStatus.tone === "warn"
+                                    ? "outline"
+                                    : "outline"
+                              }
+                              className={
+                                paymentStatus.tone === "warn"
+                                  ? "border-amber-400/60 text-amber-700 dark:text-amber-200"
+                                  : paymentStatus.tone === "ok"
+                                    ? "border-emerald-500/60 text-emerald-700 dark:text-emerald-200"
+                                    : ""
+                              }
+                            >
+                              {paymentStatus.label}
+                            </Badge>
+                            {order.paymentProofUrl ? (
+                              <Button asChild size="sm" variant="ghost" className="text-xs">
+                                <a href={order.paymentProofUrl} target="_blank" rel="noreferrer">
+                                  Ver comprobante
+                                </a>
+                              </Button>
+                            ) : null}
+                            <Button asChild size="sm" variant="outline" className="text-xs">
+                              <a
+                                href={`/${provider.slug}/${client.slug}/orders/${order.id}/receipt`}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                Imprimir remito
+                              </a>
+                            </Button>
+                          </div>
+                        </div>
+                        {order.items?.length ? (
+                          <div className="overflow-hidden rounded-lg border border-border/60 bg-card/70">
+                            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-4">
+                              <span>Producto</span>
+                              <span className="text-right">Cant.</span>
+                              <span className="text-right">P. unit</span>
+                              <span className="text-right">Subtotal</span>
+                            </div>
+                            {order.items.map((item, idx) => (
+                              <motion.div
+                                key={`${order.id}-${idx}`}
+                                initial={{ opacity: 0, y: 6 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: idx * 0.02 }}
+                                className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 px-3 py-2 text-sm sm:px-4"
+                              >
+                                <div>
+                                  <p className="font-medium">{item.productName}</p>
+                                  <p className="text-xs text-muted-foreground">{item.unit ?? "Unidad"}</p>
+                                </div>
+                                <p className="text-right">{item.quantity}</p>
+                                <p className="text-right">{formatCurrency(item.unitPrice)}</p>
+                                <p className="text-right font-semibold">{formatCurrency(item.subtotal)}</p>
+                              </motion.div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">Sin detalle disponible.</p>
+                        )}
+                        {order.paymentMethod === "transferencia" && order.paymentProofStatus !== "subido" ? (
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            <Label
+                              htmlFor={`proof-${order.id}`}
+                              className="flex cursor-pointer items-center gap-2 rounded-md border border-border/60 bg-card/70 px-3 py-2 text-sm font-medium text-foreground hover:bg-card/90"
+                            >
+                              <FileUp className="h-4 w-4 text-primary" />
+                              Cargar comprobante
+                            </Label>
+                            <input
+                              id={`proof-${order.id}`}
+                              type="file"
+                              accept="image/*,application/pdf"
+                              className="hidden"
+                              onChange={(event) => void uploadHistoryProof(order.id, event.target.files?.[0] ?? null)}
+                            />
+                            {uploadingProofFor === order.id ? (
+                              <span className="text-xs text-primary">Subiendo...</span>
+                            ) : (
+                              <span>Estado: {paymentStatus.label}</span>
+                            )}
+                          </div>
+                        ) : null}
+                      </motion.div>
+                    );
+                  })
+                )}
+              </div>
+
+              <Separator />
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold">Completados</h4>
+                  <Badge variant="outline">{completedHistory.length}</Badge>
+                </div>
+                {completedHistory.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Sin pedidos completados.</p>
+                ) : (
+                  completedHistory.map((order, index) => {
+                    const paymentStatus =
+                      paymentStatusLabel[order.paymentProofStatus ?? "no_aplica"] ??
+                      paymentStatusLabel.no_aplica;
+                    const paymentLabel =
+                      order.paymentMethod === "transferencia"
+                        ? "Transferencia"
+                        : order.paymentMethod === "efectivo"
+                          ? "Efectivo"
+                          : "Pago";
+                    const statusText =
+                      order.status === "entregado"
+                        ? "Completado"
+                        : ORDER_STATUS_LABEL[order.status as keyof typeof ORDER_STATUS_LABEL] ?? order.status;
+                    return (
+                      <motion.div
+                        key={order.id}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.02 }}
+                        className="space-y-2 rounded-xl border border-border/60 bg-secondary/20 px-3 py-3"
+                      >
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="space-y-1">
+                            <p className="text-sm font-semibold">
+                              Pedido #{order.id.slice(0, 8)} · {formatCurrency(order.total ?? 0)}
+                            </p>
+                            <p className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadge[order.status] ?? "bg-border text-foreground"}`}
+                            >
+                              {statusText}
+                            </span>
+                            <Badge variant="outline" className="flex items-center gap-1 text-xs">
+                              {order.paymentMethod === "transferencia" ? (
+                                <CreditCard className="h-3.5 w-3.5" />
+                              ) : (
+                                <Wallet className="h-3.5 w-3.5" />
+                              )}
+                              {paymentLabel}
+                            </Badge>
+                            <Badge
+                              variant={
+                                paymentStatus.tone === "ok"
+                                  ? "secondary"
+                                  : paymentStatus.tone === "warn"
+                                    ? "outline"
+                                    : "outline"
+                              }
+                              className={
+                                paymentStatus.tone === "warn"
+                                  ? "border-amber-400/60 text-amber-700 dark:text-amber-200"
+                                  : paymentStatus.tone === "ok"
+                                    ? "border-emerald-500/60 text-emerald-700 dark:text-emerald-200"
+                                    : ""
+                              }
+                            >
+                              {paymentStatus.label}
+                            </Badge>
+                            {order.paymentProofUrl ? (
+                              <Button asChild size="sm" variant="ghost" className="text-xs">
+                                <a href={order.paymentProofUrl} target="_blank" rel="noreferrer">
+                                  Ver comprobante
+                                </a>
+                              </Button>
+                            ) : null}
+                            <Button asChild size="sm" variant="outline" className="text-xs">
+                              <a
+                                href={`/${provider.slug}/${client.slug}/orders/${order.id}/receipt`}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                Imprimir remito
+                              </a>
+                            </Button>
+                          </div>
+                        </div>
+                        {order.items?.length ? (
+                          <div className="overflow-hidden rounded-lg border border-border/60 bg-card/70">
+                            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-4">
+                              <span>Producto</span>
+                              <span className="text-right">Cant.</span>
+                              <span className="text-right">P. unit</span>
+                              <span className="text-right">Subtotal</span>
+                            </div>
+                            {order.items.map((item, idx) => (
+                              <motion.div
+                                key={`${order.id}-${idx}`}
+                                initial={{ opacity: 0, y: 6 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: idx * 0.02 }}
+                                className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 px-3 py-2 text-sm sm:px-4"
+                              >
+                                <div>
+                                  <p className="font-medium">{item.productName}</p>
+                                  <p className="text-xs text-muted-foreground">{item.unit ?? "Unidad"}</p>
+                                </div>
+                                <p className="text-right">{item.quantity}</p>
+                                <p className="text-right">{formatCurrency(item.unitPrice)}</p>
+                                <p className="text-right font-semibold">{formatCurrency(item.subtotal)}</p>
+                              </motion.div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">Sin detalle disponible.</p>
+                        )}
+                      </motion.div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+        </motion.section>
       </main>
     </div>
   );

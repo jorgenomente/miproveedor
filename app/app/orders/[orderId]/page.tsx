@@ -14,6 +14,7 @@ export default async function OrderDetailPage(props: PageProps) {
   const params = await props.params;
   const orderId = params.orderId;
   const searchParams = props.searchParams ? await props.searchParams : undefined;
+  const providerSlug = searchParams?.provider;
 
   const detail = await getOrderDetail(orderId);
   if (!detail.success) {
@@ -26,7 +27,7 @@ export default async function OrderDetailPage(props: PageProps) {
     );
   }
 
-  const backHref = searchParams?.provider ? `/app/${searchParams.provider}/orders` : "/app/orders";
+  const backHref = providerSlug ? `/app/orders?provider=${providerSlug}` : "/app/orders";
 
   return <OrderDetailClient order={detail.order} backHref={backHref} />;
 }

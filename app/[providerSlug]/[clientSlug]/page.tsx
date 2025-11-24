@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { getDemoData } from "@/lib/demo-data";
-import { ClientOrder, type Client, type Product, type Provider } from "./client-order";
+import { type DeliveryRule } from "@/lib/delivery-windows";
+import { ClientOrder, type Client, type PaymentSettings, type Product, type Provider, type PublicOrderHistory } from "./client-order";
 
 export const dynamic = "force-dynamic";
 
@@ -8,10 +9,21 @@ type LoadedData =
   | {
       provider: Provider;
       client: Client;
-  products: Product[];
+      products: Product[];
+      paymentSettings: PaymentSettings;
+      history: PublicOrderHistory[];
+      deliveryRules: DeliveryRule[];
       error?: undefined;
     }
-  | { provider?: undefined; client?: undefined; products?: undefined; error: string };
+  | {
+      provider?: undefined;
+      client?: undefined;
+      products?: undefined;
+      paymentSettings?: undefined;
+      history?: undefined;
+      deliveryRules?: undefined;
+      error: string;
+    };
 
 async function fetchData(params: { providerSlug: string; clientSlug: string }): Promise<LoadedData> {
   if (params.providerSlug === "demo") {
@@ -26,6 +38,38 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
     if (!client) {
       return { error: "Tienda demo no encontrada." };
     }
+    const demoDeliveryRules: DeliveryRule[] = [
+      { id: "demo-rule-1", cutoffWeekday: 2, cutoffTimeMinutes: 20 * 60, deliveryWeekday: 5, deliveryTimeMinutes: 10 * 60 },
+      { id: "demo-rule-2", cutoffWeekday: 6, cutoffTimeMinutes: 20 * 60, deliveryWeekday: 2, deliveryTimeMinutes: 10 * 60 },
+    ];
+    const paymentSettings: PaymentSettings = {
+      cashEnabled: true,
+      transferEnabled: true,
+      transferAlias: "ALIAS.DEMO",
+      transferCbu: "0000000000000000000000",
+      transferNotes: "Envía tu comprobante por WhatsApp o súbelo al enviar el pedido.",
+    };
+
+    const history: PublicOrderHistory[] = demo.orders
+      .filter((order) => order.clientSlug === params.clientSlug)
+      .map((order) => ({
+        id: order.id,
+        status: order.status,
+        paymentMethod: order.paymentMethod ?? "efectivo",
+        paymentProofStatus: order.paymentProofStatus ?? "no_aplica",
+        total: order.total,
+        createdAt: order.createdAt,
+        items:
+          order.displayItems ??
+          order.items.map((item) => ({
+            productName: item.name,
+            unit: item.unit,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            subtotal: item.unitPrice * item.quantity,
+          })),
+      }));
+
     return {
       provider,
       client: {
@@ -36,6 +80,7 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
         contactPhone: client.contact_phone ?? undefined,
         address: client.address ?? undefined,
       },
+      deliveryRules: demoDeliveryRules,
       products: demo.products.map((product) => {
         const basePrice = Number(product.price ?? 0);
         const discount = Number(product.discount_percent ?? 0);
@@ -55,8 +100,11 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
           is_out_of_stock: product.is_out_of_stock ?? false,
         };
       }),
-    };
-  }
+    paymentSettings,
+    deliveryRules,
+    history,
+  };
+}
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
@@ -116,6 +164,96 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
     };
   }
 
+  const { data: paymentSettingsRow } = await supabase
+    .from("provider_payment_settings")
+    .select("cash_enabled, transfer_enabled, transfer_alias, transfer_cbu, transfer_notes")
+    .eq("provider_id", provider.id)
+    .maybeSingle();
+
+  const paymentSettings: PaymentSettings = {
+    cashEnabled: paymentSettingsRow?.cash_enabled ?? true,
+    transferEnabled: paymentSettingsRow?.transfer_enabled ?? true,
+    transferAlias: paymentSettingsRow?.transfer_alias ?? null,
+    transferCbu: paymentSettingsRow?.transfer_cbu ?? null,
+    transferNotes: paymentSettingsRow?.transfer_notes ?? null,
+  };
+
+  const { data: deliveryRows, error: deliveryError } = await supabase
+    .from("delivery_windows")
+    .select("id, cutoff_weekday, cutoff_time_minutes, delivery_weekday, delivery_time_minutes")
+    .eq("provider_id", provider.id)
+    .order("cutoff_weekday", { ascending: true })
+    .order("cutoff_time_minutes", { ascending: true });
+
+  if (deliveryError) {
+    return { error: `No pudimos cargar las reglas de entrega: ${deliveryError.message}` };
+  }
+
+  const deliveryRules: DeliveryRule[] =
+    deliveryRows?.map((row) => ({
+      id: row.id,
+      cutoffWeekday: row.cutoff_weekday ?? 0,
+      cutoffTimeMinutes: row.cutoff_time_minutes ?? 0,
+      deliveryWeekday: row.delivery_weekday ?? 0,
+      deliveryTimeMinutes: row.delivery_time_minutes ?? 10 * 60,
+    })) ?? [];
+
+  const { data: orders } = await supabase
+    .from("orders")
+    .select(
+      `
+        id,
+        status,
+        payment_method,
+        payment_proof_status,
+        payment_proof_url,
+        delivery_date,
+        delivery_rule_id,
+        created_at,
+        order_items(
+          quantity,
+          unit_price,
+          product:products(name, unit)
+        )
+      `,
+    )
+    .eq("provider_id", provider.id)
+    .eq("client_id", client.id)
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  const history: PublicOrderHistory[] =
+    orders?.map((order) => {
+      const items =
+        order.order_items?.map((item) => {
+          const productEntry =
+            Array.isArray(item.product) && item.product.length > 0 ? item.product[0] : (item as any).product;
+          const unitPrice = Number(item.unit_price ?? 0);
+          return {
+            productName: productEntry?.name ?? "Producto",
+            unit: productEntry?.unit ?? null,
+            quantity: item.quantity,
+            unitPrice,
+            subtotal: unitPrice * item.quantity,
+          };
+        }) ?? [];
+
+      const total = items.reduce((acc, item) => acc + item.subtotal, 0);
+
+      return {
+        id: order.id,
+        status: order.status,
+        paymentMethod: (order as { payment_method?: string }).payment_method ?? null,
+        paymentProofStatus: (order as { payment_proof_status?: string }).payment_proof_status ?? null,
+        paymentProofUrl: (order as { payment_proof_url?: string | null }).payment_proof_url ?? null,
+        total,
+        createdAt: order.created_at,
+        deliveryDate: (order as { delivery_date?: string | null }).delivery_date ?? null,
+        deliveryRuleId: (order as { delivery_rule_id?: string | null }).delivery_rule_id ?? null,
+        items,
+      };
+    }) ?? [];
+
   return {
     provider,
     client: {
@@ -145,7 +283,10 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
         is_out_of_stock: Boolean(product.is_out_of_stock),
       };
     }),
-  };
+      paymentSettings,
+      deliveryRules,
+      history,
+    };
 }
 
 export default async function ClientOrderPage({
@@ -167,5 +308,14 @@ export default async function ClientOrderPage({
     );
   }
 
-  return <ClientOrder provider={data.provider as Provider} client={data.client as Client} products={data.products as Product[]} />;
+  return (
+    <ClientOrder
+      provider={data.provider as Provider}
+      client={data.client as Client}
+      products={data.products as Product[]}
+      paymentSettings={data.paymentSettings as PaymentSettings}
+      deliveryRules={data.deliveryRules as DeliveryRule[]}
+      history={data.history as PublicOrderHistory[]}
+    />
+  );
 }

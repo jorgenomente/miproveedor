@@ -96,6 +96,7 @@ export default function AdminProvidersPage() {
   const [paymentsByProvider, setPaymentsByProvider] = useState<Record<string, ProviderPaymentRow[]>>({});
   const [loadingPayments, setLoadingPayments] = useState(false);
   const [paymentsError, setPaymentsError] = useState<string | null>(null);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
   const loadProviders = useCallback(async () => {
     setLoadingProviders(true);
@@ -597,132 +598,159 @@ export default function AdminProvidersPage() {
                 Crea el proveedor + usuario principal y genera link de invitación desde Supabase Auth.
               </p>
             </CardHeader>
-            <CardContent>
-              <form className="space-y-4" onSubmit={handleSubmit}>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="name">Nombre</Label>
-                    <Input id="name" name="name" placeholder="Nombre del negocio" required />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="slug">Slug</Label>
-                    <Input
-                      id="slug"
-                      name="slug"
-                      placeholder="negocio-slug"
-                      required
-                      pattern="^[a-z0-9-]+$"
-                      title="Solo minúsculas, números y guiones"
-                    />
-                  </div>
+            <CardContent className="space-y-4">
+              <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-secondary/30 p-4">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Alta manual desde Supabase</p>
+                  <p className="text-sm text-muted-foreground">
+                    Crea el proveedor + usuario principal y genera link de invitación sin salir de esta vista.
+                  </p>
                 </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email del proveedor</Label>
-                    <Input
-                      id="email"
-                      name="email"
-                      type="email"
-                      placeholder="contacto@proveedor.com"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="phone">WhatsApp</Label>
-                    <Input
-                      id="phone"
-                      name="phone"
-                      type="tel"
-                      placeholder="+54 9 11 4444-8899"
-                      required
-                    />
-                  </div>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="address">Dirección</Label>
-                    <Input
-                      id="address"
-                      name="address"
-                      placeholder="Av. Siempre Viva 123, CABA"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="cuit">CUIT</Label>
-                    <Input
-                      id="cuit"
-                      name="cuit"
-                      placeholder="30-12345678-9"
-                      required
-                    />
-                  </div>
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button type="submit" disabled={pending}>
-                    Crear proveedor
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Button size="sm" variant="outline" onClick={() => void loadProviders()}>
+                    Refrescar lista
+                    <RefreshCcw className="ml-2 h-4 w-4" />
+                  </Button>
+                  <Button onClick={() => setCreateDialogOpen(true)}>
+                    Alta manual de proveedor
                     <ArrowUpRight className="ml-2 h-4 w-4" />
                   </Button>
                 </div>
-              </form>
-
-              <Separator className="my-4" />
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: result ? 1 : 0.6, y: 0 }}
-                className="space-y-3 rounded-xl border border-border/70 bg-secondary/40 p-4"
-              >
-                <p className="text-sm font-semibold">Resultado</p>
-                {result?.success ? (
-                  <div className="space-y-3 text-sm">
-                    <p>
-                      {result.message} {result.resetEmailSent ? "Se envió un correo de restablecimiento automáticamente." : ""}
-                    </p>
-                    {result.warning ? (
-                      <div className="space-y-1 rounded-lg border border-amber-500/50 bg-amber-50/80 p-3 text-amber-800 shadow-sm dark:border-amber-400/40 dark:bg-amber-950/30 dark:text-amber-100">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide">
-                          Link de invitación pendiente
-                        </p>
-                        <p>{result.warning}</p>
-                      </div>
-                    ) : null}
-                    {result.setPasswordLink ? (
-                      <>
-                        <p className="text-muted-foreground">
-                          Envía este link al proveedor para setear su contraseña si aún no usó el correo:
-                        </p>
-                        <Button asChild variant="outline" size="sm" className="w-full">
-                          <a href={result.setPasswordLink} target="_blank" rel="noreferrer">
-                            {result.setPasswordLink}
-                          </a>
-                        </Button>
-                        <p className="text-xs text-muted-foreground">
-                          Se usa Supabase Auth (service role). También se envió un correo de restablecimiento automático.
-                        </p>
-                      </>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">
-                        El proveedor quedó creado y el usuario ya existe. Genera un link de reset de contraseña
-                        manual desde Supabase Auth si necesita acceder.
-                      </p>
-                    )}
-                  </div>
-                ) : result ? (
-                  <div className="space-y-1 text-sm text-destructive">
-                    {result.errors.map((error) => (
-                      <p key={error}>{error}</p>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Completa el formulario para generar el proveedor.
-                  </p>
-                )}
-              </motion.div>
+              </div>
             </CardContent>
           </Card>
         </div>
       </main>
+
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent className="sm:max-w-xl md:max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Alta manual de proveedor</DialogTitle>
+            <DialogDescription>
+              Completa los datos para crear el proveedor, su usuario principal y enviar el correo de acceso.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form className="space-y-4" onSubmit={handleSubmit}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="name">Nombre</Label>
+                <Input id="name" name="name" placeholder="Nombre del negocio" required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="slug">Slug</Label>
+                <Input
+                  id="slug"
+                  name="slug"
+                  placeholder="negocio-slug"
+                  required
+                  pattern="^[a-z0-9-]+$"
+                  title="Solo minúsculas, números y guiones"
+                />
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email del proveedor</Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  placeholder="contacto@proveedor.com"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="phone">WhatsApp</Label>
+                <Input
+                  id="phone"
+                  name="phone"
+                  type="tel"
+                  placeholder="+54 9 11 4444-8899"
+                  required
+                />
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="address">Dirección</Label>
+                <Input
+                  id="address"
+                  name="address"
+                  placeholder="Av. Siempre Viva 123, CABA"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cuit">CUIT</Label>
+                <Input id="cuit" name="cuit" placeholder="30-12345678-9" required />
+              </div>
+            </div>
+            <DialogFooter className="flex-col gap-2 sm:flex-row sm:gap-0">
+              <Button type="button" variant="ghost" onClick={() => setCreateDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={pending}>
+                Crear proveedor
+                <ArrowUpRight className="ml-2 h-4 w-4" />
+              </Button>
+            </DialogFooter>
+          </form>
+
+          <Separator className="my-4" />
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: result ? 1 : 0.6, y: 0 }}
+            className="space-y-3 rounded-xl border border-border/70 bg-secondary/40 p-4"
+          >
+            <p className="text-sm font-semibold">Resultado</p>
+            {result?.success ? (
+              <div className="space-y-3 text-sm">
+                <p>
+                  {result.message}{" "}
+                  {result.resetEmailSent ? "Se envió un correo de restablecimiento automáticamente." : ""}
+                </p>
+                {result.warning ? (
+                  <div className="space-y-1 rounded-lg border border-amber-500/50 bg-amber-50/80 p-3 text-amber-800 shadow-sm dark:border-amber-400/40 dark:bg-amber-950/30 dark:text-amber-100">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide">
+                      Link de invitación pendiente
+                    </p>
+                    <p>{result.warning}</p>
+                  </div>
+                ) : null}
+                {result.setPasswordLink ? (
+                  <>
+                    <p className="text-muted-foreground">
+                      Envía este link al proveedor para setear su contraseña si aún no usó el correo:
+                    </p>
+                    <Button asChild variant="outline" size="sm" className="w-full">
+                      <a href={result.setPasswordLink} target="_blank" rel="noreferrer">
+                        {result.setPasswordLink}
+                      </a>
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      Se usa Supabase Auth (service role). También se envió un correo de restablecimiento automático.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    El proveedor quedó creado y el usuario ya existe. Genera un link de reset de contraseña manual
+                    desde Supabase Auth si necesita acceder.
+                  </p>
+                )}
+              </div>
+            ) : result ? (
+              <div className="space-y-1 text-sm text-destructive">
+                {result.errors.map((error) => (
+                  <p key={error}>{error}</p>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Completa el formulario para generar el proveedor.</p>
+            )}
+          </motion.div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(paymentsFor)}

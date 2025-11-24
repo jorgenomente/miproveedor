@@ -18,6 +18,7 @@ const updateOrderSchema = z.object({
   contactName: z.string().trim().max(120).optional(),
   contactPhone: z.string().trim().max(60).optional(),
   deliveryMethod: z.enum(["retiro", "envio"]).nullable().optional(),
+  paymentProofStatus: z.enum(["no_aplica", "pendiente", "subido"]).optional(),
   note: z.string().trim().max(500).optional(),
 });
 
@@ -34,6 +35,10 @@ export type OrderListItem = {
   status: OrderStatus;
   total: number;
   createdAt: string | null;
+  deliveryDate?: string | null;
+  paymentMethod?: "efectivo" | "transferencia" | null;
+  paymentProofStatus?: "no_aplica" | "pendiente" | "subido" | null;
+  paymentProofUrl?: string | null;
 };
 
 export type OrderItemDetail = {
@@ -54,6 +59,11 @@ export type OrderDetail = {
   note: string | null;
   createdAt: string | null;
   total: number;
+  paymentMethod?: "efectivo" | "transferencia" | null;
+  paymentProofStatus?: "no_aplica" | "pendiente" | "subido" | null;
+  paymentProofUrl?: string | null;
+  deliveryDate?: string | null;
+  deliveryRuleId?: string | null;
   provider: {
     id: string;
     name: string;
@@ -264,6 +274,10 @@ export async function listOrders(providerSlug: string): Promise<ListOrdersResult
       status: normalizeStatus(order.status),
       total: order.total,
       createdAt: order.createdAt,
+      deliveryDate: (order as { deliveryDate?: string | null }).deliveryDate ?? null,
+      paymentMethod: (order as { paymentMethod?: "efectivo" | "transferencia" }).paymentMethod ?? null,
+      paymentProofStatus: (order as { paymentProofStatus?: "no_aplica" | "pendiente" | "subido" }).paymentProofStatus ?? null,
+      paymentProofUrl: (order as { paymentProofUrl?: string | null }).paymentProofUrl ?? null,
     }));
 
     return {
@@ -314,7 +328,7 @@ export async function listOrders(providerSlug: string): Promise<ListOrdersResult
   const { data, error } = await supabase
     .from("orders")
     .select(
-      "id, status, created_at, client:clients(name), order_items(quantity, unit_price)",
+      "id, status, created_at, delivery_date, delivery_rule_id, payment_method, payment_proof_status, payment_proof_url, client:clients(name), order_items(quantity, unit_price)",
     )
     .eq("provider_id", provider.id)
     .order("created_at", { ascending: false });
@@ -341,6 +355,10 @@ export async function listOrders(providerSlug: string): Promise<ListOrdersResult
         status: normalizeStatus(order.status as string),
         total,
         createdAt: order.created_at,
+        deliveryDate: (order as { delivery_date?: string | null }).delivery_date ?? null,
+        paymentMethod: (order as { payment_method?: "efectivo" | "transferencia" }).payment_method ?? null,
+        paymentProofStatus: (order as { payment_proof_status?: "no_aplica" | "pendiente" | "subido" }).payment_proof_status ?? null,
+        paymentProofUrl: (order as { payment_proof_url?: string | null }).payment_proof_url ?? null,
       };
     }) ?? [];
 
@@ -370,7 +388,12 @@ export async function getOrderDetail(orderId: string): Promise<OrderDetailResult
               : order.deliveryMethod ?? null,
         note: order.note ?? null,
         createdAt: order.createdAt,
+        deliveryDate: (order as { deliveryDate?: string | null }).deliveryDate ?? null,
+        deliveryRuleId: (order as { deliveryRuleId?: string | null }).deliveryRuleId ?? null,
         total: order.total,
+        paymentMethod: order.paymentMethod ?? null,
+        paymentProofStatus: order.paymentProofStatus ?? null,
+        paymentProofUrl: (order as { paymentProofUrl?: string | null }).paymentProofUrl ?? null,
         provider: {
           id: demo.provider.id,
           name: demo.provider.name,
@@ -416,6 +439,11 @@ export async function getOrderDetail(orderId: string): Promise<OrderDetailResult
         contact_name,
         contact_phone,
         delivery_method,
+        delivery_date,
+        delivery_rule_id,
+        payment_method,
+        payment_proof_status,
+        payment_proof_url,
         note,
         created_at,
         provider:providers(id, name, slug, contact_email, contact_phone),
@@ -479,8 +507,8 @@ export async function getOrderDetail(orderId: string): Promise<OrderDetailResult
     order: {
       id: data.id,
       status: normalizeStatus(data.status as string),
-        contactName: data.contact_name ?? null,
-        contactPhone: data.contact_phone ?? null,
+      contactName: data.contact_name ?? null,
+      contactPhone: data.contact_phone ?? null,
       deliveryMethod:
         typeof data.delivery_method === "string"
           ? data.delivery_method.toLowerCase() === "envio"
@@ -489,9 +517,14 @@ export async function getOrderDetail(orderId: string): Promise<OrderDetailResult
               ? "retiro"
               : data.delivery_method
           : null,
+      deliveryDate: (data as { delivery_date?: string | null }).delivery_date ?? null,
+      deliveryRuleId: (data as { delivery_rule_id?: string | null }).delivery_rule_id ?? null,
       note: data.note ?? null,
       createdAt: data.created_at ?? null,
       total,
+      paymentMethod: (data as { payment_method?: "efectivo" | "transferencia" }).payment_method ?? null,
+      paymentProofStatus: (data as { payment_proof_status?: "no_aplica" | "pendiente" | "subido" }).payment_proof_status ?? null,
+      paymentProofUrl: (data as { payment_proof_url?: string | null }).payment_proof_url ?? null,
       provider: {
         id: providerRecord.id ?? "",
         name: providerRecord.name ?? "Proveedor",
@@ -626,6 +659,7 @@ export async function updateOrder(
   if (typeof parsed.data.contactName === "string") updates.contact_name = parsed.data.contactName || null;
   if (typeof parsed.data.contactPhone === "string") updates.contact_phone = parsed.data.contactPhone || null;
   if ("deliveryMethod" in parsed.data) updates.delivery_method = parsed.data.deliveryMethod || null;
+  if (parsed.data.paymentProofStatus) updates.payment_proof_status = parsed.data.paymentProofStatus;
   if (typeof parsed.data.note === "string") updates.note = parsed.data.note || null;
 
   if (Object.keys(updates).length === 0) return { success: true, message: "Sin cambios para guardar." };

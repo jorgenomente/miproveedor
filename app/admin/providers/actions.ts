@@ -151,6 +151,52 @@ function buildPasswordResetRedirect(providerSlug: string) {
   return callbackUrl.toString();
 }
 
+type ResendAttempt =
+  | { sent: true }
+  | {
+      sent: false;
+      error: string;
+    };
+
+async function sendResetEmailWithResend(to: string, link: string | null, providerName?: string): Promise<ResendAttempt> {
+  if (!link) {
+    return { sent: false, error: "No se pudo generar el enlace de restablecimiento." };
+  }
+
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM;
+
+  if (!apiKey || !from) {
+    return { sent: false, error: "Resend no está configurado (RESEND_API_KEY/RESEND_FROM)." };
+  }
+
+  try {
+    const { Resend } = await import("resend");
+    const resend = new Resend(apiKey);
+    const { error } = await resend.emails.send({
+      from,
+      to: [to],
+      subject: `Restablecé tu acceso a ${providerName ?? "MiProveedor"}`,
+      html: `
+        <p>Hola,</p>
+        <p>Usá este enlace para restablecer tu acceso a ${providerName ?? "MiProveedor"}:</p>
+        <p><a href="${link}">Restablecer contraseña</a></p>
+        <p>Si el botón no funciona, copia y pega esta URL en tu navegador:</p>
+        <p>${link}</p>
+        <p>Si no solicitaste este correo, puedes ignorarlo.</p>
+      `,
+    });
+
+    if (error) {
+      return { sent: false, error: error.message ?? "Error desconocido de Resend." };
+    }
+
+    return { sent: true };
+  } catch (error) {
+    return { sent: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export async function listProviders(): Promise<ListProvidersResult> {
   const supabase = getSupabaseAdmin();
   if (!supabase) {
@@ -517,7 +563,7 @@ export async function sendPasswordReset(payload: z.infer<typeof resetSchema>): P
 
   const { data: provider, error: providerError } = await supabase
     .from("providers")
-    .select("id, slug, name")
+    .select("id, slug, name, contact_email")
     .eq("id", parsed.data.providerId)
     .maybeSingle();
 
@@ -530,37 +576,137 @@ export async function sendPasswordReset(payload: z.infer<typeof resetSchema>): P
 
   const { data: user, error: userError } = await supabase
     .from("users")
-    .select("email")
+    .select("id, email, role")
     .eq("provider_id", provider.id)
-    .eq("role", "provider")
+    .in("role", ["provider", "provider_owner"])
     .limit(1)
     .maybeSingle();
 
-  if (userError || !user?.email) {
+  let providerUserEmail = user?.email ?? null;
+  if (!providerUserEmail && !userError) {
+    const { data: fallbackUser } = await supabase
+      .from("users")
+      .select("id, email, role")
+      .eq("provider_id", provider.id)
+      .limit(1)
+      .maybeSingle();
+
+    providerUserEmail = fallbackUser?.email ?? null;
+  }
+
+  // Si no hay usuario en tabla, intentamos crearlo con los datos del proveedor.
+  if (!providerUserEmail) {
+    if (!provider.contact_email) {
+      return {
+        success: false,
+        errors: [
+          "No se encontró usuario principal ni email de contacto para este proveedor. Completa el email en el proveedor y vuelve a intentar.",
+        ],
+      };
+    }
+
+    const { data: authUser, error: createAuthError } = await supabase.auth.admin.createUser({
+      email: provider.contact_email,
+      email_confirm: true,
+      user_metadata: {
+        provider_id: provider.id,
+        role: "provider",
+      },
+    });
+
+    if (createAuthError || !authUser?.user?.id) {
+      const isDuplicate = createAuthError?.message?.toLowerCase().includes("already") ?? false;
+
+      if (isDuplicate) {
+        providerUserEmail = provider.contact_email;
+      } else {
+        return {
+          success: false,
+          errors: [
+            "No se encontró usuario principal (proveedor) y no se pudo crearlo automáticamente.",
+            createAuthError?.message
+              ? `Detalle Supabase Auth: ${createAuthError.message}`
+              : "Sin detalle adicional.",
+          ],
+        };
+      }
+    } else {
+      const { error: insertUserError } = await supabase.from("users").insert({
+        id: authUser.user.id,
+        name: provider.name,
+        email: provider.contact_email,
+        role: "provider",
+        provider_id: provider.id,
+      });
+
+      if (insertUserError) {
+        return {
+          success: false,
+          errors: [
+            "Se creó el usuario en Auth pero no se pudo registrar en tabla users.",
+            insertUserError.message,
+          ],
+        };
+      }
+
+      providerUserEmail = provider.contact_email;
+    }
+  } else if (userError) {
     return {
       success: false,
       errors: [
-        `No se encontró usuario principal (proveedor) para este proveedor: ${userError?.message ?? "sin detalle"}.`,
+        `No se encontró usuario principal (proveedor) para este proveedor: ${userError.message ?? "sin detalle"}.`,
       ],
+    };
+  }
+
+  if (!providerUserEmail) {
+    return {
+      success: false,
+      errors: ["No se encontró correo asociado al proveedor para enviar el restablecimiento."],
     };
   }
 
   const redirectTo = buildPasswordResetRedirect(provider.slug);
 
-  const { error: resetError } = await supabase.auth.resetPasswordForEmail(user.email, {
+  const { error: resetError } = await supabase.auth.resetPasswordForEmail(providerUserEmail, {
     redirectTo,
   });
 
   if (resetError) {
+    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
+      type: "recovery",
+      email: providerUserEmail,
+      options: { redirectTo },
+    });
+
+    const recoveryLink = linkData?.properties?.action_link ?? null;
+
+    const resendAttempt = await sendResetEmailWithResend(providerUserEmail, recoveryLink, provider.name);
+
+    if (resendAttempt.sent) {
+      return {
+        success: true,
+        message: `Correo de restablecimiento reenviado vía Resend a ${providerUserEmail}.`,
+      };
+    }
+
+    const errors = [
+      `Supabase no pudo enviar el correo: ${resetError.message}.`,
+      resendAttempt.error ? `Resend tampoco pudo enviarlo: ${resendAttempt.error}` : null,
+      recoveryLink ? `Puedes copiar y compartir este enlace manualmente: ${recoveryLink}` : null,
+      linkError ? `No se pudo generar el enlace desde Supabase: ${linkError.message}` : null,
+    ].filter(Boolean) as string[];
+
     return {
       success: false,
-      errors: [`No se pudo enviar el correo de restablecimiento: ${resetError.message}`],
+      errors: errors.length > 0 ? errors : ["No se pudo enviar el correo de restablecimiento."],
     };
   }
 
   return {
     success: true,
-    message: `Se envió un correo de restablecimiento a ${user.email} para ${provider.name}.`,
+    message: `Se envió un correo de restablecimiento a ${providerUserEmail} para ${provider.name}.`,
   };
 }
 
@@ -689,7 +835,16 @@ export async function createProvider(payload: z.infer<typeof createSchema>): Pro
     redirectTo: resetRedirectTo,
   });
 
-  if ((linkError || !invitationLink) && resetError) {
+  let resetSentViaResend = false;
+  let resendErrorMessage: string | null = null;
+
+  if (resetError) {
+    const resendAttempt = await sendResetEmailWithResend(parsed.data.email, invitationLink ?? null, parsed.data.name);
+    resetSentViaResend = resendAttempt.sent;
+    resendErrorMessage = resendAttempt.sent ? null : resendAttempt.error;
+  }
+
+  if ((linkError || !invitationLink) && resetError && !resetSentViaResend) {
     return {
       success: true,
       providerId: providerRow.id,
@@ -697,7 +852,7 @@ export async function createProvider(payload: z.infer<typeof createSchema>): Pro
       setPasswordLink: undefined,
       resetEmailSent: false,
       warning: `Proveedor creado, pero no se pudo generar link ni enviar correo de restablecimiento: ${
-        linkError?.message ?? resetError?.message ?? "sin detalle"
+        linkError?.message ?? resetError?.message ?? resendErrorMessage ?? "sin detalle"
       }. Genera un reset manual desde Supabase Auth.`,
       message: `Proveedor ${parsed.data.name} creado.`,
     };
@@ -708,11 +863,15 @@ export async function createProvider(payload: z.infer<typeof createSchema>): Pro
     providerId: providerRow.id,
     userId: authUser.user.id,
     setPasswordLink: invitationLink,
-    resetEmailSent: !resetError,
+    resetEmailSent: resetSentViaResend || !resetError,
     message: `Proveedor ${parsed.data.name} creado.`,
     warning:
       resetError && !linkError
-        ? `Link generado, pero el correo de restablecimiento no pudo enviarse automáticamente: ${resetError.message}.`
+        ? resetSentViaResend
+          ? "Supabase no pudo enviar el correo, pero se reenvió vía Resend."
+          : `Link generado, pero el correo de restablecimiento no pudo enviarse automáticamente: ${resetError.message}${
+              resendErrorMessage ? ` (Resend: ${resendErrorMessage})` : ""
+            }.`
         : !invitationLink
           ? "El correo se envió, pero no se pudo obtener un link directo; reenvía si es necesario."
           : undefined,

@@ -31,6 +31,17 @@ enum PaymentStatus {
   rejected
 }
 
+enum PaymentMethod {
+  efectivo
+  transferencia
+}
+
+enum PaymentProofStatus {
+  no_aplica
+  pendiente
+  subido
+}
+
 model Provider {
   id                   String              @id @default(uuid())
   name                 String
@@ -53,6 +64,8 @@ model Provider {
   orders   Order[]
   users    User[]
   payments ProviderPayment[]
+  paymentSettings ProviderPaymentSettings?
+  deliveryWindows DeliveryWindow[]
 
   @@map("providers")
 }
@@ -122,13 +135,19 @@ model Order {
   contactName   String      @map("contact_name")
   contactPhone  String      @map("contact_phone")
   deliveryMethod String?    @map("delivery_method")
+  paymentMethod PaymentMethod? @map("payment_method")
+  paymentProofStatus PaymentProofStatus @default(no_aplica) @map("payment_proof_status")
+  paymentProofUrl String?   @map("payment_proof_url")
   note          String?
+  deliveryDate  DateTime?   @map("delivery_date")
+  deliveryRuleId String?    @map("delivery_rule_id")
   createdAt     DateTime    @default(now()) @map("created_at")
   updatedAt     DateTime    @updatedAt @map("updated_at")
 
   provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
   client   Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   items    OrderItem[]
+  deliveryRule DeliveryWindow? @relation(fields: [deliveryRuleId], references: [id], onDelete: SetNull)
 
   @@map("orders")
 }
@@ -160,4 +179,38 @@ model ProviderPayment {
   provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
 
   @@map("provider_payments")
+}
+
+model ProviderPaymentSettings {
+  id              String  @id @default(uuid())
+  providerId      String  @map("provider_id")
+  cashEnabled     Boolean @default(true) @map("cash_enabled")
+  transferEnabled Boolean @default(true) @map("transfer_enabled")
+  transferAlias   String? @map("transfer_alias")
+  transferCbu     String? @map("transfer_cbu")
+  transferNotes   String? @map("transfer_notes")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId])
+  @@map("provider_payment_settings")
+}
+
+model DeliveryWindow {
+  id                  String   @id @default(uuid())
+  providerId          String   @map("provider_id")
+  cutoffWeekday       Int      @map("cutoff_weekday")
+  cutoffTimeMinutes   Int      @map("cutoff_time_minutes")
+  deliveryWeekday     Int      @map("delivery_weekday")
+  deliveryTimeMinutes Int      @default(600) @map("delivery_time_minutes")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  orders   Order[]
+
+  @@unique([providerId, cutoffWeekday, cutoffTimeMinutes])
+  @@map("delivery_windows")
 }

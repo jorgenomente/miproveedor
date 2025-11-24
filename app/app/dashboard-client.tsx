@@ -65,7 +65,8 @@ export function DashboardClient({
   debug,
   debugInfo,
 }: Props) {
-  const basePath = activeSlug ? `/app/${activeSlug}` : provider?.slug ? `/app/${provider.slug}` : "/app";
+  const providerSlug = provider?.slug ?? activeSlug;
+  const basePath = providerSlug ? `/app/${providerSlug}` : "/app";
   const formattedDate = (value?: string | null) => {
     if (!value) return "No definido";
     const date = new Date(value);
@@ -81,13 +82,18 @@ export function DashboardClient({
   const quickActions = [
     {
       label: "Ver pedidos",
-      href: `${basePath}/orders`,
+      href: providerSlug ? `${basePath}/orders?provider=${providerSlug}` : `${basePath}/orders`,
       icon: <ShoppingBag className="h-4 w-4" />,
     },
     {
       label: "Clientes y links",
       href: `${basePath}/clients`,
       icon: <Users className="h-4 w-4" />,
+    },
+    {
+      label: "Mis alias y pagos",
+      href: `${basePath}/payments`,
+      icon: <CreditCard className="h-4 w-4" />,
     },
     {
       label: "Administrar artículos",
@@ -197,7 +203,7 @@ export function DashboardClient({
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg">Pedidos recientes</CardTitle>
               <Button asChild variant="ghost" size="sm">
-                <Link href={`${basePath}/orders`}>
+                <Link href={providerSlug ? `${basePath}/orders?provider=${providerSlug}` : `${basePath}/orders`}>
                   Ver todos
                   <ArrowUpRight className="ml-1 h-4 w-4" />
                 </Link>
@@ -235,7 +241,13 @@ export function DashboardClient({
                         {formatCurrency(order.total)}
                       </p>
                       <Button asChild size="icon" variant="ghost">
-                        <Link href={`${basePath}/orders/${order.id}`}>
+                        <Link
+                          href={
+                            providerSlug
+                              ? `${basePath}/orders/${order.id}?provider=${providerSlug}`
+                              : `${basePath}/orders/${order.id}`
+                          }
+                        >
                           <ArrowUpRight className="h-4 w-4" />
                         </Link>
                       </Button>

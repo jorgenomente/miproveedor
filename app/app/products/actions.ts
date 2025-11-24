@@ -7,6 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getDemoData } from "@/lib/demo-data";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { getProviderScope } from "@/lib/provider-scope";
+import { sortRules, timeStringToMinutes, type DeliveryRule } from "@/lib/delivery-windows";
 
 const PRODUCT_IMAGES_BUCKET = "product-images";
 const MAX_IMAGE_SIZE_BYTES = 950 * 1024; // mantener <1MB para el body y subir rápido
@@ -135,6 +136,29 @@ export type ProviderRow = {
   slug: string;
   is_active: boolean | null;
 };
+
+export type DeliveryRuleInput = {
+  id?: string;
+  cutoffWeekday: number;
+  cutoffTime: string;
+  deliveryWeekday: number;
+};
+
+export type DeliveryRuleRow = {
+  id: string;
+  cutoffWeekday: number;
+  cutoffTimeMinutes: number;
+  deliveryWeekday: number;
+  deliveryTimeMinutes: number;
+};
+
+export type ListDeliveryRulesResult =
+  | { success: true; rules: DeliveryRuleRow[] }
+  | { success: false; errors: string[] };
+
+export type SaveDeliveryRulesResult =
+  | { success: true; message: string }
+  | { success: false; errors: string[] };
 
 export type ListProductsResult =
   | { success: true; products: ProductRow[]; provider: ProviderRow }
@@ -1143,4 +1167,180 @@ export async function bulkUpsertProducts(payload: z.infer<typeof bulkSchema>): P
   }
 
   return { success: true, summary };
+}
+
+const deliveryRuleSchema = z.object({
+  id: z.string().uuid().optional(),
+  cutoffWeekday: z.number().int().min(0).max(6),
+  cutoffTime: z.string().trim().min(4),
+  deliveryWeekday: z.number().int().min(0).max(6),
+});
+
+const saveRulesSchema = z.object({
+  providerSlug: z.string().min(2),
+  rules: z.array(deliveryRuleSchema).min(1),
+});
+
+function normalizeRuleInputs(rules: DeliveryRuleInput[]): { rules: DeliveryRule[]; errors: string[] } {
+  const errors: string[] = [];
+  const normalized: DeliveryRule[] = [];
+  const seen = new Set<string>();
+
+  rules.forEach((rule, index) => {
+    const cutoffMinutes = timeStringToMinutes(rule.cutoffTime);
+    if (cutoffMinutes === null) {
+      errors.push(`Hora inválida en la fila ${index + 1}. Usa formato HH:MM.`);
+      return;
+    }
+    const key = `${rule.cutoffWeekday}-${cutoffMinutes}`;
+    if (seen.has(key)) {
+      errors.push("No puedes repetir un corte con el mismo día y hora.");
+      return;
+    }
+    seen.add(key);
+    normalized.push({
+      id: rule.id,
+      cutoffWeekday: rule.cutoffWeekday,
+      cutoffTimeMinutes: cutoffMinutes,
+      deliveryWeekday: rule.deliveryWeekday,
+      deliveryTimeMinutes: 10 * 60,
+    });
+  });
+
+  const sorted = sortRules(normalized);
+  const hasEmptyWindow = sorted.some((entry) => entry.windowEndMinute - entry.windowStartMinute <= 0);
+  if (hasEmptyWindow) {
+    errors.push("Revisa los cortes: hay ventanas de tiempo sin asignar.");
+  }
+
+  return { rules: normalized, errors };
+}
+
+export async function listDeliveryRules(providerSlug: string): Promise<ListDeliveryRulesResult> {
+  const demoRules: DeliveryRuleRow[] = [
+    {
+      id: "demo-1",
+      cutoffWeekday: 2,
+      cutoffTimeMinutes: 20 * 60,
+      deliveryWeekday: 5,
+      deliveryTimeMinutes: 10 * 60,
+    },
+    {
+      id: "demo-2",
+      cutoffWeekday: 6,
+      cutoffTimeMinutes: 20 * 60,
+      deliveryWeekday: 2,
+      deliveryTimeMinutes: 10 * 60,
+    },
+  ];
+
+  if (providerSlug === "demo") {
+    return { success: true, rules: demoRules };
+  }
+
+  const scopeResult = await getProviderScope();
+  if (scopeResult.error) {
+    return { success: false, errors: [scopeResult.error] };
+  }
+
+  if (scopeResult.scope?.role === "provider" && scopeResult.scope.provider.slug !== providerSlug) {
+    return { success: false, errors: ["No tienes acceso a este proveedor."] };
+  }
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) {
+    return { success: false, errors: ["Faltan credenciales de Supabase (SERVICE_ROLE / URL)."] };
+  }
+
+  const { provider, error: providerError } = await getProviderBySlug(providerSlug);
+  if (providerError || !provider) {
+    return { success: false, errors: [providerError ?? "Proveedor no encontrado."] };
+  }
+
+  const { data, error } = await supabase
+    .from("delivery_windows")
+    .select("id, cutoff_weekday, cutoff_time_minutes, delivery_weekday, delivery_time_minutes")
+    .eq("provider_id", provider.id)
+    .order("cutoff_weekday", { ascending: true })
+    .order("cutoff_time_minutes", { ascending: true });
+
+  if (error) {
+    return { success: false, errors: [`No se pudieron cargar las reglas: ${error.message}`] };
+  }
+
+  const rules =
+    data?.map((row) => ({
+      id: row.id,
+      cutoffWeekday: row.cutoff_weekday ?? 0,
+      cutoffTimeMinutes: row.cutoff_time_minutes ?? 0,
+      deliveryWeekday: row.delivery_weekday ?? 0,
+      deliveryTimeMinutes: row.delivery_time_minutes ?? 10 * 60,
+    })) ?? [];
+
+  return {
+    success: true,
+    rules: rules.length ? rules : demoRules.map((rule) => ({ ...rule, id: randomUUID() })),
+  };
+}
+
+export async function saveDeliveryRules(payload: {
+  providerSlug: string;
+  rules: DeliveryRuleInput[];
+}): Promise<SaveDeliveryRulesResult> {
+  if (payload.providerSlug === "demo") {
+    return {
+      success: true,
+      message: "Modo demo: no se guardan cambios, pero la lógica queda configurada.",
+    };
+  }
+
+  const parsed = saveRulesSchema.safeParse(payload);
+  if (!parsed.success) {
+    return { success: false, errors: parsed.error.issues.map((issue) => issue.message) };
+  }
+
+  const scopeResult = await getProviderScope();
+  if (scopeResult.error) {
+    return { success: false, errors: [scopeResult.error] };
+  }
+
+  if (scopeResult.scope?.role === "provider" && scopeResult.scope.provider.slug !== parsed.data.providerSlug) {
+    return { success: false, errors: ["No tienes acceso a este proveedor."] };
+  }
+
+  const normalized = normalizeRuleInputs(parsed.data.rules);
+  if (normalized.errors.length) {
+    return { success: false, errors: normalized.errors };
+  }
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) {
+    return { success: false, errors: ["Faltan credenciales de Supabase (SERVICE_ROLE / URL)."] };
+  }
+
+  const { provider, error: providerError } = await getProviderBySlug(parsed.data.providerSlug);
+  if (providerError || !provider) {
+    return { success: false, errors: [providerError ?? "Proveedor no encontrado."] };
+  }
+
+  const { error: deleteError } = await supabase.from("delivery_windows").delete().eq("provider_id", provider.id);
+  if (deleteError) {
+    return { success: false, errors: [`No se pudieron limpiar las reglas previas: ${deleteError.message}`] };
+  }
+
+  const rows = normalized.rules.map((rule) => ({
+    id: rule.id ?? randomUUID(),
+    provider_id: provider.id,
+    cutoff_weekday: rule.cutoffWeekday,
+    cutoff_time_minutes: rule.cutoffTimeMinutes,
+    delivery_weekday: rule.deliveryWeekday,
+    delivery_time_minutes: rule.deliveryTimeMinutes ?? 10 * 60,
+  }));
+
+  const { error: insertError } = await supabase.from("delivery_windows").insert(rows);
+  if (insertError) {
+    return { success: false, errors: [`No se pudieron guardar las reglas: ${insertError.message}`] };
+  }
+
+  return { success: true, message: "Reglas de entrega actualizadas." };
 }

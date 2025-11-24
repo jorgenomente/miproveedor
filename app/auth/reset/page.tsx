@@ -19,6 +19,7 @@ function ResetPasswordForm() {
   const nextParam = params.get("next") ?? "/app";
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>("checking");
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -57,6 +58,7 @@ function ResetPasswordForm() {
           throw userError ?? new Error("No se encontró sesión de recuperación.");
         }
 
+        setUserEmail(data.user.email ?? (data.user.user_metadata as { email?: string })?.email ?? null);
         setStatus("ready");
       } catch (err) {
         console.error("No se pudo hidratar la sesión de reset", err);
@@ -170,6 +172,22 @@ function ResetPasswordForm() {
                 </div>
               ) : (
                 <form className="space-y-4" onSubmit={handleSubmit}>
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Usuario</Label>
+                    <Input
+                      id="email"
+                      name="email"
+                      type="email"
+                      autoComplete="username"
+                      value={userEmail ?? ""}
+                      readOnly
+                      placeholder="usuario@ejemplo.com"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Este correo se usará para guardar la contraseña en tu navegador.
+                    </p>
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="password">Contraseña</Label>
                     <Input

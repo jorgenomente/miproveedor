@@ -5,6 +5,8 @@ import { motion } from "framer-motion";
 import {
   AlertTriangle,
   ArrowLeft,
+  CalendarClock,
+  Clock4,
   CheckCircle2,
   Download,
   ImagePlus,
@@ -48,7 +50,19 @@ import {
   type BulkUpsertSummary,
   type ProductRow,
   type UpdateProductResult,
+  listDeliveryRules,
+  saveDeliveryRules,
+  type DeliveryRuleInput,
+  type DeliveryRuleRow,
 } from "./actions";
+import {
+  WEEKDAYS,
+  describeWindow,
+  minutesToTimeString,
+  sortRules,
+  timeStringToMinutes,
+  type DeliveryRule,
+} from "@/lib/delivery-windows";
 
 export type ProductsPageProps = { initialProviderSlug?: string };
 
@@ -89,6 +103,11 @@ type BulkRowPreview = {
   imageUrl?: string;
   errors: string[];
 };
+
+const makeTempId = () =>
+  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `temp-${Math.random().toString(36).slice(2)}`;
 
 const readFileAsDataUrl = (file: Blob) =>
   new Promise<string>((resolve, reject) => {
@@ -227,6 +246,12 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
   const [parsingBulk, setParsingBulk] = useState(false);
   const [downloadingTemplate, setDownloadingTemplate] = useState(false);
   const [applyingBulk, startApplyingBulk] = useTransition();
+  const [showDeliveryRulesModal, setShowDeliveryRulesModal] = useState(false);
+  const [deliveryRules, setDeliveryRules] = useState<DeliveryRuleInput[]>([]);
+  const [loadingRules, setLoadingRules] = useState(false);
+  const [rulesError, setRulesError] = useState<string | null>(null);
+  const [rulesMessage, setRulesMessage] = useState<string | null>(null);
+  const [savingRules, startSavingRules] = useTransition();
 
   const loadProducts = useCallback(
     async (slug: string) => {
@@ -247,6 +272,151 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
   useEffect(() => {
     void loadProducts(providerSlug);
   }, [loadProducts, providerSlug]);
+
+  const hydrateRules = useCallback((rows: DeliveryRuleRow[]) => {
+    if (!rows.length) {
+      setDeliveryRules([
+        { id: makeTempId(), cutoffWeekday: 2, cutoffTime: "20:00", deliveryWeekday: 5 },
+        { id: makeTempId(), cutoffWeekday: 6, cutoffTime: "20:00", deliveryWeekday: 2 },
+      ]);
+      return;
+    }
+
+    setDeliveryRules(
+      rows.map((row) => ({
+        id: row.id,
+        cutoffWeekday: row.cutoffWeekday,
+        cutoffTime: minutesToTimeString(row.cutoffTimeMinutes ?? 0),
+        deliveryWeekday: row.deliveryWeekday,
+      })),
+    );
+  }, []);
+
+  const loadDeliveryRulesModal = useCallback(
+    async (slug: string) => {
+      if (!slug) return;
+      setLoadingRules(true);
+      setRulesError(null);
+      const response = await listDeliveryRules(slug);
+      if (response.success) {
+        hydrateRules(response.rules);
+        setRulesMessage(null);
+      } else {
+        setRulesError(response.errors.join("\n"));
+      }
+      setLoadingRules(false);
+    },
+    [hydrateRules],
+  );
+
+  useEffect(() => {
+    if (showDeliveryRulesModal) {
+      void loadDeliveryRulesModal(providerSlug);
+    }
+  }, [showDeliveryRulesModal, loadDeliveryRulesModal, providerSlug]);
+
+  const addDeliveryRule = useCallback(() => {
+    setRulesError(null);
+    setRulesMessage(null);
+    setDeliveryRules((prev) => [
+      ...prev,
+      {
+        id: makeTempId(),
+        cutoffWeekday: prev.length ? (prev[prev.length - 1]?.cutoffWeekday + 1) % 7 : 0,
+        cutoffTime: "18:00",
+        deliveryWeekday: prev.length ? (prev[prev.length - 1]?.deliveryWeekday + 1) % 7 : 1,
+      },
+    ]);
+  }, []);
+
+  const updateDeliveryRule = useCallback((index: number, patch: Partial<DeliveryRuleInput>) => {
+    setRulesError(null);
+    setRulesMessage(null);
+    setDeliveryRules((prev) => prev.map((rule, ruleIndex) => (ruleIndex === index ? { ...rule, ...patch } : rule)));
+  }, []);
+
+  const removeDeliveryRule = useCallback((index: number) => {
+    setRulesError(null);
+    setRulesMessage(null);
+    setDeliveryRules((prev) => prev.filter((_, ruleIndex) => ruleIndex !== index));
+  }, []);
+
+  const deliveryRulesValidation = useMemo(() => {
+    const normalized: DeliveryRule[] = [];
+    const errors: string[] = [];
+    const seen = new Set<string>();
+
+    deliveryRules.forEach((rule, index) => {
+      const cutoffMinutes = timeStringToMinutes(rule.cutoffTime);
+      if (cutoffMinutes === null) {
+        errors.push(`Hora inválida en la fila ${index + 1}. Usa HH:MM.`);
+        return;
+      }
+      const key = `${rule.cutoffWeekday}-${cutoffMinutes}`;
+      if (seen.has(key)) {
+        errors.push("No repitas día y hora de corte, deja solo una fila por corte.");
+        return;
+      }
+      seen.add(key);
+      normalized.push({
+        id: rule.id,
+        cutoffWeekday: rule.cutoffWeekday,
+        cutoffTimeMinutes: cutoffMinutes,
+        deliveryWeekday: rule.deliveryWeekday,
+        deliveryTimeMinutes: 10 * 60,
+      });
+    });
+
+    const sorted = normalized.length ? sortRules(normalized) : [];
+    const hasEmptyWindow = sorted.some((entry) => entry.windowEndMinute - entry.windowStartMinute <= 0);
+    if (hasEmptyWindow) {
+      errors.push("Hay ventanas sin cobertura. Ajusta los cortes para cubrir los 7 días.");
+    }
+    if (!normalized.length) {
+      errors.push("Agrega al menos una regla de entrega.");
+    }
+
+    return { normalized, errors, sorted };
+  }, [deliveryRules]);
+
+  const deliveryWindowsPreview = useMemo(() => {
+    if (!deliveryRulesValidation.sorted.length) return [];
+    return deliveryRulesValidation.sorted.map((entry, index, arr) => {
+      const prev = arr[(index - 1 + arr.length) % arr.length];
+      const start = prev.windowStartMinute;
+      const end = entry.windowEndMinute;
+      return {
+        id: entry.rule.id ?? `preview-${index}`,
+        deliveryWeekday: entry.rule.deliveryWeekday,
+        start,
+        end,
+      };
+    });
+  }, [deliveryRulesValidation.sorted]);
+
+  const handleSaveDeliveryRules = useCallback(() => {
+    startSavingRules(async () => {
+      if (deliveryRulesValidation.errors.length) {
+        setRulesError(deliveryRulesValidation.errors.join("\n"));
+        return;
+      }
+      if (!providerSlug) {
+        setRulesError("Falta el identificador del proveedor.");
+        return;
+      }
+      const response = await saveDeliveryRules({
+        providerSlug,
+        rules: deliveryRules,
+      });
+      if (response.success) {
+        setRulesMessage(response.message);
+        setRulesError(null);
+        await loadDeliveryRulesModal(providerSlug);
+      } else {
+        setRulesError(response.errors.join("\n"));
+      }
+    });
+  }, [deliveryRulesValidation.errors, deliveryRules, providerSlug, loadDeliveryRulesModal, startSavingRules]);
 
   const handleImageInput = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -792,7 +962,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
   }
 
   return (
-    <div className="relative isolate min-h-screen bg-gradient-to-b from-background via-background to-secondary/50 px-4 pb-12 pt-6 sm:px-8">
+    <div className="relative isolate min-h-screen bg-linear-to-b from-background via-background to-secondary/50 px-4 pb-12 pt-6 sm:px-8">
       <main className="mx-auto flex max-w-5xl flex-col gap-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -848,11 +1018,26 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="hidden sm:inline-flex"
+                onClick={() => setShowDeliveryRulesModal(true)}
+              >
+                <CalendarClock className="mr-2 h-4 w-4" />
+                Reglas de entrega
+              </Button>
               <Badge variant="outline">{providerSlug || "Sin proveedor"}</Badge>
               <Badge variant="secondary">{products.length} items</Badge>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="flex justify-end sm:hidden">
+              <Button variant="outline" size="sm" onClick={() => setShowDeliveryRulesModal(true)}>
+                <CalendarClock className="mr-2 h-4 w-4" />
+                Reglas de entrega
+              </Button>
+            </div>
             {productsError ? (
               <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
                 {productsError}
@@ -889,77 +1074,82 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                     className="flex flex-col gap-2 rounded-xl border border-border/70 bg-card/70 p-4"
                   >
                     <div className="flex items-start justify-between gap-3">
-                <div className="flex flex-1 items-start gap-3">
-                  <div className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/60 bg-secondary/40">
-                    {product.image_url ? (
-                      <NextImage
-                        src={product.image_url}
-                        alt={`Imagen de ${product.name}`}
-                        fill
-                        sizes="64px"
-                        className="object-cover"
-                        unoptimized
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-[11px] uppercase text-muted-foreground">
-                        Sin foto
-                      </div>
-                    )}
-                  </div>
-                    <div className="space-y-1 flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-semibold">{product.name}</p>
-                        {product.brand ? (
-                          <Badge variant="outline" className="rounded-full px-2 py-0 text-[11px]">
-                            {product.brand}
-                          </Badge>
-                        ) : null}
-                        {product.is_new ? (
-                          <Badge variant="default" className="rounded-full px-2 py-0 text-[11px]">
-                            Nuevo
-                          </Badge>
-                        ) : null}
-                        {product.is_out_of_stock ? (
-                          <Badge variant="destructive" className="rounded-full px-2 py-0 text-[11px]">
-                            Sin stock
-                          </Badge>
-                        ) : null}
-                        <Badge variant={product.is_active ? "secondary" : "outline"}>
+                      <div className="flex flex-1 items-start gap-3">
+                        <div className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/60 bg-secondary/40">
+                          {product.image_url ? (
+                            <NextImage
+                              src={product.image_url}
+                              alt={`Imagen de ${product.name}`}
+                              fill
+                              sizes="64px"
+                              className="object-cover"
+                              unoptimized
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-[11px] uppercase text-muted-foreground">
+                              Sin foto
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-semibold">{product.name}</p>
+                            {product.brand ? (
+                              <Badge variant="outline" className="rounded-full px-2 py-0 text-[11px]">
+                                {product.brand}
+                              </Badge>
+                            ) : null}
+                            {product.is_new ? (
+                              <Badge variant="default" className="rounded-full px-2 py-0 text-[11px]">
+                                Nuevo
+                              </Badge>
+                            ) : null}
+                            {product.is_out_of_stock ? (
+                              <Badge variant="destructive" className="rounded-full px-2 py-0 text-[11px]">
+                                Sin stock
+                              </Badge>
+                            ) : null}
+                        <Badge
+                          variant={product.is_active ? "secondary" : "outline"}
+                          className={!product.is_active ? "border-destructive text-destructive" : undefined}
+                        >
                           {product.is_active ? "Activo" : "Inactivo"}
                         </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {product.description || "Sin descripción"}
-                      </p>
-                    {product.discount_percent && product.discount_percent > 0 ? (
-                      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                        <span className="line-through">{formatCurrency(product.price)}</span>
-                        <Badge variant="secondary" className="text-[11px]">
-                          -{Math.round(product.discount_percent)}%
-                        </Badge>
-                      </div>
-                    ) : null}
-                    <div className="text-sm font-semibold">
-                      {formatCurrency(product.price * (1 - (product.discount_percent ?? 0) / 100))}
-                      {product.unit ? (
-                        <span className="text-xs text-muted-foreground"> · {product.unit}</span>
-                      ) : null}
-                    </div>
-                    {product.category ? (
-                      <div className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-1 text-[11px] text-muted-foreground">
-                        <Tag className="h-3 w-3" />
-                        {product.category}
-                      </div>
-                    ) : null}
-                    {product.tags && product.tags.length ? (
-                      <div className="flex flex-wrap gap-1 pt-1">
-                        {product.tags.slice(0, 6).map((tag) => (
-                          <Badge key={`${product.id}-${tag}`} variant="outline" className="rounded-full px-2 py-0 text-[11px]">
-                            #{tag}
-                          </Badge>
-                        ))}
-                      </div>
-                    ) : null}
+                          </div>
+                          <p className="text-xs text-muted-foreground">{product.description || "Sin descripción"}</p>
+                          {product.discount_percent && product.discount_percent > 0 ? (
+                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                              <span className="line-through">{formatCurrency(product.price)}</span>
+                              <Badge variant="secondary" className="text-[11px]">
+                                -{Math.round(product.discount_percent)}%
+                              </Badge>
+                            </div>
+                          ) : null}
+                          <div className="text-sm font-semibold">
+                            {formatCurrency(product.price * (1 - (product.discount_percent ?? 0) / 100))}
+                            {product.unit ? (
+                              <span className="text-xs text-muted-foreground"> · {product.unit}</span>
+                            ) : null}
+                          </div>
+                          {product.category ? (
+                            <div className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-1 text-[11px] text-muted-foreground">
+                              <Tag className="h-3 w-3" />
+                              {product.category}
+                            </div>
+                          ) : null}
+                          {product.tags && product.tags.length ? (
+                            <div className="flex flex-wrap gap-1 pt-1">
+                              {product.tags.slice(0, 6).map((tag) => (
+                                <Badge
+                                  key={`${product.id}-${tag}`}
+                                  variant="outline"
+                                  className="rounded-full px-2 py-0 text-[11px]"
+                                >
+                                  #{tag}
+                                </Badge>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                       <Button
@@ -985,6 +1175,188 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
         </Card>
 
       </main>
+
+      <Dialog open={showDeliveryRulesModal} onOpenChange={setShowDeliveryRulesModal}>
+        <DialogContent className="max-w-3xl max-h-[86vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Reglas de entrega</DialogTitle>
+            <DialogDescription>
+              Define hasta qué día y hora entra cada ventana de entrega. No dejes huecos: toda la semana debe quedar cubierta.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg border border-border/70 bg-secondary/30 p-3 text-sm text-muted-foreground">
+              <div className="flex items-start gap-2">
+                <Clock4 className="mt-0.5 h-4 w-4 text-primary" />
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-foreground">Ejemplo rápido</p>
+                  <p>
+                    Hasta martes 20:00 se entrega viernes. Hasta sábado 20:00 se entrega martes. Si llega después del corte, pasa automáticamente a la siguiente fecha.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {rulesError ? (
+              <div className="rounded-md border border-destructive/60 bg-destructive/10 p-3 text-sm text-destructive">
+                {rulesError}
+              </div>
+            ) : null}
+            {rulesMessage ? (
+              <div className="rounded-md border border-emerald-600/50 bg-emerald-500/10 p-3 text-sm text-emerald-600 dark:text-emerald-300">
+                {rulesMessage}
+              </div>
+            ) : null}
+
+            <div className="space-y-3">
+              {loadingRules ? (
+                <div className="space-y-2">
+                  {[0, 1].map((index) => (
+                    <div key={index} className="rounded-lg border border-border/60 bg-secondary/30 p-3">
+                      <Skeleton className="h-4 w-32" />
+                      <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                        <Skeleton className="h-10" />
+                        <Skeleton className="h-10" />
+                        <Skeleton className="h-10" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {deliveryRules.map((rule, index) => (
+                    <div
+                      key={rule.id ?? `${rule.cutoffWeekday}-${rule.cutoffTime}-${rule.deliveryWeekday}-${index}`}
+                      className="rounded-lg border border-border/60 bg-card/70 p-3 shadow-sm"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px] uppercase">
+                          Ventana {index + 1}
+                        </Badge>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          disabled={deliveryRules.length <= 1}
+                          onClick={() => removeDeliveryRule(index)}
+                          aria-label="Eliminar ventana"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                        <div className="space-y-1">
+                          <Label>Pedidos hasta</Label>
+                          <Select
+                            value={String(rule.cutoffWeekday)}
+                            onValueChange={(value) => updateDeliveryRule(index, { cutoffWeekday: Number(value) })}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Día de corte" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {WEEKDAYS.map((day, weekday) => (
+                                <SelectItem key={`cutoff-${day}`} value={String(weekday)}>
+                                  {day}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Hora límite</Label>
+                          <Input
+                            type="time"
+                            value={rule.cutoffTime}
+                            onChange={(event) => updateDeliveryRule(index, { cutoffTime: event.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Se entrega</Label>
+                          <Select
+                            value={String(rule.deliveryWeekday)}
+                            onValueChange={(value) => updateDeliveryRule(index, { deliveryWeekday: Number(value) })}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Día de entrega" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {WEEKDAYS.map((day, weekday) => (
+                                <SelectItem key={`delivery-${day}`} value={String(weekday)}>
+                                  {day}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Pedidos hasta <span className="font-semibold">{WEEKDAYS[rule.cutoffWeekday]}</span>{" "}
+                        {rule.cutoffTime} se entregan el{" "}
+                        <span className="font-semibold">{WEEKDAYS[rule.deliveryWeekday]}</span>.
+                      </p>
+                    </div>
+                  ))}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" variant="secondary" size="sm" onClick={addDeliveryRule}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Añadir ventana
+                    </Button>
+                    <Badge variant="outline" className="text-[11px]">
+                      Cubre toda la semana sin huecos
+                    </Badge>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2 rounded-lg border border-border/60 bg-secondary/30 p-3">
+              <p className="text-xs font-semibold uppercase text-muted-foreground">Cobertura semanal</p>
+              {deliveryWindowsPreview.length ? (
+                <div className="space-y-2 text-sm">
+                  {deliveryWindowsPreview.map((window) => {
+                    const span = describeWindow(window.start, window.end);
+                    return (
+                      <div
+                        key={window.id}
+                        className="flex flex-col gap-1 rounded-md border border-border/60 bg-background/70 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div>
+                          <p className="font-semibold">
+                            {WEEKDAYS[span.startDay]} {span.startTime} → {WEEKDAYS[span.endDay]} {span.endTime}
+                          </p>
+                          <p className="text-xs text-muted-foreground">Pedidos en esta franja se entregan el {WEEKDAYS[window.deliveryWeekday]}.</p>
+                        </div>
+                        <Badge variant="secondary" className="w-fit">
+                          Entrega {WEEKDAYS[window.deliveryWeekday]}
+                        </Badge>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Completa al menos una regla para ver el calendario semanal.
+                </p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowDeliveryRulesModal(false)}>
+              Cerrar
+            </Button>
+            <Button onClick={handleSaveDeliveryRules} disabled={savingRules || loadingRules || !providerSlug}>
+              {savingRules ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Guardando...
+                </span>
+              ) : (
+                "Guardar reglas"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
         <DialogContent className="max-w-4xl max-h-[88vh] overflow-y-auto">
@@ -1098,7 +1470,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
               <Label htmlFor="tags">Etiquetas</Label>
               <div className="space-y-3 rounded-lg border border-border/60 bg-secondary/30 p-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                  <div className="flex flex-1 items-center gap-2">
+                  <div className="flex flex-1 flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3">
                     <Input
                       id="tags"
                       value={tagInput}
@@ -1110,16 +1482,23 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                         }
                       }}
                       placeholder="Agrega etiquetas: sin tacc, vegano..."
+                      className="w-full sm:flex-1"
                     />
-                    <Button type="button" variant="secondary" size="sm" onClick={() => addTag(tagInput)}>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="w-full sm:w-auto"
+                      onClick={() => addTag(tagInput)}
+                    >
                       <Plus className="mr-1 h-4 w-4" />
                       Añadir
                     </Button>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Sirven para filtrar rápido en el link público. Max 14 etiquetas.
-                  </p>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Escribe una palabra y aprieta "enter" o "," (coma). Sirven para filtrar rápido en el link público. Max 14 etiquetas.
+                </p>
                 {tags.length ? (
                   <div className="flex flex-wrap gap-2">
                     {tags.map((tag) => (
@@ -1176,7 +1555,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex w-full flex-col gap-2 sm:max-w-xs">
                     <Input
                       id="image"
                       name="image"
@@ -1186,28 +1565,30 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                       disabled={pendingCreate || optimizingImage}
                       className="cursor-pointer"
                     />
-                    {rawImage ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowCropper(true)}
-                        disabled={optimizingImage}
-                      >
-                        Editar recorte
-                      </Button>
-                    ) : null}
-                    {imagePreview ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={clearImage}
-                        aria-label="Quitar imagen"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    ) : null}
+                    <div className="flex flex-wrap gap-2">
+                      {rawImage ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowCropper(true)}
+                          disabled={optimizingImage}
+                        >
+                          Editar recorte
+                        </Button>
+                      ) : null}
+                      {imagePreview ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={clearImage}
+                          aria-label="Quitar imagen"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
                 {imageStatus ? <p className="text-xs text-emerald-600 dark:text-emerald-400">{imageStatus}</p> : null}
@@ -1471,7 +1852,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                         Mantén el recorte 4:3 y optimizamos a {MAX_IMAGE_SIDE}px (&lt;1MB).
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex w-full flex-col gap-2 sm:max-w-xs">
                       <Input
                         type="file"
                         accept="image/*"
@@ -1479,28 +1860,30 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                         disabled={pendingEdit || editOptimizingImage}
                         className="cursor-pointer"
                       />
-                      {editRawImage || editImagePreview ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setEditShowCropper(true)}
-                          disabled={editOptimizingImage}
-                        >
-                          Editar recorte
-                        </Button>
-                      ) : null}
-                      {editingProduct.image_url || editImagePreview ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={clearEditImage}
-                          aria-label="Quitar imagen"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      ) : null}
+                      <div className="flex flex-wrap gap-2">
+                        {editRawImage || editImagePreview ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setEditShowCropper(true)}
+                            disabled={editOptimizingImage}
+                          >
+                            Editar recorte
+                          </Button>
+                        ) : null}
+                        {editingProduct.image_url || editImagePreview ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={clearEditImage}
+                            aria-label="Quitar imagen"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                   {removeEditImage ? (
@@ -1737,7 +2120,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
           </DialogHeader>
           {rawImage ? (
             <div className="space-y-4">
-              <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg border border-border/60 bg-secondary/30">
+              <div className="relative aspect-4/3 w-full overflow-hidden rounded-lg border border-border/60 bg-secondary/30">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={rawImage.dataUrl} alt="Imagen original" className="h-full w-full object-contain" />
                 {cropPreviewRect ? (
@@ -1816,7 +2199,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
           </DialogHeader>
           {editRawImage ? (
             <div className="space-y-4">
-              <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg border border-border/60 bg-secondary/30">
+              <div className="relative aspect-4/3 w-full overflow-hidden rounded-lg border border-border/60 bg-secondary/30">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={editRawImage.dataUrl} alt="Imagen original" className="h-full w-full object-contain" />
                 {editCropPreviewRect ? (

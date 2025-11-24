@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Download, Save, Truck } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Clock3, CreditCard, Download, Save, Truck, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -30,18 +30,104 @@ export function OrderDetailClient({ order, backHref }: Props) {
   const [contactName, setContactName] = useState(order.contactName ?? "");
   const [contactPhone, setContactPhone] = useState(order.contactPhone ?? "");
   const [deliveryMethod, setDeliveryMethod] = useState(order.deliveryMethod ?? "");
+  const [paymentStatus, setPaymentStatus] = useState(order.paymentProofStatus ?? "no_aplica");
   const [note, setNote] = useState(order.note ?? "");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [downloading, setDownloading] = useState(false);
+  const [baseline, setBaseline] = useState({
+    status: order.status,
+    contactName: order.contactName ?? "",
+    contactPhone: order.contactPhone ?? "",
+    deliveryMethod: order.deliveryMethod ?? "",
+    paymentStatus: order.paymentProofStatus ?? "no_aplica",
+    note: order.note ?? "",
+  });
+
+  const accent = useMemo(() => {
+    const palette = [
+      { dot: "#22d3ee", trail: ["#22d3ee", "#a855f7", "#f97316"] },
+      { dot: "#f97316", trail: ["#f97316", "#facc15", "#22c55e"] },
+      { dot: "#22c55e", trail: ["#22c55e", "#06b6d4", "#6366f1"] },
+      { dot: "#a855f7", trail: ["#a855f7", "#22d3ee", "#f472b6"] },
+    ];
+    return palette[Math.floor(Math.random() * palette.length)];
+  }, []);
+
+  useEffect(() => {
+    setStatus(order.status);
+    setContactName(order.contactName ?? "");
+    setContactPhone(order.contactPhone ?? "");
+    setDeliveryMethod(order.deliveryMethod ?? "");
+    setPaymentStatus(order.paymentProofStatus ?? "no_aplica");
+    setNote(order.note ?? "");
+    setBaseline({
+      status: order.status,
+      contactName: order.contactName ?? "",
+      contactPhone: order.contactPhone ?? "",
+      deliveryMethod: order.deliveryMethod ?? "",
+      paymentStatus: order.paymentProofStatus ?? "no_aplica",
+      note: order.note ?? "",
+    });
+  }, [order]);
 
   const allowedNextStatuses = useMemo(() => statusChoices, []);
+
+  const paymentMethodLabel = order.paymentMethod === "transferencia" ? "Transferencia" : "Efectivo";
+
+  const paymentStatusText = (method: "efectivo" | "transferencia" | null | undefined, status: string) => {
+    if (status === "subido") {
+      return method === "transferencia" ? "Comprobante cargado" : "Efectivo recibido";
+    }
+
+    if (method === "transferencia") {
+      if (status === "pendiente") return "Comprobante pendiente";
+      return "Esperando comprobante";
+    }
+
+    if (method === "efectivo") {
+      return "A pagar en la entrega";
+    }
+
+    return "A pagar en la entrega";
+  };
 
   const totals = useMemo(() => {
     const subtotal = order.items.reduce((acc, item) => acc + item.subtotal, 0);
     return { subtotal, total: order.total ?? subtotal };
   }, [order.items, order.total]);
+
+  const isDirty = useMemo(() => {
+    return (
+      status !== baseline.status ||
+      contactName.trim() !== (baseline.contactName?.trim() ?? "") ||
+      contactPhone.trim() !== (baseline.contactPhone?.trim() ?? "") ||
+      deliveryMethod !== (baseline.deliveryMethod ?? "") ||
+      paymentStatus !== baseline.paymentStatus ||
+      note.trim() !== (baseline.note?.trim() ?? "")
+    );
+  }, [baseline, contactName, contactPhone, deliveryMethod, note, paymentStatus, status]);
+
+  const handleStatusChange = (nextStatus: OrderStatus) => {
+    if (nextStatus === status) return;
+
+    if (nextStatus === "entregado") {
+      const confirmed =
+        typeof window !== "undefined"
+          ? window.confirm(
+              order.paymentMethod === "transferencia"
+                ? "¿Marcamos también el comprobante como recibido?"
+                : "¿Marcamos el efectivo como recibido?",
+            )
+          : false;
+      if (confirmed) {
+        setPaymentStatus("subido");
+      }
+    }
+
+    setStatus(nextStatus);
+  };
 
   const save = () => {
     setMessage(null);
@@ -53,11 +139,20 @@ export function OrderDetailClient({ order, backHref }: Props) {
         contactName: contactName.trim(),
         contactPhone: contactPhone.trim(),
         deliveryMethod: deliveryMethod ? (deliveryMethod as "retiro" | "envio") : null,
+        paymentProofStatus: paymentStatus as "no_aplica" | "pendiente" | "subido",
         note: note.trim(),
       });
 
       if (response.success) {
         setMessage(response.message);
+        setBaseline({
+          status,
+          contactName: contactName.trim(),
+          contactPhone: contactPhone.trim(),
+          deliveryMethod: deliveryMethod || "",
+          paymentStatus,
+          note: note.trim(),
+        });
         router.refresh();
       } else {
         setError(response.errors.join("\n"));
@@ -126,10 +221,45 @@ export function OrderDetailClient({ order, backHref }: Props) {
                 <Download className="mr-2 h-4 w-4" />
                 {downloading ? "Generando..." : "Descargar remito"}
               </Button>
-              <Button size="sm" onClick={save} disabled={pending}>
-                <Save className="mr-2 h-4 w-4" />
-                {pending ? "Guardando..." : "Guardar cambios"}
-              </Button>
+              <div className="relative">
+                <Button
+                  size="sm"
+                  onClick={save}
+                  disabled={pending || !isDirty}
+                  className="relative overflow-hidden"
+                >
+                  <span className="relative z-10 inline-flex items-center">
+                    <Save className="mr-2 h-4 w-4" />
+                    {pending ? "Guardando..." : "Guardar cambios"}
+                  </span>
+                  {isDirty && !pending ? (
+                    <>
+                      <motion.div
+                        className="pointer-events-none absolute inset-[-4px] rounded-md blur-sm"
+                        style={{
+                          background: `linear-gradient(120deg, ${accent.trail.join(", ")})`,
+                          opacity: 0.85,
+                        }}
+                        animate={{
+                          backgroundPosition: ["0% 50%", "100% 50%", "0% 50%"],
+                          opacity: [0.55, 0.9, 0.55],
+                        }}
+                        transition={{ repeat: Infinity, duration: 2.8, ease: "easeInOut" }}
+                      />
+                      <motion.div
+                        className="pointer-events-none absolute inset-[-2px] rounded-md"
+                        style={{
+                          boxShadow: `0 0 0 2px ${accent.trail[0]}, 0 0 18px ${accent.trail[0]}`,
+                        }}
+                        animate={{
+                          boxShadow: accent.trail.map((color) => `0 0 0 2px ${color}, 0 0 18px ${color}`),
+                        }}
+                        transition={{ repeat: Infinity, duration: 2.8, repeatType: "mirror", ease: "easeInOut" }}
+                      />
+                    </>
+                  ) : null}
+                </Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -169,6 +299,28 @@ export function OrderDetailClient({ order, backHref }: Props) {
               </Card>
             </div>
 
+            <Card className="border-border/60 bg-card/70">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Entrega programada</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1 text-sm text-muted-foreground">
+                {order.deliveryDate ? (
+                  <>
+                    <div className="font-semibold text-foreground">
+                      {new Date(order.deliveryDate).toLocaleDateString("es-AR", {
+                        weekday: "long",
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </div>
+                    <div>Ventana asignada automáticamente al crear el pedido.</div>
+                  </>
+                ) : (
+                  <div className="text-destructive">Sin fecha asignada. Configura reglas de entrega en el catálogo.</div>
+                )}
+              </CardContent>
+            </Card>
+
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="status">Estado</Label>
@@ -183,7 +335,7 @@ export function OrderDetailClient({ order, backHref }: Props) {
                         size="sm"
                         className="capitalize"
                         aria-pressed={isActive}
-                        onClick={() => setStatus(option)}
+                        onClick={() => handleStatusChange(option)}
                       >
                         {ORDER_STATUS_LABEL[option]}
                       </Button>
@@ -207,6 +359,85 @@ export function OrderDetailClient({ order, backHref }: Props) {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Pago</Label>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="flex items-center gap-1">
+                  {order.paymentMethod === "transferencia" ? (
+                    <CreditCard className="h-3.5 w-3.5" />
+                  ) : (
+                    <Wallet className="h-3.5 w-3.5" />
+                  )}
+                  {paymentMethodLabel}
+                </Badge>
+                <Badge
+                  variant={paymentStatus === "subido" ? "secondary" : "outline"}
+                  className={
+                    paymentStatus === "pendiente"
+                      ? "border-amber-400/60 text-amber-700 dark:text-amber-200"
+                      : paymentStatus === "subido"
+                        ? "border-emerald-500/60 text-emerald-700 dark:text-emerald-200"
+                        : ""
+                  }
+                >
+                  {paymentStatusText(order.paymentMethod, paymentStatus)}
+                </Badge>
+                {order.paymentProofUrl ? (
+                  <Button asChild size="sm" variant="ghost">
+                    <a href={order.paymentProofUrl} target="_blank" rel="noreferrer">
+                      Ver comprobante
+                    </a>
+                  </Button>
+                ) : null}
+              </div>
+              {order.paymentMethod === "transferencia" ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={paymentStatus === "subido" ? "secondary" : "outline"}
+                    onClick={() => setPaymentStatus("subido")}
+                  >
+                    <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                    Marcar comprobante recibido
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={paymentStatus === "pendiente" ? "secondary" : "ghost"}
+                    onClick={() => setPaymentStatus("pendiente")}
+                  >
+                    <Clock3 className="mr-1.5 h-4 w-4" />
+                    Marcar pendiente
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={paymentStatus === "subido" ? "secondary" : "outline"}
+                    onClick={() => setPaymentStatus("subido")}
+                  >
+                    <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                    Efectivo recibido
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={paymentStatus === "no_aplica" ? "secondary" : "ghost"}
+                    onClick={() => setPaymentStatus("no_aplica")}
+                  >
+                    <Clock3 className="mr-1.5 h-4 w-4" />
+                    Aún no cobrado
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    Pago en efectivo al entregar. Marca recibido cuando cobres.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">

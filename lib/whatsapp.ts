@@ -14,6 +14,8 @@ type WhatsAppContext = {
   deliveryMethod?: string;
   note?: string;
   currency?: string;
+  paymentMethod?: "efectivo" | "transferencia";
+  paymentProofStatus?: "no_aplica" | "pendiente" | "subido";
   items: WhatsAppProductLine[];
 };
 
@@ -38,6 +40,8 @@ export function buildWhatsAppMessage({
   deliveryMethod,
   note,
   currency,
+  paymentMethod,
+  paymentProofStatus,
   items,
 }: Omit<WhatsAppContext, "providerPhone">) {
   const total = items.reduce(
@@ -58,6 +62,15 @@ export function buildWhatsAppMessage({
       )
       .join("\n"),
     `Total estimado: ${formatCurrency(total, currency)}`,
+    paymentMethod
+      ? `Pago: ${
+          paymentMethod === "transferencia" ? "Transferencia" : "Efectivo"
+        }${
+          paymentMethod === "transferencia"
+            ? ` (${paymentProofStatus === "subido" ? "Comprobante cargado" : "Comprobante pendiente"})`
+            : " (A pagar en la entrega)"
+        }`
+      : "",
     note ? `Nota: ${note}` : "",
   ]
     .filter(Boolean)

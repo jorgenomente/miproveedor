@@ -43,6 +43,8 @@ type DemoOrderSeed = {
   contactName: string;
   contactPhone: string;
   deliveryMethod?: string;
+  paymentMethod?: "efectivo" | "transferencia";
+  paymentProofStatus?: "no_aplica" | "pendiente" | "subido";
   note?: string;
   items: { productId: string; quantity: number }[];
 };
@@ -55,6 +57,15 @@ export type DemoOrder = DemoOrderSeed & {
     unitPrice: number;
     unit?: string | null;
   })[];
+  paymentMethod?: "efectivo" | "transferencia";
+  paymentProofStatus?: "no_aplica" | "pendiente" | "subido";
+  displayItems?: {
+    productName: string;
+    quantity: number;
+    unit?: string | null;
+    unitPrice: number;
+    subtotal: number;
+  }[];
 };
 
 const provider: DemoProvider = {
@@ -169,6 +180,8 @@ const orderSeeds: DemoOrderSeed[] = [
     contactName: "Camila Duarte",
     contactPhone: "+54 9 11 7000-1000",
     deliveryMethod: "Envío",
+    paymentMethod: "transferencia",
+    paymentProofStatus: "pendiente",
     note: "Entregar antes de las 13hs si es posible.",
     items: [
       { productId: products[0].id, quantity: 2 },
@@ -183,6 +196,8 @@ const orderSeeds: DemoOrderSeed[] = [
     contactName: "Luis Gómez",
     contactPhone: "+54 9 11 6666-1111",
     deliveryMethod: "Retiro",
+    paymentMethod: "efectivo",
+    paymentProofStatus: "no_aplica",
     items: [
       { productId: products[2].id, quantity: 1 },
       { productId: products[4].id, quantity: 2 },
@@ -196,6 +211,8 @@ const orderSeeds: DemoOrderSeed[] = [
     contactName: "Diego Rivas",
     contactPhone: "+54 9 11 8888-0000",
     deliveryMethod: "Envío",
+    paymentMethod: "transferencia",
+    paymentProofStatus: "subido",
     items: [
       { productId: products[3].id, quantity: 2 },
       { productId: products[1].id, quantity: 4 },
@@ -209,6 +226,8 @@ const orderSeeds: DemoOrderSeed[] = [
     contactName: "Rocío Torres",
     contactPhone: "+54 9 11 5555-2222",
     deliveryMethod: "Retiro",
+    paymentMethod: "efectivo",
+    paymentProofStatus: "no_aplica",
     items: [
       { productId: products[2].id, quantity: 1 },
       { productId: products[0].id, quantity: 1 },
@@ -222,6 +241,8 @@ const orderSeeds: DemoOrderSeed[] = [
     contactName: "Ana Ruiz",
     contactPhone: "+54 9 11 9999-1111",
     deliveryMethod: "Envío",
+    paymentMethod: "transferencia",
+    paymentProofStatus: "pendiente",
     items: [
       { productId: products[4].id, quantity: 1 },
       { productId: products[3].id, quantity: 1 },
@@ -253,6 +274,15 @@ export function getDemoData() {
       createdAt,
       items,
       total,
+      paymentMethod: seed.paymentMethod ?? "efectivo",
+      paymentProofStatus: seed.paymentProofStatus ?? "no_aplica",
+      displayItems: items.map((item) => ({
+        productName: item.name,
+        unit: item.unit,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        subtotal: item.unitPrice * item.quantity,
+      })),
     };
   });
 
