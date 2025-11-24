@@ -41,8 +41,10 @@ const DEMO_DELIVERY_RULES: DeliveryRule[] = [
   { id: "demo-rule-2", cutoffWeekday: 6, cutoffTimeMinutes: 20 * 60, deliveryWeekday: 2, deliveryTimeMinutes: 10 * 60 },
 ];
 
+const PROVIDER_TIME_ZONE = "America/Argentina/Buenos_Aires";
+
 function resolveNextDelivery(rules: DeliveryRule[]) {
-  const result = pickNextDelivery(rules, new Date());
+  const result = pickNextDelivery(rules, new Date(), PROVIDER_TIME_ZONE);
   if (!result) return null;
 
   return {

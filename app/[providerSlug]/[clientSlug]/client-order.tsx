@@ -211,19 +211,28 @@ const paymentStatusLabel: Record<string, { label: string; tone: "muted" | "warn"
 
   const deliverySlot = useMemo(() => {
     if (!deliveryRules.length) return null;
-    return pickNextDelivery(deliveryRules, new Date());
+    return pickNextDelivery(deliveryRules, new Date(), "America/Argentina/Buenos_Aires");
   }, [deliveryRules]);
 
   const formatDayLabel = useCallback((value?: string | null | Date) => {
     if (!value) return null;
     const date = value instanceof Date ? value : new Date(value);
-    return date.toLocaleDateString("es-AR", { weekday: "long", month: "short", day: "numeric" });
+    return date.toLocaleDateString("es-AR", {
+      weekday: "long",
+      month: "short",
+      day: "numeric",
+      timeZone: "America/Argentina/Buenos_Aires",
+    });
   }, []);
 
   const formatTimeLabel = useCallback((value?: string | null | Date) => {
     if (!value) return null;
     const date = value instanceof Date ? value : new Date(value);
-    return date.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+    return date.toLocaleTimeString("es-AR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "America/Argentina/Buenos_Aires",
+    });
   }, []);
 
   const formatDateTime = (value?: string | null) =>
@@ -754,24 +763,17 @@ const paymentStatusLabel: Record<string, { label: string; tone: "muted" | "warn"
             <div className="rounded-lg border border-border/60 bg-secondary/30 p-3">
               <div className="flex items-center justify-between">
                 <p className="text-[11px] font-semibold uppercase text-muted-foreground">Entrega estimada</p>
-                {deliverySlot ? (
-                  <Badge variant="outline" className="text-[11px]">
-                    Corte {formatTimeLabel(deliverySlot.cutoffDate)} · {WEEKDAYS[deliverySlot.cutoffDate.getDay()]}
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="text-[11px] text-destructive">
-                    Sin reglas
-                  </Badge>
-                )}
+                <Badge variant="outline" className="text-[11px]">
+                  {deliverySlot ? WEEKDAYS[deliverySlot.deliveryDate.getDay()] : "Sin reglas"}
+                </Badge>
               </div>
               {deliverySlot ? (
                 <div className="space-y-1">
                   <p className="text-sm font-semibold leading-tight">
-                    Se agenda para {formatDayLabel(deliverySlot.deliveryDate)}
+                    Entrega estimada {formatDayLabel(deliverySlot.deliveryDate)}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Ventana actual: {WEEKDAYS[deliverySlot.windowStartDate.getDay()]} {formatTimeLabel(deliverySlot.windowStartDate)} →{" "}
-                    {WEEKDAYS[deliverySlot.cutoffDate.getDay()]} {formatTimeLabel(deliverySlot.cutoffDate)}.
+                    Hacé el pedido antes de {WEEKDAYS[deliverySlot.cutoffDate.getDay()]} {formatTimeLabel(deliverySlot.cutoffDate)}.
                   </p>
                   {confirmedDeliveryDate ? (
                     <p className="text-xs text-emerald-600 dark:text-emerald-300">
