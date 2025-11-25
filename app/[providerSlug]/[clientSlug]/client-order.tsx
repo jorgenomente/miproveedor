@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { CreditCard, FileUp, Wallet } from "lucide-react";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -273,6 +274,7 @@ export function ClientOrder({ provider, client, products, paymentSettings, histo
     () => historyItems.filter((item) => isCompleted(item)),
     [historyItems],
   );
+  const historyAccordionDefaults = useMemo(() => ["pending"], []);
 
   const uploadHistoryProof = async (orderId: string, file?: File | null) => {
     if (!file) return;
@@ -1124,274 +1126,300 @@ export function ClientOrder({ provider, client, products, paymentSettings, histo
             </p>
           ) : (
             <div className="space-y-4">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold">Pendientes</h4>
-                  <Badge variant="outline">{pendingHistory.length}</Badge>
-                </div>
-                {pendingHistory.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">Sin pedidos pendientes.</p>
-                ) : (
-                  pendingHistory.map((order, index) => {
-                    const paymentStatus =
-                      paymentStatusLabel[order.paymentProofStatus ?? "no_aplica"] ??
-                      paymentStatusLabel.no_aplica;
-                    const paymentLabel =
-                      order.paymentMethod === "transferencia"
-                        ? "Transferencia"
-                        : order.paymentMethod === "efectivo"
-                          ? "Efectivo"
-                          : "Pago";
-                    const statusText =
-                      order.status === "entregado"
-                        ? "Completado"
-                        : ORDER_STATUS_LABEL[order.status as keyof typeof ORDER_STATUS_LABEL] ?? order.status;
-                    return (
-                      <motion.div
-                        key={order.id}
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: index * 0.03 }}
-                        className="space-y-2 rounded-xl border border-border/60 bg-secondary/30 px-3 py-3"
-                      >
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <div className="space-y-1">
-                            <p className="text-sm font-semibold">
-                              Pedido #{order.id.slice(0, 8)} · {formatCurrency(order.total ?? 0)}
-                            </p>
-                            <p className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</p>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span
-                              className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadge[order.status] ?? "bg-border text-foreground"}`}
+              <Accordion
+                type="multiple"
+                defaultValue={historyAccordionDefaults}
+                className="overflow-hidden rounded-xl border border-border/60 bg-card/40"
+              >
+                <AccordionItem value="pending" className="border-b border-border/60 last:border-0">
+                  <AccordionTrigger className="items-center px-3 py-3 sm:px-4">
+                    <div className="flex w-full items-center justify-between gap-3">
+                      <div className="space-y-1 text-left">
+                        <p className="text-sm font-semibold">Pendientes</p>
+                        <p className="text-xs font-normal text-muted-foreground">
+                          Pedidos por confirmar, preparar o enviar.
+                        </p>
+                      </div>
+                      <Badge variant="outline">{pendingHistory.length}</Badge>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="px-2 sm:px-3">
+                    {pendingHistory.length === 0 ? (
+                      <p className="px-2 pb-2 text-xs text-muted-foreground">Sin pedidos pendientes.</p>
+                    ) : (
+                      <div className="space-y-3 pb-3">
+                        {pendingHistory.map((order, index) => {
+                          const paymentStatus =
+                            paymentStatusLabel[order.paymentProofStatus ?? "no_aplica"] ??
+                            paymentStatusLabel.no_aplica;
+                          const paymentLabel =
+                            order.paymentMethod === "transferencia"
+                              ? "Transferencia"
+                              : order.paymentMethod === "efectivo"
+                                ? "Efectivo"
+                                : "Pago";
+                          const statusText =
+                            order.status === "entregado"
+                              ? "Completado"
+                              : ORDER_STATUS_LABEL[order.status as keyof typeof ORDER_STATUS_LABEL] ?? order.status;
+                          return (
+                            <motion.div
+                              key={order.id}
+                              initial={{ opacity: 0, y: 8 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: index * 0.03 }}
+                              className="space-y-2 rounded-xl border border-border/60 bg-secondary/30 px-3 py-3"
                             >
-                              {statusText}
-                            </span>
-                            <Badge variant="outline" className="flex items-center gap-1 text-xs">
-                              {order.paymentMethod === "transferencia" ? (
-                                <CreditCard className="h-3.5 w-3.5" />
-                              ) : (
-                                <Wallet className="h-3.5 w-3.5" />
-                              )}
-                              {paymentLabel}
-                            </Badge>
-                            <Badge
-                              variant={
-                                paymentStatus.tone === "ok"
-                                  ? "secondary"
-                                  : paymentStatus.tone === "warn"
-                                    ? "outline"
-                                    : "outline"
-                              }
-                              className={
-                                paymentStatus.tone === "warn"
-                                  ? "border-amber-400/60 text-amber-700 dark:text-amber-200"
-                                  : paymentStatus.tone === "ok"
-                                    ? "border-emerald-500/60 text-emerald-700 dark:text-emerald-200"
-                                    : ""
-                              }
-                            >
-                              {paymentStatus.label}
-                            </Badge>
-                            {order.paymentProofUrl ? (
-                              <Button asChild size="sm" variant="ghost" className="text-xs">
-                                <a href={order.paymentProofUrl} target="_blank" rel="noreferrer">
-                                  Ver comprobante
-                                </a>
-                              </Button>
-                            ) : null}
-                            <Button asChild size="sm" variant="outline" className="text-xs">
-                              <a
-                                href={`/${provider.slug}/${client.slug}/orders/${order.id}/receipt`}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                Imprimir remito
-                              </a>
-                            </Button>
-                          </div>
-                        </div>
-                        {order.items?.length ? (
-                          <div className="overflow-hidden rounded-lg border border-border/60 bg-card/70">
-                            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-4">
-                              <span>Producto</span>
-                              <span className="text-right">Cant.</span>
-                              <span className="text-right">P. unit</span>
-                              <span className="text-right">Subtotal</span>
-                            </div>
-                            {order.items.map((item, idx) => (
-                              <motion.div
-                                key={`${order.id}-${idx}`}
-                                initial={{ opacity: 0, y: 6 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: idx * 0.02 }}
-                                className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 px-3 py-2 text-sm sm:px-4"
-                              >
-                                <div>
-                                  <p className="font-medium">{item.productName}</p>
-                                  <p className="text-xs text-muted-foreground">{item.unit ?? "Unidad"}</p>
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="space-y-1">
+                                  <p className="text-sm font-semibold">
+                                    Pedido #{order.id.slice(0, 8)} · {formatCurrency(order.total ?? 0)}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</p>
                                 </div>
-                                <p className="text-right">{item.quantity}</p>
-                                <p className="text-right">{formatCurrency(item.unitPrice)}</p>
-                                <p className="text-right font-semibold">{formatCurrency(item.subtotal)}</p>
-                              </motion.div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-xs text-muted-foreground">Sin detalle disponible.</p>
-                        )}
-                        {order.paymentMethod === "transferencia" && order.paymentProofStatus !== "subido" ? (
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                            <Label
-                              htmlFor={`proof-${order.id}`}
-                              className="flex cursor-pointer items-center gap-2 rounded-md border border-border/60 bg-card/70 px-3 py-2 text-sm font-medium text-foreground hover:bg-card/90"
-                            >
-                              <FileUp className="h-4 w-4 text-primary" />
-                              Cargar comprobante
-                            </Label>
-                            <input
-                              id={`proof-${order.id}`}
-                              type="file"
-                              accept="image/*,application/pdf"
-                              className="hidden"
-                              onChange={(event) => void uploadHistoryProof(order.id, event.target.files?.[0] ?? null)}
-                            />
-                            {uploadingProofFor === order.id ? (
-                              <span className="text-xs text-primary">Subiendo...</span>
-                            ) : (
-                              <span>Estado: {paymentStatus.label}</span>
-                            )}
-                          </div>
-                        ) : null}
-                      </motion.div>
-                    );
-                  })
-                )}
-              </div>
-
-              <Separator />
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold">Completados</h4>
-                  <Badge variant="outline">{completedHistory.length}</Badge>
-                </div>
-                {completedHistory.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">Sin pedidos completados.</p>
-                ) : (
-                  completedHistory.map((order, index) => {
-                    const paymentStatus =
-                      paymentStatusLabel[order.paymentProofStatus ?? "no_aplica"] ??
-                      paymentStatusLabel.no_aplica;
-                    const paymentLabel =
-                      order.paymentMethod === "transferencia"
-                        ? "Transferencia"
-                        : order.paymentMethod === "efectivo"
-                          ? "Efectivo"
-                          : "Pago";
-                    const statusText =
-                      order.status === "entregado"
-                        ? "Completado"
-                        : ORDER_STATUS_LABEL[order.status as keyof typeof ORDER_STATUS_LABEL] ?? order.status;
-                    return (
-                      <motion.div
-                        key={order.id}
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: index * 0.02 }}
-                        className="space-y-2 rounded-xl border border-border/60 bg-secondary/20 px-3 py-3"
-                      >
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <div className="space-y-1">
-                            <p className="text-sm font-semibold">
-                              Pedido #{order.id.slice(0, 8)} · {formatCurrency(order.total ?? 0)}
-                            </p>
-                            <p className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</p>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span
-                              className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadge[order.status] ?? "bg-border text-foreground"}`}
-                            >
-                              {statusText}
-                            </span>
-                            <Badge variant="outline" className="flex items-center gap-1 text-xs">
-                              {order.paymentMethod === "transferencia" ? (
-                                <CreditCard className="h-3.5 w-3.5" />
-                              ) : (
-                                <Wallet className="h-3.5 w-3.5" />
-                              )}
-                              {paymentLabel}
-                            </Badge>
-                            <Badge
-                              variant={
-                                paymentStatus.tone === "ok"
-                                  ? "secondary"
-                                  : paymentStatus.tone === "warn"
-                                    ? "outline"
-                                    : "outline"
-                              }
-                              className={
-                                paymentStatus.tone === "warn"
-                                  ? "border-amber-400/60 text-amber-700 dark:text-amber-200"
-                                  : paymentStatus.tone === "ok"
-                                    ? "border-emerald-500/60 text-emerald-700 dark:text-emerald-200"
-                                    : ""
-                              }
-                            >
-                              {paymentStatus.label}
-                            </Badge>
-                            {order.paymentProofUrl ? (
-                              <Button asChild size="sm" variant="ghost" className="text-xs">
-                                <a href={order.paymentProofUrl} target="_blank" rel="noreferrer">
-                                  Ver comprobante
-                                </a>
-                              </Button>
-                            ) : null}
-                            <Button asChild size="sm" variant="outline" className="text-xs">
-                              <a
-                                href={`/${provider.slug}/${client.slug}/orders/${order.id}/receipt`}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                Imprimir remito
-                              </a>
-                            </Button>
-                          </div>
-                        </div>
-                        {order.items?.length ? (
-                          <div className="overflow-hidden rounded-lg border border-border/60 bg-card/70">
-                            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-4">
-                              <span>Producto</span>
-                              <span className="text-right">Cant.</span>
-                              <span className="text-right">P. unit</span>
-                              <span className="text-right">Subtotal</span>
-                            </div>
-                            {order.items.map((item, idx) => (
-                              <motion.div
-                                key={`${order.id}-${idx}`}
-                                initial={{ opacity: 0, y: 6 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: idx * 0.02 }}
-                                className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 px-3 py-2 text-sm sm:px-4"
-                              >
-                                <div>
-                                  <p className="font-medium">{item.productName}</p>
-                                  <p className="text-xs text-muted-foreground">{item.unit ?? "Unidad"}</p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span
+                                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadge[order.status] ?? "bg-border text-foreground"}`}
+                                  >
+                                    {statusText}
+                                  </span>
+                                  <Badge variant="outline" className="flex items-center gap-1 text-xs">
+                                    {order.paymentMethod === "transferencia" ? (
+                                      <CreditCard className="h-3.5 w-3.5" />
+                                    ) : (
+                                      <Wallet className="h-3.5 w-3.5" />
+                                    )}
+                                    {paymentLabel}
+                                  </Badge>
+                                  <Badge
+                                    variant={
+                                      paymentStatus.tone === "ok"
+                                        ? "secondary"
+                                        : paymentStatus.tone === "warn"
+                                          ? "outline"
+                                          : "outline"
+                                    }
+                                    className={
+                                      paymentStatus.tone === "warn"
+                                        ? "border-amber-400/60 text-amber-700 dark:text-amber-200"
+                                        : paymentStatus.tone === "ok"
+                                          ? "border-emerald-500/60 text-emerald-700 dark:text-emerald-200"
+                                          : ""
+                                    }
+                                  >
+                                    {paymentStatus.label}
+                                  </Badge>
+                                  {order.paymentProofUrl ? (
+                                    <Button asChild size="sm" variant="ghost" className="text-xs">
+                                      <a href={order.paymentProofUrl} target="_blank" rel="noreferrer">
+                                        Ver comprobante
+                                      </a>
+                                    </Button>
+                                  ) : null}
+                                  <Button asChild size="sm" variant="outline" className="text-xs">
+                                    <a
+                                      href={`/${provider.slug}/${client.slug}/orders/${order.id}/receipt`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      Imprimir remito
+                                    </a>
+                                  </Button>
                                 </div>
-                                <p className="text-right">{item.quantity}</p>
-                                <p className="text-right">{formatCurrency(item.unitPrice)}</p>
-                                <p className="text-right font-semibold">{formatCurrency(item.subtotal)}</p>
-                              </motion.div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-xs text-muted-foreground">Sin detalle disponible.</p>
-                        )}
-                      </motion.div>
-                    );
-                  })
-                )}
-              </div>
+                              </div>
+                              {order.items?.length ? (
+                                <div className="overflow-hidden rounded-lg border border-border/60 bg-card/70">
+                                  <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-4">
+                                    <span>Producto</span>
+                                    <span className="text-right">Cant.</span>
+                                    <span className="text-right">P. unit</span>
+                                    <span className="text-right">Subtotal</span>
+                                  </div>
+                                  {order.items.map((item, idx) => (
+                                    <motion.div
+                                      key={`${order.id}-${idx}`}
+                                      initial={{ opacity: 0, y: 6 }}
+                                      animate={{ opacity: 1, y: 0 }}
+                                      transition={{ delay: idx * 0.02 }}
+                                      className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 px-3 py-2 text-sm sm:px-4"
+                                    >
+                                      <div>
+                                        <p className="font-medium">{item.productName}</p>
+                                        <p className="text-xs text-muted-foreground">{item.unit ?? "Unidad"}</p>
+                                      </div>
+                                      <p className="text-right">{item.quantity}</p>
+                                      <p className="text-right">{formatCurrency(item.unitPrice)}</p>
+                                      <p className="text-right font-semibold">{formatCurrency(item.subtotal)}</p>
+                                    </motion.div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">Sin detalle disponible.</p>
+                              )}
+                              {order.paymentMethod === "transferencia" && order.paymentProofStatus !== "subido" ? (
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                  <Label
+                                    htmlFor={`proof-${order.id}`}
+                                    className="flex cursor-pointer items-center gap-2 rounded-md border border-border/60 bg-card/70 px-3 py-2 text-sm font-medium text-foreground hover:bg-card/90"
+                                  >
+                                    <FileUp className="h-4 w-4 text-primary" />
+                                    Cargar comprobante
+                                  </Label>
+                                  <input
+                                    id={`proof-${order.id}`}
+                                    type="file"
+                                    accept="image/*,application/pdf"
+                                    className="hidden"
+                                    onChange={(event) => void uploadHistoryProof(order.id, event.target.files?.[0] ?? null)}
+                                  />
+                                  {uploadingProofFor === order.id ? (
+                                    <span className="text-xs text-primary">Subiendo...</span>
+                                  ) : (
+                                    <span>Estado: {paymentStatus.label}</span>
+                                  )}
+                                </div>
+                              ) : null}
+                            </motion.div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </AccordionContent>
+                </AccordionItem>
+
+                <AccordionItem value="completed" className="border-b border-border/60 last:border-0">
+                  <AccordionTrigger className="items-center px-3 py-3 sm:px-4">
+                    <div className="flex w-full items-center justify-between gap-3">
+                      <div className="space-y-1 text-left">
+                        <p className="text-sm font-semibold">Completados</p>
+                        <p className="text-xs font-normal text-muted-foreground">
+                          Pedidos entregados y con comprobante validado.
+                        </p>
+                      </div>
+                      <Badge variant="outline">{completedHistory.length}</Badge>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="px-2 sm:px-3">
+                    {completedHistory.length === 0 ? (
+                      <p className="px-2 pb-2 text-xs text-muted-foreground">Sin pedidos completados.</p>
+                    ) : (
+                      <div className="space-y-3 pb-3">
+                        {completedHistory.map((order, index) => {
+                          const paymentStatus =
+                            paymentStatusLabel[order.paymentProofStatus ?? "no_aplica"] ??
+                            paymentStatusLabel.no_aplica;
+                          const paymentLabel =
+                            order.paymentMethod === "transferencia"
+                              ? "Transferencia"
+                              : order.paymentMethod === "efectivo"
+                                ? "Efectivo"
+                                : "Pago";
+                          const statusText =
+                            order.status === "entregado"
+                              ? "Completado"
+                              : ORDER_STATUS_LABEL[order.status as keyof typeof ORDER_STATUS_LABEL] ?? order.status;
+                          return (
+                            <motion.div
+                              key={order.id}
+                              initial={{ opacity: 0, y: 8 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: index * 0.02 }}
+                              className="space-y-2 rounded-xl border border-border/60 bg-secondary/20 px-3 py-3"
+                            >
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="space-y-1">
+                                  <p className="text-sm font-semibold">
+                                    Pedido #{order.id.slice(0, 8)} · {formatCurrency(order.total ?? 0)}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</p>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span
+                                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadge[order.status] ?? "bg-border text-foreground"}`}
+                                  >
+                                    {statusText}
+                                  </span>
+                                  <Badge variant="outline" className="flex items-center gap-1 text-xs">
+                                    {order.paymentMethod === "transferencia" ? (
+                                      <CreditCard className="h-3.5 w-3.5" />
+                                    ) : (
+                                      <Wallet className="h-3.5 w-3.5" />
+                                    )}
+                                    {paymentLabel}
+                                  </Badge>
+                                  <Badge
+                                    variant={
+                                      paymentStatus.tone === "ok"
+                                        ? "secondary"
+                                        : paymentStatus.tone === "warn"
+                                          ? "outline"
+                                          : "outline"
+                                    }
+                                    className={
+                                      paymentStatus.tone === "warn"
+                                        ? "border-amber-400/60 text-amber-700 dark:text-amber-200"
+                                        : paymentStatus.tone === "ok"
+                                          ? "border-emerald-500/60 text-emerald-700 dark:text-emerald-200"
+                                          : ""
+                                    }
+                                  >
+                                    {paymentStatus.label}
+                                  </Badge>
+                                  {order.paymentProofUrl ? (
+                                    <Button asChild size="sm" variant="ghost" className="text-xs">
+                                      <a href={order.paymentProofUrl} target="_blank" rel="noreferrer">
+                                        Ver comprobante
+                                      </a>
+                                    </Button>
+                                  ) : null}
+                                  <Button asChild size="sm" variant="outline" className="text-xs">
+                                    <a
+                                      href={`/${provider.slug}/${client.slug}/orders/${order.id}/receipt`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      Imprimir remito
+                                    </a>
+                                  </Button>
+                                </div>
+                              </div>
+                              {order.items?.length ? (
+                                <div className="overflow-hidden rounded-lg border border-border/60 bg-card/70">
+                                  <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-4">
+                                    <span>Producto</span>
+                                    <span className="text-right">Cant.</span>
+                                    <span className="text-right">P. unit</span>
+                                    <span className="text-right">Subtotal</span>
+                                  </div>
+                                  {order.items.map((item, idx) => (
+                                    <motion.div
+                                      key={`${order.id}-${idx}`}
+                                      initial={{ opacity: 0, y: 6 }}
+                                      animate={{ opacity: 1, y: 0 }}
+                                      transition={{ delay: idx * 0.02 }}
+                                      className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 px-3 py-2 text-sm sm:px-4"
+                                    >
+                                      <div>
+                                        <p className="font-medium">{item.productName}</p>
+                                        <p className="text-xs text-muted-foreground">{item.unit ?? "Unidad"}</p>
+                                      </div>
+                                      <p className="text-right">{item.quantity}</p>
+                                      <p className="text-right">{formatCurrency(item.unitPrice)}</p>
+                                      <p className="text-right font-semibold">{formatCurrency(item.subtotal)}</p>
+                                    </motion.div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">Sin detalle disponible.</p>
+                              )}
+                            </motion.div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             </div>
           )}
         </motion.section>
