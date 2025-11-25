@@ -193,9 +193,9 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
   const hasFilteredOrders = filteredOrders.length > 0;
 
   return (
-    <div className="relative isolate min-h-screen bg-gradient-to-b from-background via-background to-secondary/50 px-4 pb-12 pt-6 sm:px-8">
-      <main className="mx-auto flex max-w-5xl flex-col gap-6">
-        <div className="flex items-center justify-between">
+    <div className="relative isolate w-full">
+      <main className="flex w-full flex-col gap-6">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Button asChild variant="ghost" size="sm">
               <Link href={providerSlug ? `/app/${providerSlug}` : "/app"}>
@@ -206,7 +206,7 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
             <span>/</span>
             <Badge variant="secondary">Pedidos</Badge>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {lockedProvider ? (
               <Badge variant="outline">{providerSlug || "Proveedor"}</Badge>
             ) : (
@@ -242,7 +242,7 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
           </div>
         </div>
 
-        <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
+        <Card className="border-[color:var(--neutral-200)] bg-white shadow-sm backdrop-blur">
           <CardHeader className="flex flex-row items-center justify-between gap-4">
             <div>
               <CardTitle className="text-lg">Pedidos</CardTitle>
@@ -271,7 +271,7 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                 {[0, 1, 2].map((index) => (
                   <div
                     key={index}
-                    className="flex flex-col gap-3 rounded-lg border border-border/60 bg-secondary/30 p-3 sm:flex-row sm:items-center sm:justify-between"
+                    className="flex flex-col gap-3 rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div className="space-y-2">
                       <Skeleton className="h-3 w-32" />
@@ -309,7 +309,7 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.25, delay: index * 0.05 + groupIndex * 0.02 }}
-                        className="flex flex-col gap-3 rounded-lg border border-border/60 bg-card/70 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                        className="flex flex-col gap-3 rounded-lg border border-[color:var(--neutral-200)] bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
                       >
                         <div className="space-y-1">
                           <p className="text-sm font-semibold">
@@ -438,7 +438,7 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
           </CardContent>
         </Card>
 
-        <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
+        <Card className="border-[color:var(--neutral-200)] bg-white shadow-sm backdrop-blur">
           <CardHeader className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -467,7 +467,7 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                 {[0, 1, 2].map((index) => (
                   <div
                     key={index}
-                    className="flex items-center justify-between rounded-lg border border-border/60 bg-secondary/30 p-3"
+                    className="flex items-center justify-between rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3"
                   >
                     <Skeleton className="h-3 w-40" />
                     <Skeleton className="h-3 w-10" />
@@ -501,7 +501,7 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                           initial={{ opacity: 0, y: 8 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: index * 0.02 }}
-                          className="flex items-center justify-between rounded-lg border border-border/60 bg-card/70 px-3 py-2"
+                          className="flex items-center justify-between rounded-lg border border-[color:var(--neutral-200)] bg-white px-3 py-2"
                         >
                           <div>
                             <p className="text-sm font-semibold">{item.name}</p>

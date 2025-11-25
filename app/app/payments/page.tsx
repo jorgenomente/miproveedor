@@ -16,7 +16,7 @@ export default async function PaymentsPage({ searchParams }: PageProps) {
   if (!providerSlug) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-16">
-        <Card className="border-border/60 bg-card/70 shadow-sm backdrop-blur">
+        <Card className="border-[color:var(--neutral-200)] bg-white shadow-sm backdrop-blur">
           <CardHeader>
             <CardTitle className="text-lg">Selecciona un proveedor</CardTitle>
           </CardHeader>

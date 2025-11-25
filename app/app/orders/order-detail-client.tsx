@@ -183,7 +183,7 @@ export function OrderDetailClient({ order, backHref }: Props) {
   };
 
   return (
-    <div className="relative isolate min-h-screen bg-linear-to-b from-background via-background to-secondary/50 px-4 pb-12 pt-6 sm:px-8">
+    <div className="relative isolate min-h-screen bg-[color:var(--surface)] px-4 pb-12 pt-6 sm:px-8">
       <main className="mx-auto flex max-w-5xl flex-col gap-6">
         <div className="flex items-center justify-between">
           <Button asChild variant="ghost" size="sm">
@@ -202,7 +202,7 @@ export function OrderDetailClient({ order, backHref }: Props) {
           </div>
         </div>
 
-        <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
+        <Card className="border-[color:var(--neutral-200)] bg-white shadow-sm backdrop-blur">
           <CardHeader className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle className="text-lg">Pedido #{order.id.slice(0, 8)}</CardTitle>
@@ -275,7 +275,7 @@ export function OrderDetailClient({ order, backHref }: Props) {
             ) : null}
 
             <div className="grid gap-4 md:grid-cols-2">
-              <Card className="border-border/60 bg-card/70">
+              <Card className="border-[color:var(--neutral-200)] bg-white">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm">Proveedor</CardTitle>
                 </CardHeader>
@@ -286,7 +286,7 @@ export function OrderDetailClient({ order, backHref }: Props) {
                 </CardContent>
               </Card>
 
-              <Card className="border-border/60 bg-card/70">
+              <Card className="border-[color:var(--neutral-200)] bg-white">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm">Cliente</CardTitle>
                 </CardHeader>
@@ -299,7 +299,7 @@ export function OrderDetailClient({ order, backHref }: Props) {
               </Card>
             </div>
 
-            <Card className="border-border/60 bg-card/70">
+            <Card className="border-[color:var(--neutral-200)] bg-white">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">Entrega programada</CardTitle>
               </CardHeader>
@@ -482,7 +482,7 @@ export function OrderDetailClient({ order, backHref }: Props) {
                   {deliveryMethod || "Entrega no definida"}
                 </Badge>
               </div>
-              <div className="overflow-hidden rounded-xl border border-border/60 bg-card/60">
+              <div className="overflow-hidden rounded-xl border border-[color:var(--neutral-200)] bg-card/60">
                 <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2 text-xs font-semibold text-muted-foreground sm:px-4">
                   <span>Producto</span>
                   <span className="text-right">Cant.</span>

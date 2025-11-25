@@ -146,7 +146,7 @@ export function PaymentsClient({ providerSlug, provider, initialSettings }: Prop
   const transferAvailable = settings.transferEnabled && activeTransferProfiles.length > 0;
 
   return (
-    <div className="relative isolate min-h-screen bg-linear-to-b from-background via-background to-secondary/50 px-4 pb-14 pt-8 sm:px-8">
+    <div className="relative isolate min-h-screen bg-[color:var(--surface)] px-4 pb-14 pt-8 sm:px-8">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <motion.div
           className="absolute -left-10 top-8 h-48 w-48 rounded-full bg-primary/10 blur-3xl"
@@ -174,7 +174,7 @@ export function PaymentsClient({ providerSlug, provider, initialSettings }: Prop
           <Badge variant="secondary">Mis alias y pagos</Badge>
         </div>
 
-        <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
+        <Card className="border-[color:var(--neutral-200)] bg-white shadow-sm backdrop-blur">
           <CardHeader className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -196,9 +196,9 @@ export function PaymentsClient({ providerSlug, provider, initialSettings }: Prop
           </CardHeader>
           <CardContent className="grid gap-6 lg:grid-cols-[1.2fr,0.9fr]">
             <form className="space-y-4" onSubmit={submit} id="payment-settings-form">
-              <div className="space-y-3 rounded-xl border border-border/60 bg-secondary/30 p-4">
+              <div className="space-y-3 rounded-xl border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-4">
                 {paymentOptions.map((option) => (
-                  <div key={option.key} className="flex items-start justify-between gap-3 rounded-lg border border-border/60 bg-card/70 px-3 py-2">
+                  <div key={option.key} className="flex items-start justify-between gap-3 rounded-lg border border-[color:var(--neutral-200)] bg-white px-3 py-2">
                     <div className="flex items-start gap-3">
                       <span className="mt-0.5 text-primary">{option.icon}</span>
                       <div>
@@ -220,7 +220,7 @@ export function PaymentsClient({ providerSlug, provider, initialSettings }: Prop
                 ))}
 
                 {settings.transferEnabled ? (
-                  <div className="space-y-3 rounded-lg border border-border/70 bg-background/70 p-3">
+                  <div className="space-y-3 rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold">Perfiles de transferencia</p>
@@ -251,7 +251,7 @@ export function PaymentsClient({ providerSlug, provider, initialSettings }: Prop
                           return (
                             <motion.div
                               key={profile.id}
-                              className="rounded-lg border border-border/60 bg-card/70 shadow-xs"
+                              className="rounded-lg border border-[color:var(--neutral-200)] bg-white shadow-xs"
                               layout
                             >
                               <div
@@ -282,7 +282,7 @@ export function PaymentsClient({ providerSlug, provider, initialSettings }: Prop
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  <div className="flex items-center gap-2 rounded-full border border-border/60 bg-background/70 px-3 py-1 text-xs">
+                                  <div className="flex items-center gap-2 rounded-full border border-[color:var(--neutral-200)] bg-[color:var(--surface)] px-3 py-1 text-xs">
                                     <span className="text-muted-foreground">Activo</span>
                                     <Switch
                                       checked={settings.transferEnabled && profile.isActive}
@@ -298,7 +298,7 @@ export function PaymentsClient({ providerSlug, provider, initialSettings }: Prop
                               </div>
 
                               {isOpen ? (
-                                <div className="space-y-3 border-t border-border/60 bg-card/80 p-3">
+                                <div className="space-y-3 border-t border-[color:var(--neutral-200)] bg-white p-3">
                                   <div className="grid gap-3 sm:grid-cols-2">
                                     <div className="space-y-2">
                                       <Label htmlFor={`label-${profile.id}`}>Nombre interno</Label>
@@ -368,7 +368,7 @@ export function PaymentsClient({ providerSlug, provider, initialSettings }: Prop
                         })}
                       </div>
                     ) : (
-                      <div className="rounded-lg border border-dashed border-border/70 bg-background/50 p-4 text-sm text-muted-foreground">
+                      <div className="rounded-lg border border-dashed border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-4 text-sm text-muted-foreground">
                         Agrega tu primer alias o CBU para mostrar en el checkout de transferencias.
                       </div>
                     )}
@@ -410,7 +410,7 @@ export function PaymentsClient({ providerSlug, provider, initialSettings }: Prop
             </form>
 
             <div className="space-y-3">
-              <Card className="border-border/60 bg-card/80 shadow-sm">
+              <Card className="border-[color:var(--neutral-200)] bg-white shadow-sm">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm">Así lo verá tu cliente</CardTitle>
                 </CardHeader>
@@ -438,13 +438,13 @@ export function PaymentsClient({ providerSlug, provider, initialSettings }: Prop
                     ) : null}
                   </div>
                   {transferAvailable ? (
-                    <div className="space-y-2 rounded-lg border border-border/60 bg-secondary/30 p-3">
+                    <div className="space-y-2 rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
                       <p className="text-xs font-semibold uppercase text-muted-foreground">Cuentas de transferencia</p>
                       <div className="space-y-2">
                         {activeTransferProfiles.map((profile) => (
                           <div
                             key={profile.id}
-                            className="rounded-md border border-border/60 bg-card/70 px-3 py-2"
+                            className="rounded-md border border-[color:var(--neutral-200)] bg-white px-3 py-2"
                           >
                             <p className="text-sm font-semibold">
                               {profile.label?.trim() || "Cuenta bancaria"}
@@ -462,7 +462,7 @@ export function PaymentsClient({ providerSlug, provider, initialSettings }: Prop
                       <p className="text-xs text-muted-foreground">{previewNotes}</p>
                     </div>
                   ) : settings.transferEnabled ? (
-                    <div className="rounded-lg border border-dashed border-border/60 bg-secondary/30 p-3 text-xs text-muted-foreground">
+                    <div className="rounded-lg border border-dashed border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3 text-xs text-muted-foreground">
                       Activa al menos un perfil para mostrar datos de transferencia.
                     </div>
                   ) : null}

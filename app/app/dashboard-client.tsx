@@ -40,11 +40,11 @@ export type OrderSummary = {
 };
 
 const statusBadge: Record<string, string> = {
-  nuevo: "bg-primary/10 text-primary",
-  preparando: "bg-amber-500/10 text-amber-700 dark:text-amber-200",
-  enviado: "bg-blue-500/10 text-blue-700 dark:text-blue-200",
-  entregado: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-200",
-  cancelado: "bg-destructive/10 text-destructive",
+  nuevo: "bg-[color:var(--info-light)] text-[color:var(--brand-deep)]",
+  preparando: "bg-[color:var(--warning-light)] text-[color:var(--warning)]",
+  enviado: "bg-[color:var(--info-light)] text-[color:var(--brand-deep)]",
+  entregado: "bg-[color:var(--success-light)] text-[color:var(--success)]",
+  cancelado: "bg-[color:var(--error-light)] text-[color:var(--error)]",
 };
 
 type Props = {
@@ -326,34 +326,19 @@ export function DashboardClient({
   }, [providerSlug, router]);
 
   return (
-    <div className="relative isolate min-h-screen bg-linear-to-b from-background via-background to-secondary/50 px-4 pb-12 pt-8 sm:px-8">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <motion.div
-          className="absolute -left-10 top-8 h-52 w-52 rounded-full bg-primary/10 blur-3xl"
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 0.6, scale: 1 }}
-          transition={{ duration: 0.9, ease: "easeOut" }}
-        />
-        <motion.div
-          className="absolute right-0 bottom-10 h-64 w-64 rounded-full bg-foreground/5 blur-3xl"
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 0.5, scale: 1 }}
-          transition={{ duration: 1, ease: "easeOut", delay: 0.05 }}
-        />
-      </div>
-
-      <main className="relative mx-auto flex max-w-6xl flex-col gap-6">
-        <header className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-card/70 p-5 shadow-sm backdrop-blur">
+    <div className="w-full">
+      <main className="flex w-full flex-col gap-6">
+        <header className="flex flex-col gap-3 rounded-lg border border-[color:var(--neutral-200)] bg-white p-5 shadow-sm">
           <div>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-[color:var(--neutral-500)]">
               MiProveedor {provider ? `· ${provider.slug}` : ""}
             </p>
-            <h1 className="text-2xl font-semibold md:text-3xl">
+            <h1 className="text-2xl font-semibold text-[color:var(--neutral-900)] md:text-3xl">
               Panel de control
             </h1>
-        
+
             {provider ? (
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[color:var(--neutral-500)]">
                 <Badge variant={subscriptionBadge.variant}>{subscriptionBadge.label}</Badge>
                 <span>Suscripto desde: {formattedDate(provider.subscribedAt)}</span>
                 <span>Renueva el: {formattedDate(provider.renewsAt)}</span>
@@ -362,15 +347,21 @@ export function DashboardClient({
           </div>
         </header>
 
-        <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
-          
-          <CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="border-[color:var(--neutral-200)] bg-white shadow-sm">
+          <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {quickActions.map((action) => (
-              <Button key={action.href} asChild variant="outline" className="justify-start">
+              <Button
+                key={action.href}
+                asChild
+                variant="ghost"
+                className="justify-start rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] text-[color:var(--neutral-900)] hover:bg-[color:var(--info-light)]"
+              >
                 <Link href={action.href}>
-                  {action.icon}
-                  <span className="ml-2">{action.label}</span>
-                  <ArrowUpRight className="ml-auto h-3.5 w-3.5" />
+                  <span className="mr-2 inline-flex h-8 w-8 items-center justify-center rounded-md bg-[color:var(--info-light)] text-[color:var(--brand-deep)]">
+                    {action.icon}
+                  </span>
+                  <span className="mr-auto">{action.label}</span>
+                  <ArrowUpRight className="ml-2 h-4 w-4 text-[color:var(--neutral-500)]" />
                 </Link>
               </Button>
             ))}
@@ -399,25 +390,35 @@ export function DashboardClient({
           </Card>
         ) : null}
 
-        <section className="grid gap-4 sm:grid-cols-3">
-          {liveMetrics.map((metric) => (
-            <Card
+        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {liveMetrics.map((metric, index) => (
+            <motion.div
               key={metric.label}
-              className="border-border/60 bg-card/80 shadow-sm backdrop-blur"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.05 }}
             >
-              <CardHeader className="pb-2">
-                <p className="text-sm text-muted-foreground">{metric.label}</p>
-              </CardHeader>
-              <CardContent className="flex items-end justify-between">
-                <p className="text-2xl font-semibold">{metric.value}</p>
-                {metric.trend ? <Badge variant="secondary">{metric.trend}</Badge> : null}
-              </CardContent>
-            </Card>
+              <Card className="border-[color:var(--neutral-200)] bg-white shadow-sm">
+                <CardHeader className="pb-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[color:var(--neutral-500)]">
+                    {metric.label}
+                  </p>
+                </CardHeader>
+                <CardContent className="flex items-center justify-between">
+                  <p className="text-3xl font-semibold text-[color:var(--neutral-900)]">{metric.value}</p>
+                  {metric.trend ? (
+                    <Badge variant="success" className="px-2 py-1 text-[11px]">
+                      {metric.trend}
+                    </Badge>
+                  ) : null}
+                </CardContent>
+              </Card>
+            </motion.div>
           ))}
         </section>
 
         <section className="grid gap-5" id="pedidos">
-          <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
+          <Card className="border-[color:var(--neutral-200)] bg-white shadow-sm">
             <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2">
                 <CardTitle className="text-lg">Pedidos recientes</CardTitle>

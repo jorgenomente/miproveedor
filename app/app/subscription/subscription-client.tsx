@@ -158,7 +158,7 @@ export function SubscriptionClient({ providerSlug, provider, initialPayments }: 
   };
 
   return (
-    <div className="relative isolate min-h-screen bg-gradient-to-b from-background via-background to-secondary/50 px-4 pb-12 pt-8 sm:px-8">
+    <div className="relative isolate min-h-screen bg-[color:var(--surface)] px-4 pb-12 pt-8 sm:px-8">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <motion.div
           className="absolute -left-10 top-8 h-52 w-52 rounded-full bg-primary/10 blur-3xl"
@@ -190,7 +190,7 @@ export function SubscriptionClient({ providerSlug, provider, initialPayments }: 
         </div>
 
         <div className="grid gap-5 lg:grid-cols-[1.15fr,0.85fr]">
-          <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
+          <Card className="border-[color:var(--neutral-200)] bg-white shadow-sm backdrop-blur">
             <CardHeader className="space-y-1">
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-1">
@@ -215,7 +215,7 @@ export function SubscriptionClient({ providerSlug, provider, initialPayments }: 
             </CardHeader>
             <CardContent className="space-y-4">
               {payments.length === 0 ? (
-                <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-border/70 bg-secondary/30 p-4 text-sm text-muted-foreground">
+                <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-4 text-sm text-muted-foreground">
                   <div className="flex items-center gap-2 text-primary">
                     <Receipt className="h-4 w-4" />
                     <span>Aún no hay comprobantes.</span>
@@ -235,7 +235,7 @@ export function SubscriptionClient({ providerSlug, provider, initialPayments }: 
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: -6 }}
                           transition={{ delay: index * 0.03 }}
-                          className="group relative overflow-hidden rounded-xl border border-border/70 bg-card/70 p-4 shadow-sm"
+                          className="group relative overflow-hidden rounded-xl border border-[color:var(--neutral-200)] bg-white p-4 shadow-sm"
                         >
                           <div className="absolute inset-0 bg-gradient-to-r from-primary/5 via-transparent to-secondary/10 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                           <div className="relative flex flex-wrap items-center justify-between gap-3">
@@ -268,7 +268,7 @@ export function SubscriptionClient({ providerSlug, provider, initialPayments }: 
             </CardContent>
           </Card>
 
-          <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
+          <Card className="border-[color:var(--neutral-200)] bg-white shadow-sm backdrop-blur">
             <CardHeader>
               <CardTitle className="text-lg">Registrar un pago</CardTitle>
               <p className="text-sm text-muted-foreground">
@@ -293,7 +293,7 @@ export function SubscriptionClient({ providerSlug, provider, initialPayments }: 
                   <Label htmlFor="proof">Comprobante (imagen o PDF)</Label>
                   <label
                     htmlFor="proof"
-                    className="group flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/70 bg-secondary/30 px-4 py-6 text-center transition hover:border-primary/60 hover:bg-secondary/40"
+                    className="group flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[color:var(--neutral-200)] bg-[color:var(--surface)] px-4 py-6 text-center transition hover:border-primary/60 hover:bg-[color:var(--surface)]"
                   >
                     <div className="flex items-center gap-2 text-sm font-medium">
                       <UploadCloud className="h-4 w-4 text-primary" />
@@ -312,7 +312,7 @@ export function SubscriptionClient({ providerSlug, provider, initialPayments }: 
                     />
                   </label>
                   {uploadState ? (
-                    <div className="flex items-center justify-between rounded-lg border border-border/60 bg-secondary/20 px-3 py-2 text-xs">
+                    <div className="flex items-center justify-between rounded-lg border border-[color:var(--neutral-200)] bg-secondary/20 px-3 py-2 text-xs">
                       <div className="flex items-center gap-2">
                         <Receipt className="h-4 w-4 text-primary" />
                         <div className="text-left">
@@ -329,7 +329,7 @@ export function SubscriptionClient({ providerSlug, provider, initialPayments }: 
 
                 <Separator />
 
-                <div className="space-y-2 rounded-lg border border-border/70 bg-secondary/30 p-3 text-xs text-muted-foreground">
+                <div className="space-y-2 rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3 text-xs text-muted-foreground">
                   <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                     <ShieldCheck className="h-4 w-4 text-primary" />
                     El equipo revisa cada comprobante

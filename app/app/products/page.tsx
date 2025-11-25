@@ -9,10 +9,12 @@ import {
   Clock4,
   CheckCircle2,
   Download,
+  LayoutGrid,
   ImagePlus,
   Loader2,
   Plus,
   RefreshCcw,
+  Rows,
   Tag,
   ToggleLeft,
   Trash2,
@@ -35,6 +37,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -64,6 +67,8 @@ import {
   timeStringToMinutes,
   type DeliveryRule,
 } from "@/lib/delivery-windows";
+
+const MotionTableRow = motion(TableRow);
 
 export type ProductsPageProps = { initialProviderSlug?: string };
 
@@ -196,6 +201,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [productsError, setProductsError] = useState<string | null>(null);
+  const [productView, setProductView] = useState<"cards" | "table">("cards");
   const [result, setResult] = useState<CreateProductResult | UpdateProductResult | null>(null);
   const [resultSource, setResultSource] = useState<"create" | "edit" | null>(null);
   const [pendingCreate, startCreate] = useTransition();
@@ -960,8 +966,8 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
   }
 
   return (
-    <div className="relative isolate min-h-screen bg-linear-to-b from-background via-background to-secondary/50 px-4 pb-12 pt-6 sm:px-8">
-      <main className="mx-auto flex max-w-5xl flex-col gap-6">
+    <div className="w-full">
+      <main className="flex w-full flex-col gap-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Button asChild variant="ghost" size="sm">
@@ -997,7 +1003,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
 
         {!showCreateModal && result ? (
           result.success ? (
-            <div className="rounded-lg border border-border/70 bg-secondary/30 p-3 text-sm">
+            <div className="rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3 text-sm">
               {result.message}
             </div>
           ) : (
@@ -1007,7 +1013,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
           )
         ) : null}
 
-        <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
+        <Card className="border-[color:var(--neutral-200)] bg-white shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle className="text-lg">Catálogo</CardTitle>
@@ -1036,6 +1042,34 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                 Reglas de entrega
               </Button>
             </div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex rounded-full border border-[color:var(--neutral-200)] bg-white/80 p-1 shadow-sm backdrop-blur">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={productView === "cards" ? "secondary" : "ghost"}
+                    className="gap-2 rounded-full px-3"
+                    onClick={() => setProductView("cards")}
+                    aria-pressed={productView === "cards"}
+                  >
+                    <LayoutGrid className="h-4 w-4" />
+                    Tarjetas
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={productView === "table" ? "secondary" : "ghost"}
+                    className="gap-2 rounded-full px-3"
+                    onClick={() => setProductView("table")}
+                    aria-pressed={productView === "table"}
+                  >
+                    <Rows className="h-4 w-4" />
+                    Tabla
+                  </Button>
+                </div>
+              </div>
+            </div>
             {productsError ? (
               <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
                 {productsError}
@@ -1045,7 +1079,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
             {loadingProducts ? (
               <div className="grid gap-3 sm:grid-cols-2">
                 {[0, 1, 2, 3].map((item) => (
-                  <div key={item} className="rounded-xl border border-border/60 bg-secondary/30 p-4">
+                  <div key={item} className="rounded-xl border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-4">
                     <div className="flex items-center gap-3">
                       <Skeleton className="h-12 w-12 rounded-full" />
                       <div className="space-y-2 flex-1">
@@ -1058,8 +1092,163 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                 ))}
               </div>
             ) : products.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-border/70 bg-secondary/30 p-4 text-sm text-muted-foreground">
+              <div className="rounded-xl border border-dashed border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-4 text-sm text-muted-foreground">
                 Aún no hay productos para este proveedor.
+              </div>
+            ) : productView === "table" ? (
+              <div className="overflow-hidden rounded-xl border border-[color:var(--neutral-200)] bg-white shadow-sm">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-[color:var(--surface)]">
+                        <TableHead className="min-w-[240px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Producto
+                        </TableHead>
+                        <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Precio final
+                        </TableHead>
+                        <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Estado
+                        </TableHead>
+                        <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Stock
+                        </TableHead>
+                        <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Categoría
+                        </TableHead>
+                        <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Tags
+                        </TableHead>
+                        <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Acciones
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {products.map((product, index) => {
+                        const finalPrice = product.price * (1 - (product.discount_percent ?? 0) / 100);
+                        return (
+                          <MotionTableRow
+                            key={product.id}
+                            initial={{ opacity: 0, y: 8 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: index * 0.02 }}
+                            className="border-b border-[color:var(--neutral-200)] transition-colors hover:bg-[color:var(--surface)]/60 last:border-0"
+                          >
+                            <TableCell>
+                              <div className="flex items-start gap-3">
+                                <div className="relative h-12 w-12 overflow-hidden rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)]">
+                                  {product.image_url ? (
+                                    <NextImage
+                                      src={product.image_url}
+                                      alt={`Imagen de ${product.name}`}
+                                      fill
+                                      sizes="64px"
+                                      className="object-cover"
+                                      unoptimized
+                                    />
+                                  ) : (
+                                    <div className="flex h-full w-full items-center justify-center text-[11px] uppercase text-muted-foreground">
+                                      Sin foto
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="space-y-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="text-sm font-semibold">{product.name}</p>
+                                    {product.brand ? (
+                                      <Badge variant="outline" className="rounded-full px-2 py-0 text-[11px]">
+                                        {product.brand}
+                                      </Badge>
+                                    ) : null}
+                                    {product.is_new ? (
+                                      <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px]">
+                                        Nuevo
+                                      </Badge>
+                                    ) : null}
+                                  </div>
+                                  <p className="text-xs text-muted-foreground line-clamp-2">
+                                    {product.description || "Sin descripción"}
+                                  </p>
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="space-y-1 text-sm font-semibold">
+                                {product.discount_percent && product.discount_percent > 0 ? (
+                                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                                    <span className="line-through">{formatCurrency(product.price)}</span>
+                                    <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px]">
+                                      -{Math.round(product.discount_percent)}%
+                                    </Badge>
+                                  </div>
+                                ) : null}
+                                <div>
+                                  {formatCurrency(finalPrice)}
+                                  {product.unit ? (
+                                    <span className="text-[11px] text-muted-foreground"> · {product.unit}</span>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={product.is_active ? "secondary" : "outline"}
+                                className={!product.is_active ? "border-destructive text-destructive" : undefined}
+                              >
+                                {product.is_active ? "Activo" : "Inactivo"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              {product.is_out_of_stock ? (
+                                <Badge variant="destructive" className="rounded-full px-2 py-0 text-[11px]">
+                                  Sin stock
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="rounded-full px-2 py-0 text-[11px]">
+                                  Disponible
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {product.category ?? "—"}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap gap-1">
+                                {(product.tags ?? []).slice(0, 4).map((tag) => (
+                                  <Badge
+                                    key={`${product.id}-${tag}`}
+                                    variant="outline"
+                                    className="rounded-full px-2 py-0 text-[11px]"
+                                  >
+                                    #{tag}
+                                  </Badge>
+                                ))}
+                                {!product.tags?.length ? <span className="text-xs text-muted-foreground">—</span> : null}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  aria-label="Alternar producto"
+                                  disabled={pendingToggle}
+                                  onClick={() => handleToggle(product.id, Boolean(product.is_active))}
+                                >
+                                  <ToggleLeft className="h-5 w-5" />
+                                </Button>
+                                <Button variant="outline" size="sm" onClick={() => openEditModal(product)}>
+                                  Editar
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </MotionTableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
               </div>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2">
@@ -1069,11 +1258,11 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.04 }}
-                    className="flex flex-col gap-2 rounded-xl border border-border/70 bg-card/70 p-4"
+                    className="flex flex-col gap-2 rounded-xl border border-[color:var(--neutral-200)] bg-white p-4"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex flex-1 items-start gap-3">
-                        <div className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/60 bg-secondary/40">
+                        <div className="relative h-16 w-16 overflow-hidden rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)]">
                           {product.image_url ? (
                             <NextImage
                               src={product.image_url}
@@ -1118,7 +1307,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                           {product.discount_percent && product.discount_percent > 0 ? (
                             <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                               <span className="line-through">{formatCurrency(product.price)}</span>
-                              <Badge variant="secondary" className="text-[11px]">
+                              <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px]">
                                 -{Math.round(product.discount_percent)}%
                               </Badge>
                             </div>
@@ -1183,7 +1372,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="rounded-lg border border-border/70 bg-secondary/30 p-3 text-sm text-muted-foreground">
+            <div className="rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3 text-sm text-muted-foreground">
               <div className="flex items-start gap-2">
                 <Clock4 className="mt-0.5 h-4 w-4 text-primary" />
                 <div className="space-y-1">
@@ -1210,7 +1399,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
               {loadingRules ? (
                 <div className="space-y-2">
                   {[0, 1].map((index) => (
-                    <div key={index} className="rounded-lg border border-border/60 bg-secondary/30 p-3">
+                    <div key={index} className="rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
                       <Skeleton className="h-4 w-32" />
                       <div className="mt-2 grid gap-2 sm:grid-cols-3">
                         <Skeleton className="h-10" />
@@ -1225,7 +1414,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                   {deliveryRules.map((rule, index) => (
                     <div
                       key={rule.id ?? `${rule.cutoffWeekday}-${rule.cutoffTime}-${rule.deliveryWeekday}-${index}`}
-                      className="rounded-lg border border-border/60 bg-card/70 p-3 shadow-sm"
+                      className="rounded-lg border border-[color:var(--neutral-200)] bg-white p-3 shadow-sm"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px] uppercase">
@@ -1307,7 +1496,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
               )}
             </div>
 
-            <div className="space-y-2 rounded-lg border border-border/60 bg-secondary/30 p-3">
+            <div className="space-y-2 rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
               <p className="text-xs font-semibold uppercase text-muted-foreground">Cobertura semanal</p>
               {deliveryWindowsPreview.length ? (
                 <div className="space-y-2 text-sm">
@@ -1316,7 +1505,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                     return (
                       <div
                         key={window.id}
-                        className="flex flex-col gap-1 rounded-md border border-border/60 bg-background/70 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                        className="flex flex-col gap-1 rounded-md border border-[color:var(--neutral-200)] bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
                       >
                         <div>
                           <p className="font-semibold">
@@ -1445,14 +1634,14 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="flex items-center justify-between rounded-lg border border-border/60 bg-secondary/30 px-3 py-2">
+              <div className="flex items-center justify-between rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] px-3 py-2">
                 <div>
                   <p className="text-sm font-semibold">Marcar como nuevo</p>
                   <p className="text-xs text-muted-foreground">Destaca el producto con una etiqueta.</p>
                 </div>
                 <Switch checked={isNew} onCheckedChange={setIsNew} aria-label="Marcar producto como nuevo" />
               </div>
-              <div className="flex items-center justify-between rounded-lg border border-border/60 bg-secondary/30 px-3 py-2">
+              <div className="flex items-center justify-between rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] px-3 py-2">
                 <div>
                   <p className="text-sm font-semibold">Sin stock</p>
                   <p className="text-xs text-muted-foreground">Bloquea el agregado en el link público.</p>
@@ -1466,7 +1655,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
             </div>
             <div className="space-y-2">
               <Label htmlFor="tags">Etiquetas</Label>
-              <div className="space-y-3 rounded-lg border border-border/60 bg-secondary/30 p-3">
+              <div className="space-y-3 rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
                   <div className="flex flex-1 flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3">
                     <Input
@@ -1504,7 +1693,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                         #{tag}
                         <button
                           type="button"
-                          className="rounded-full p-0.5 hover:bg-background"
+                          className="rounded-full p-0.5 hover:bg-[color:var(--surface)]"
                           onClick={() => removeTag(tag)}
                           aria-label={`Quitar etiqueta ${tag}`}
                         >
@@ -1540,7 +1729,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
             </div>
             <div className="space-y-2">
               <Label htmlFor="image">Imagen (opcional)</Label>
-              <div className="flex flex-col gap-3 rounded-lg border border-dashed border-border/60 bg-secondary/30 p-3">
+              <div className="flex flex-col gap-3 rounded-lg border border-dashed border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-start gap-3">
                     <div className="rounded-full bg-primary/10 p-2">
@@ -1593,7 +1782,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                 {imageError ? <p className="text-xs text-destructive">{imageError}</p> : null}
                 {imagePreview ? (
                   <div className="flex items-center gap-3">
-                    <div className="relative h-24 w-32 overflow-hidden rounded-lg border border-border/60 bg-background/60">
+                    <div className="relative h-24 w-32 overflow-hidden rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)]">
                       <NextImage
                         src={imagePreview}
                         alt="Previsualización del producto"
@@ -1631,7 +1820,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
           <Separator className="my-4" />
           {resultSource === "create" && result ? (
             result.success ? (
-              <div className="rounded-lg border border-border/70 bg-secondary/30 p-3 text-sm">
+              <div className="rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3 text-sm">
                 {result.message}
               </div>
             ) : (
@@ -1745,7 +1934,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                 </div>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="flex items-center justify-between rounded-lg border border-border/60 bg-secondary/30 px-3 py-2">
+                <div className="flex items-center justify-between rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] px-3 py-2">
                   <div>
                     <p className="text-sm font-semibold">Marcar como nuevo</p>
                     <p className="text-xs text-muted-foreground">Se muestra al lado del nombre.</p>
@@ -1756,7 +1945,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                     aria-label="Marcar producto como nuevo"
                   />
                 </div>
-                <div className="flex items-center justify-between rounded-lg border border-border/60 bg-secondary/30 px-3 py-2">
+                <div className="flex items-center justify-between rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] px-3 py-2">
                   <div>
                     <p className="text-sm font-semibold">Sin stock</p>
                     <p className="text-xs text-muted-foreground">No se podrá agregar al carrito.</p>
@@ -1770,7 +1959,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-tags">Etiquetas</Label>
-                <div className="space-y-3 rounded-lg border border-border/60 bg-secondary/30 p-3">
+                <div className="space-y-3 rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
                     <div className="flex flex-1 items-center gap-2">
                       <Input
@@ -1799,7 +1988,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                           #{tag}
                           <button
                             type="button"
-                            className="rounded-full p-0.5 hover:bg-background"
+                            className="rounded-full p-0.5 hover:bg-[color:var(--surface)]"
                             onClick={() => removeEditTag(tag)}
                             aria-label={`Quitar etiqueta ${tag}`}
                           >
@@ -1842,7 +2031,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
 
               <div className="space-y-2">
                 <Label>Imagen</Label>
-                <div className="flex flex-col gap-3 rounded-lg border border-dashed border-border/60 bg-secondary/30 p-3">
+                <div className="flex flex-col gap-3 rounded-lg border border-dashed border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="space-y-1">
                       <p className="text-sm font-medium text-foreground">Reemplaza o recorta</p>
@@ -1893,7 +2082,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                   {editImageError ? <p className="text-xs text-destructive">{editImageError}</p> : null}
                   {editImagePreview || editingProduct.image_url ? (
                     <div className="flex items-center gap-3">
-                      <div className="relative h-24 w-32 overflow-hidden rounded-lg border border-border/60 bg-background/60">
+                      <div className="relative h-24 w-32 overflow-hidden rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)]">
                         <NextImage
                           src={editImagePreview ?? editingProduct.image_url ?? ""}
                           alt="Previsualización del producto"
@@ -1946,7 +2135,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid gap-3 md:grid-cols-[1.1fr,0.9fr]">
-              <div className="space-y-3 rounded-lg border border-border/60 bg-secondary/30 p-3">
+              <div className="space-y-3 rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
                     type="button"
@@ -1966,7 +2155,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                       </span>
                     )}
                   </Button>
-                  <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border/60 bg-background px-3 py-2 text-sm shadow-sm">
+                  <label className="flex cursor-pointer items-center gap-2 rounded-md border border-[color:var(--neutral-200)] bg-[color:var(--surface)] px-3 py-2 text-sm shadow-sm">
                     <Upload className="h-4 w-4 text-muted-foreground" />
                     <span>{parsingBulk ? "Leyendo..." : "Subir XLSX"}</span>
                     <Input
@@ -1984,7 +2173,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                   desde cada producto.
                 </p>
               </div>
-              <div className="space-y-3 rounded-lg border border-dashed border-border/60 bg-secondary/20 p-3 text-xs text-muted-foreground">
+              <div className="space-y-3 rounded-lg border border-dashed border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3 text-xs text-muted-foreground">
                 <div className="flex items-start gap-2">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-500" />
                   <div>
@@ -2045,7 +2234,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                   {bulkRows.slice(0, 6).map((row) => (
                     <div
                       key={row.tempId}
-                      className="rounded-lg border border-border/60 bg-secondary/30 p-3 text-xs text-muted-foreground"
+                      className="rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3 text-xs text-muted-foreground"
                     >
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-semibold text-foreground">{row.name || "Sin nombre"}</p>
@@ -2088,7 +2277,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
             ) : null}
 
             {bulkSummary ? (
-              <div className="rounded-lg border border-border/70 bg-secondary/30 p-3 text-sm">
+              <div className="rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3 text-sm">
                 <p className="font-semibold text-foreground">Resultado de la importación</p>
                 <div className="mt-2 flex flex-wrap gap-3 text-xs">
                   <Badge variant="secondary">Creados: {bulkSummary.created}</Badge>
@@ -2118,7 +2307,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
           </DialogHeader>
           {rawImage ? (
             <div className="space-y-4">
-              <div className="relative aspect-4/3 w-full overflow-hidden rounded-lg border border-border/60 bg-secondary/30">
+              <div className="relative aspect-4/3 w-full overflow-hidden rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)]">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={rawImage.dataUrl} alt="Imagen original" className="h-full w-full object-contain" />
                 {cropPreviewRect ? (
@@ -2197,7 +2386,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
           </DialogHeader>
           {editRawImage ? (
             <div className="space-y-4">
-              <div className="relative aspect-4/3 w-full overflow-hidden rounded-lg border border-border/60 bg-secondary/30">
+              <div className="relative aspect-4/3 w-full overflow-hidden rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)]">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={editRawImage.dataUrl} alt="Imagen original" className="h-full w-full object-contain" />
                 {editCropPreviewRect ? (

@@ -121,18 +121,19 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
         address: client.address ?? undefined,
       },
       deliveryRules: demoDeliveryRules,
-      products: demo.products.map((product) => {
-        const basePrice = Number(product.price ?? 0);
-        const discount = Number(product.discount_percent ?? 0);
-        const finalPrice = Number((basePrice * (1 - Math.max(0, Math.min(100, discount)) / 100)).toFixed(2));
-        return {
-          id: product.id,
-          name: product.name,
-          description: product.description,
-          price: finalPrice,
-          basePrice,
-          discountPercent: discount,
-          unit: product.unit,
+    products: demo.products.map((product) => {
+      const basePrice = Number(product.price ?? 0);
+      const discount = Number(product.discount_percent ?? 0);
+      const finalPrice = Number((basePrice * (1 - Math.max(0, Math.min(100, discount)) / 100)).toFixed(2));
+      return {
+        id: product.id,
+        name: product.name,
+        brand: (product as { brand?: string | null }).brand ?? null,
+        description: product.description,
+        price: finalPrice,
+        basePrice,
+        discountPercent: discount,
+        unit: product.unit,
           image_url: product.image_url ?? undefined,
           category: product.category ?? undefined,
           tags: product.tags ?? [],
@@ -191,7 +192,7 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
   const { data: products, error: productsError } = await supabase
     .from("products")
     .select(
-      "id, name, description, price, unit, image_url, discount_percent, is_active, category, tags, is_new, is_out_of_stock",
+      "id, name, brand, description, price, unit, image_url, discount_percent, is_active, category, tags, is_new, is_out_of_stock",
     )
     .eq("provider_id", provider.id)
     .eq("is_active", true)
@@ -350,6 +351,7 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
       return {
         id: product.id,
         name: product.name,
+        brand: (product as { brand?: string | null }).brand ?? null,
         description: product.description,
         price: finalPrice,
         basePrice,

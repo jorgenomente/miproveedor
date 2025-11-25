@@ -128,8 +128,8 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
   }
 
   return (
-    <div className="relative isolate min-h-screen bg-linear-to-b from-background via-background to-secondary/50 px-4 pb-12 pt-8 sm:px-8">
-      <main className="mx-auto flex max-w-5xl flex-col gap-6">
+    <div className="w-full">
+      <main className="flex w-full flex-col gap-6">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Button asChild variant="ghost" size="sm">
             <Link href={providerSlug ? `/app/${providerSlug}` : "/app"}>
@@ -141,7 +141,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
           <Badge variant="secondary">Clientes</Badge>
         </div>
 
-        <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
+        <Card className="border-[color:var(--neutral-200)] bg-white shadow-sm">
           <CardHeader className="space-y-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="space-y-1">
@@ -228,7 +228,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
                           <Input id="address" name="address" placeholder="opcional" />
                         </div>
                       </div>
-                      <div className="flex items-center justify-between rounded-lg border border-border/70 bg-secondary/30 px-3 py-2 text-sm">
+                      <div className="flex items-center justify-between rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] px-3 py-2 text-sm">
                         <div className="flex items-center gap-2">
                           <Building2 className="h-4 w-4 text-primary" />
                           <span className="font-semibold">{providerSlug || "Sin proveedor"}</span>
@@ -249,7 +249,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
                           initial={{ opacity: 0, y: 8 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: 6 }}
-                          className="space-y-3 rounded-xl border border-border/70 bg-secondary/40 p-4"
+                          className="space-y-3 rounded-xl border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3"
                         >
                           <p className="text-sm font-semibold">Resultado</p>
                           <div className="space-y-2 text-sm">
@@ -300,7 +300,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
                 </Dialog>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-secondary/30 px-3 py-2 text-sm">
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] px-3 py-2 text-sm">
               <Label className="text-xs text-muted-foreground">Proveedor</Label>
               <Badge variant="outline">{providerSlug}</Badge>
             </div>
@@ -317,7 +317,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
                 {[0, 1, 2].map((item) => (
                   <div
                     key={item}
-                    className="flex items-center justify-between rounded-xl border border-border/60 bg-secondary/30 p-4"
+                    className="flex items-center justify-between rounded-xl border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-4"
                   >
                     <div className="flex items-center gap-3">
                       <Skeleton className="h-10 w-10 rounded-full" />
@@ -334,7 +334,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
               <motion.div
                 initial={{ opacity: 0.8, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-border/70 bg-secondary/30 p-4 text-sm text-muted-foreground"
+                className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-4 text-sm text-muted-foreground"
               >
                 <div className="flex items-center gap-2 text-primary">
                   <Store className="h-4 w-4" />
@@ -351,9 +351,9 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.04 }}
-                    className="group relative overflow-hidden rounded-xl border border-border/70 bg-card/70 p-4 shadow-sm"
+                    className="group relative overflow-hidden rounded-xl border border-[color:var(--neutral-200)] bg-white p-4 shadow-sm"
                   >
-                    <div className="absolute inset-0 bg-linear-to-r from-primary/5 via-transparent to-secondary/10 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+                    <div className="absolute inset-0 bg-[color:var(--info-light)] opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                     <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-start gap-3">
                         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/10">
