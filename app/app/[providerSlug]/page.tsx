@@ -12,9 +12,6 @@ export default async function ProviderDashboard(props: PageProps) {
   const [params, searchParams] = await Promise.all([props.params, props.searchParams]);
   const resolvedSearch = searchParams ?? {};
   return (
-    <AppDashboard
-      providerSlug={params.providerSlug}
-      searchParams={{ provider: params.providerSlug, debug: resolvedSearch.debug }}
-    />
+    <AppDashboard searchParams={Promise.resolve({ provider: params.providerSlug, debug: resolvedSearch.debug })} />
   );
 }

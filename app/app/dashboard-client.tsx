@@ -8,6 +8,14 @@ import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { formatCurrency } from "@/lib/whatsapp";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
@@ -84,8 +92,12 @@ export function DashboardClient({
   const router = useRouter();
   const [alarmEnabled, setAlarmEnabled] = useState(true);
   const [lastIncomingTs, setLastIncomingTs] = useState<number | null>(null);
+  const [toneId, setToneId] = useState<"bright" | "soft" | "pop">("bright");
+  const [liveMetrics, setLiveMetrics] = useState<Metric[]>(metrics);
   const latestOrderRef = useRef<string | null>(null);
   const isFirstRenderRef = useRef(true);
+  const prevNewCountRef = useRef<number | null>(null);
+  const lastAlarmRef = useRef<number>(0);
   const [isRefreshing, startTransition] = useTransition();
   const audioRef = useRef<AudioContext | null>(null);
   const providerSlug = provider?.slug ?? activeSlug;
@@ -144,12 +156,25 @@ export function DashboardClient({
     if (typeof window === "undefined") return;
     const stored = localStorage.getItem("miproveedor:orderAlarmEnabled");
     if (stored === "false") setAlarmEnabled(false);
+    const storedTone = localStorage.getItem("miproveedor:orderAlarmTone");
+    if (storedTone === "soft" || storedTone === "pop" || storedTone === "bright") {
+      setToneId(storedTone);
+    }
   }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     localStorage.setItem("miproveedor:orderAlarmEnabled", alarmEnabled ? "true" : "false");
   }, [alarmEnabled]);
+
+  useEffect(() => {
+    setLiveMetrics(metrics);
+  }, [metrics]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("miproveedor:orderAlarmTone", toneId);
+  }, [toneId]);
 
   useEffect(() => {
     if (!recentOrders || recentOrders.length === 0) return;
@@ -164,16 +189,12 @@ export function DashboardClient({
 
     if (latestOrderRef.current && latestOrderRef.current !== latestId) {
       latestOrderRef.current = latestId;
-      setLastIncomingTs(Date.now());
-      if (alarmEnabled && typeof document !== "undefined" && document.visibilityState === "visible") {
-        playChime();
-      }
     } else {
       latestOrderRef.current = latestId;
     }
-  }, [recentOrders, alarmEnabled]);
+  }, [recentOrders]);
 
-  const playChime = () => {
+  const playChime = async (tone: "bright" | "soft" | "pop" = toneId) => {
     if (typeof window === "undefined") return;
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -182,21 +203,68 @@ export function DashboardClient({
         audioRef.current = new AudioCtx();
       }
       const ctx = audioRef.current;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "triangle";
-      osc.frequency.value = 880;
-      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.9);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 1);
+      if (ctx.state === "suspended") {
+        await ctx.resume().catch(() => {});
+      }
+      const seq =
+        tone === "soft"
+          ? [
+              { freq: 660, duration: 0.2, gain: 0.18 },
+              { freq: 520, duration: 0.18, gain: 0.14 },
+            ]
+          : tone === "pop"
+            ? [
+                { freq: 1040, duration: 0.08, gain: 0.2 },
+                { freq: 780, duration: 0.08, gain: 0.18 },
+              ]
+            : [
+                { freq: 880, duration: 0.16, gain: 0.24 },
+                { freq: 1320, duration: 0.12, gain: 0.2 },
+              ];
+
+      let startAt = ctx.currentTime;
+      seq.forEach((step) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "triangle";
+        osc.frequency.value = step.freq;
+        gain.gain.setValueAtTime(0.0001, startAt);
+        gain.gain.exponentialRampToValueAtTime(step.gain, startAt + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startAt + step.duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(startAt);
+        osc.stop(startAt + step.duration + 0.05);
+        startAt += step.duration * 0.9;
+      });
     } catch (error) {
       console.warn("No se pudo reproducir alarma", error);
     }
   };
+
+  const triggerAlarm = () => {
+    const now = Date.now();
+    if (now - lastAlarmRef.current < 1200) return;
+    setLastIncomingTs(now);
+    if (alarmEnabled) {
+      void playChime(toneId);
+    }
+    lastAlarmRef.current = now;
+  };
+
+  useEffect(() => {
+    const metricNew = liveMetrics.find((metric) => metric.label.toLowerCase().includes("pedidos nuevos"));
+    const currentCount = metricNew ? Number(metricNew.value ?? 0) : null;
+    if (currentCount === null || Number.isNaN(currentCount)) return;
+    if (prevNewCountRef.current === null) {
+      prevNewCountRef.current = currentCount;
+      return;
+    }
+    if (currentCount > prevNewCountRef.current) {
+      triggerAlarm();
+    }
+    prevNewCountRef.current = currentCount;
+  }, [liveMetrics, alarmEnabled, toneId]);
 
   useEffect(() => {
     if (!providerSlug) return;
@@ -217,10 +285,13 @@ export function DashboardClient({
           "postgres_changes",
           { event: "INSERT", schema: "public", table, filter },
           () => {
-            setLastIncomingTs(Date.now());
-            if (alarmEnabled && document.visibilityState === "visible") {
-              playChime();
-            }
+            setLiveMetrics((prev) =>
+              prev.map((metric) =>
+                metric.label.toLowerCase().includes("pedidos nuevos")
+                  ? { ...metric, value: String(Number(metric.value ?? 0) + 1) }
+                  : metric,
+              ),
+            );
             startTransition(() => {
               router.refresh();
             });
@@ -240,15 +311,17 @@ export function DashboardClient({
         }
       }
     };
-  }, [providerSlug, provider?.id, alarmEnabled, router]);
+  }, [providerSlug, provider?.id, alarmEnabled, toneId, router]);
 
   useEffect(() => {
-    if (providerSlug !== "demo") return;
+    const isDemo = providerSlug === "demo";
+    if (!providerSlug) return;
+
     const interval = setInterval(() => {
       startTransition(() => {
         router.refresh();
       });
-    }, 10000);
+    }, isDemo ? 10000 : 15000);
     return () => clearInterval(interval);
   }, [providerSlug, router]);
 
@@ -327,7 +400,7 @@ export function DashboardClient({
         ) : null}
 
         <section className="grid gap-4 sm:grid-cols-3">
-          {metrics.map((metric) => (
+          {liveMetrics.map((metric) => (
             <Card
               key={metric.label}
               className="border-border/60 bg-card/80 shadow-sm backdrop-blur"
@@ -361,6 +434,28 @@ export function DashboardClient({
                     Alarma nuevos pedidos
                   </label>
                 </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm">
+                      Acciones alarma
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuLabel>Alarmas</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => playChime(toneId)}>Probar tono actual</DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setToneId("bright")}>
+                      Tono brillante {toneId === "bright" ? "· activo" : ""}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setToneId("soft")}>
+                      Tono suave {toneId === "soft" ? "· activo" : ""}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setToneId("pop")}>
+                      Tono pop {toneId === "pop" ? "· activo" : ""}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Button asChild variant="ghost" size="sm">
                   <Link href={ordersHref}>
                     Ver todos
@@ -369,46 +464,48 @@ export function DashboardClient({
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="divide-y divide-border/70 p-0">
-              {recentOrders.length === 0 ? (
-                <p className="px-4 py-3 text-sm text-muted-foreground">
-                  Aún no hay pedidos para este proveedor.
-                </p>
-              ) : (
-                recentOrders.map((order) => (
-                  <div
-                    key={order.id}
-                    className="flex items-center justify-between px-4 py-3"
-                  >
-                    <div>
-                      <p className="text-sm font-semibold">{order.clientName}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {order.createdAt
-                          ? new Date(order.createdAt).toLocaleString("es-AR", {
-                              dateStyle: "medium",
-                              timeStyle: "short",
-                            })
-                          : "Fecha no disponible"}
-                      </p>
+            <CardContent className="p-0">
+              <div className="divide-y divide-border/70 max-h-[460px] overflow-y-auto">
+                {recentOrders.length === 0 ? (
+                  <p className="px-4 py-3 text-sm text-muted-foreground">
+                    Aún no hay pedidos para este proveedor.
+                  </p>
+                ) : (
+                  recentOrders.map((order) => (
+                    <div
+                      key={order.id}
+                      className="flex items-center justify-between px-4 py-3"
+                    >
+                      <div>
+                        <p className="text-sm font-semibold">{order.clientName}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {order.createdAt
+                            ? new Date(order.createdAt).toLocaleString("es-AR", {
+                                dateStyle: "medium",
+                                timeStyle: "short",
+                              })
+                            : "Fecha no disponible"}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadge[order.status]}`}
+                        >
+                          {order.status}
+                        </span>
+                        <p className="text-sm font-semibold">
+                          {formatCurrency(order.total)}
+                        </p>
+                        <Button asChild size="icon" variant="ghost">
+                          <Link href={orderDetailHref(order.id)}>
+                            <ArrowUpRight className="h-4 w-4" />
+                          </Link>
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadge[order.status]}`}
-                      >
-                        {order.status}
-                      </span>
-                      <p className="text-sm font-semibold">
-                        {formatCurrency(order.total)}
-                      </p>
-                      <Button asChild size="icon" variant="ghost">
-                        <Link href={orderDetailHref(order.id)}>
-                          <ArrowUpRight className="h-4 w-4" />
-                        </Link>
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              )}
+                  ))
+                )}
+              </div>
             </CardContent>
           </Card>
         </section>

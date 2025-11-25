@@ -254,10 +254,17 @@ export function PaymentsClient({ providerSlug, provider, initialSettings }: Prop
                               className="rounded-lg border border-border/60 bg-card/70 shadow-xs"
                               layout
                             >
-                              <button
-                                type="button"
+                              <div
+                                role="button"
+                                tabIndex={0}
                                 className="flex w-full items-start justify-between gap-3 px-3 py-2 text-left"
                                 onClick={() => setOpenProfile((prev) => (prev === profile.id ? null : profile.id))}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    setOpenProfile((prev) => (prev === profile.id ? null : profile.id));
+                                  }
+                                }}
                               >
                                 <div className="flex flex-1 flex-col gap-1">
                                   <div className="flex items-center gap-2">
@@ -288,7 +295,7 @@ export function PaymentsClient({ providerSlug, provider, initialSettings }: Prop
                                     {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                                   </span>
                                 </div>
-                              </button>
+                              </div>
 
                               {isOpen ? (
                                 <div className="space-y-3 border-t border-border/60 bg-card/80 p-3">

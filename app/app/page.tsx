@@ -25,20 +25,46 @@ function mapProviderRow(row: {
   };
 }
 
-function buildMetrics(orders: OrderSummary[]) {
-  const counts = orders.reduce(
-    (acc, order) => {
-      acc[order.status] = (acc[order.status] ?? 0) + 1;
-      return acc;
-    },
-    {} as Record<string, number>,
-  );
+const STATUS_KEYS = ["nuevo", "preparando", "entregado"] as const;
+
+function buildMetrics(orders: OrderSummary[], countsOverride?: Record<string, number>) {
+  const counts =
+    countsOverride ??
+    orders.reduce(
+      (acc, order) => {
+        acc[order.status] = (acc[order.status] ?? 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
 
   return [
     { label: "Pedidos nuevos", value: String(counts.nuevo ?? 0) },
     { label: "En preparación", value: String(counts.preparando ?? 0) },
     { label: "Entregados", value: String(counts.entregado ?? 0) },
   ];
+}
+
+async function fetchStatusCounts(
+  supabase: NonNullable<ReturnType<typeof getSupabaseAdmin>>,
+  providerId: string,
+) {
+  const counts: Record<string, number> = {};
+  const errors: string[] = [];
+
+  await Promise.all(
+    STATUS_KEYS.map(async (status) => {
+      const { count, error } = await supabase
+        .from("orders")
+        .select("id", { count: "exact", head: true })
+        .eq("provider_id", providerId)
+        .eq("status", status);
+      if (error) errors.push(error.message);
+      counts[status] = count ?? 0;
+    }),
+  );
+
+  return { counts, errors };
 }
 
 async function fetchData(preferredProvider?: string) {
@@ -108,12 +134,17 @@ async function fetchData(preferredProvider?: string) {
 
     debug.resolvedProvider = { id: providerSummary.id, name: providerSummary.name, slug: providerSummary.slug };
 
+    const { counts, errors: countErrors } = await fetchStatusCounts(supabase, provider.id);
+    if (countErrors.length) {
+      debug.ordersError = countErrors.join("; ");
+    }
+
     const { data: orders, error: ordersError } = await supabase
       .from("orders")
       .select("id, status, created_at, client:clients(name), order_items(quantity, unit_price)")
       .eq("provider_id", provider.id)
       .order("created_at", { ascending: false })
-      .limit(8);
+      .limit(25);
 
     if (ordersError) {
       debug.ordersError = ordersError.message;
@@ -143,7 +174,7 @@ async function fetchData(preferredProvider?: string) {
 
     debug.ordersLoaded = parsedOrders.length;
 
-    return { providers: [providerSummary], provider: providerSummary, orders: parsedOrders, debug };
+    return { providers: [providerSummary], provider: providerSummary, orders: parsedOrders, counts, debug };
   }
 
   const scopeResult = await getProviderScope();
@@ -184,6 +215,11 @@ async function fetchData(preferredProvider?: string) {
   const providerSummary = mapProviderRow(provider);
   debug.resolvedProvider = { id: providerSummary.id, name: providerSummary.name, slug: providerSummary.slug };
 
+  const { counts, errors: countErrors } = await fetchStatusCounts(supabase, provider.id);
+  if (countErrors.length) {
+    debug.ordersError = countErrors.join("; ");
+  }
+
   const { data: orders, error: ordersError } = await supabase
     .from("orders")
     .select(
@@ -191,7 +227,7 @@ async function fetchData(preferredProvider?: string) {
     )
     .eq("provider_id", provider.id)
     .order("created_at", { ascending: false })
-    .limit(8);
+    .limit(25);
 
   if (ordersError) {
     debug.ordersError = ordersError.message;
@@ -225,20 +261,20 @@ async function fetchData(preferredProvider?: string) {
     providers: providerSummaries,
     provider: providerSummary,
     orders: parsedOrders,
+    counts,
     debug,
   };
 }
 
 export default async function AppDashboard({
   searchParams,
-  providerSlug,
 }: {
-  searchParams?: { provider?: string; debug?: string };
-  providerSlug?: string;
+  searchParams?: Promise<{ provider?: string; debug?: string }>;
 }) {
-  const preferred = providerSlug ?? searchParams?.provider;
+  const resolvedSearch = searchParams ? await searchParams : undefined;
+  const preferred = resolvedSearch?.provider;
   const data = await fetchData(preferred);
-  const debug = typeof searchParams?.debug !== "undefined";
+  const debug = typeof resolvedSearch?.debug !== "undefined";
 
   if (!data || !data.provider) {
     return (
@@ -251,8 +287,8 @@ export default async function AppDashboard({
     );
   }
 
-  const metrics = buildMetrics(data.orders);
-  const recentOrders = data.orders.slice(0, 5);
+  const metrics = buildMetrics(data.orders, data.counts);
+  const recentOrders = data.orders.slice(0, 10);
 
   return (
     <DashboardClient
