@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import React, { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { motion } from "framer-motion";
-import { ArrowUpRight, CreditCard, Package, ShoppingBag, Users } from "lucide-react";
+import { ArrowUpRight, CreditCard, Package, ShoppingBag, Users, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -98,7 +99,7 @@ export function DashboardClient({
   const isFirstRenderRef = useRef(true);
   const prevNewCountRef = useRef<number | null>(null);
   const lastAlarmRef = useRef<number>(0);
-  const [isRefreshing, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const audioRef = useRef<AudioContext | null>(null);
   const providerSlug = provider?.slug ?? activeSlug;
   const basePath = basePathOverride ?? (providerSlug ? `/app/${providerSlug}` : "/app");
@@ -130,6 +131,11 @@ export function DashboardClient({
       label: "Clientes y links",
       href: `${basePath}/clients`,
       icon: <Users className="h-4 w-4" />,
+    },
+    {
+      label: "Cuentas",
+      href: `${basePath}/accounts`,
+      icon: <Wallet className="h-4 w-4" />,
     },
     {
       label: "Mis alias y pagos",
@@ -194,55 +200,60 @@ export function DashboardClient({
     }
   }, [recentOrders]);
 
-  const playChime = async (tone: "bright" | "soft" | "pop" = toneId) => {
-    if (typeof window === "undefined") return;
-    try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) return;
-      if (!audioRef.current) {
-        audioRef.current = new AudioCtx();
-      }
-      const ctx = audioRef.current;
-      if (ctx.state === "suspended") {
-        await ctx.resume().catch(() => {});
-      }
-      const seq =
-        tone === "soft"
-          ? [
-              { freq: 660, duration: 0.2, gain: 0.18 },
-              { freq: 520, duration: 0.18, gain: 0.14 },
-            ]
-          : tone === "pop"
+  const playChime = useCallback(
+    async (tone: "bright" | "soft" | "pop" = toneId) => {
+      if (typeof window === "undefined") return;
+      try {
+        const AudioCtx =
+          window.AudioContext ||
+          (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!AudioCtx) return;
+        if (!audioRef.current) {
+          audioRef.current = new AudioCtx();
+        }
+        const ctx = audioRef.current;
+        if (ctx.state === "suspended") {
+          await ctx.resume().catch(() => {});
+        }
+        const seq =
+          tone === "soft"
             ? [
-                { freq: 1040, duration: 0.08, gain: 0.2 },
-                { freq: 780, duration: 0.08, gain: 0.18 },
+                { freq: 660, duration: 0.2, gain: 0.18 },
+                { freq: 520, duration: 0.18, gain: 0.14 },
               ]
-            : [
-                { freq: 880, duration: 0.16, gain: 0.24 },
-                { freq: 1320, duration: 0.12, gain: 0.2 },
-              ];
+            : tone === "pop"
+              ? [
+                  { freq: 1040, duration: 0.08, gain: 0.2 },
+                  { freq: 780, duration: 0.08, gain: 0.18 },
+                ]
+              : [
+                  { freq: 880, duration: 0.16, gain: 0.24 },
+                  { freq: 1320, duration: 0.12, gain: 0.2 },
+                ];
 
-      let startAt = ctx.currentTime;
-      seq.forEach((step) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "triangle";
-        osc.frequency.value = step.freq;
-        gain.gain.setValueAtTime(0.0001, startAt);
-        gain.gain.exponentialRampToValueAtTime(step.gain, startAt + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, startAt + step.duration);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(startAt);
-        osc.stop(startAt + step.duration + 0.05);
-        startAt += step.duration * 0.9;
-      });
-    } catch (error) {
-      console.warn("No se pudo reproducir alarma", error);
-    }
-  };
+        let startAt = ctx.currentTime;
+        seq.forEach((step) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "triangle";
+          osc.frequency.value = step.freq;
+          gain.gain.setValueAtTime(0.0001, startAt);
+          gain.gain.exponentialRampToValueAtTime(step.gain, startAt + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, startAt + step.duration);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(startAt);
+          osc.stop(startAt + step.duration + 0.05);
+          startAt += step.duration * 0.9;
+        });
+      } catch (error) {
+        console.warn("No se pudo reproducir alarma", error);
+      }
+    },
+    [toneId],
+  );
 
-  const triggerAlarm = () => {
+  const triggerAlarm = useCallback(() => {
     const now = Date.now();
     if (now - lastAlarmRef.current < 1200) return;
     setLastIncomingTs(now);
@@ -250,7 +261,7 @@ export function DashboardClient({
       void playChime(toneId);
     }
     lastAlarmRef.current = now;
-  };
+  }, [alarmEnabled, playChime, toneId]);
 
   useEffect(() => {
     const metricNew = liveMetrics.find((metric) => metric.label.toLowerCase().includes("pedidos nuevos"));
@@ -264,11 +275,11 @@ export function DashboardClient({
       triggerAlarm();
     }
     prevNewCountRef.current = currentCount;
-  }, [liveMetrics, alarmEnabled, toneId]);
+  }, [liveMetrics, triggerAlarm]);
 
   useEffect(() => {
     if (!providerSlug) return;
-    let channel: any = null;
+    let channel: RealtimeChannel | null = null;
     try {
       const supabase = getSupabaseBrowser();
       const isDemo = providerSlug === "demo";
@@ -311,7 +322,7 @@ export function DashboardClient({
         }
       }
     };
-  }, [providerSlug, provider?.id, alarmEnabled, toneId, router]);
+  }, [providerSlug, provider?.id, router, startTransition]);
 
   useEffect(() => {
     const isDemo = providerSlug === "demo";

@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { ArrowLeft, ArrowUpRight, Check, MessageCircle, RefreshCcw } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -189,6 +190,18 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
       })),
     [filteredOrders],
   );
+  const accordionDefaults = useMemo(
+    () => groupedOrders.filter((group) => group.items.length > 0).map((group) => group.status),
+    [groupedOrders],
+  );
+  const productAccordionDefaults = useMemo(() => {
+    const counts = {
+      nuevo: productSummary.nuevo.length,
+      preparando: productSummary.preparando.length,
+      entregado: productSummary.entregado.length,
+    };
+    return (["nuevo", "preparando", "entregado"] as const).filter((state) => counts[state] > 0);
+  }, [productSummary]);
   const hasOrders = orders.length > 0;
   const hasFilteredOrders = filteredOrders.length > 0;
 
@@ -292,148 +305,166 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                   : "Aún no hay pedidos para mostrar."}
               </div>
             ) : (
-              groupedOrders.map((group, groupIndex) => (
-                <div key={group.status} className="space-y-3 px-4 py-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold">{group.label}</p>
-                    <Badge variant="outline" className="text-xs">
-                      {group.items.length} {group.items.length === 1 ? "pedido" : "pedidos"}
-                    </Badge>
-                  </div>
-                  {group.items.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">Sin pedidos en este estado.</p>
-                  ) : (
-                    group.items.map((order, index) => (
-                      <motion.div
-                        key={order.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.25, delay: index * 0.05 + groupIndex * 0.02 }}
-                        className="flex flex-col gap-3 rounded-lg border border-[color:var(--neutral-200)] bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
-                      >
-                        <div className="space-y-1">
-                          <p className="text-sm font-semibold">
-                            {order.clientName} · {formatCurrency(order.total)}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {order.createdAt
-                              ? new Date(order.createdAt).toLocaleString("es-AR", {
-                                  dateStyle: "medium",
-                                  timeStyle: "short",
-                                })
-                              : "Fecha no disponible"}
-                          </p>
-                          {order.deliveryDate ? (
-                            <p className="text-xs text-muted-foreground">
-                              Entrega:{" "}
-                              {new Date(order.deliveryDate).toLocaleDateString("es-AR", {
-                                weekday: "short",
-                                month: "short",
-                                day: "numeric",
-                              })}
-                            </p>
-                          ) : null}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                className={`rounded-full px-3 py-0 text-xs font-semibold capitalize ${statusBadge[order.status]}`}
-                                disabled={!providerSlug || updatingOrderId === order.id}
-                              >
-                                {updatingOrderId === order.id ? "Actualizando..." : ORDER_STATUS_LABEL[order.status] ?? order.status}
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-44">
-                              <DropdownMenuLabel>Estado del pedido</DropdownMenuLabel>
-                              <DropdownMenuSeparator />
-                              {ORDER_STATUS.map((option) => (
-                                <DropdownMenuItem
-                                  key={option}
-                                  className="flex items-center justify-between capitalize"
-                                  disabled={updatingOrderId === order.id}
-                                  onClick={() => handleStatusChange(order.id, option)}
-                                >
-                                  <span>{ORDER_STATUS_LABEL[option]}</span>
-                                  {order.status === option ? <Check className="h-4 w-4 text-primary" /> : null}
-                                </DropdownMenuItem>
-                              ))}
-                            </DropdownMenuContent>
-                      </DropdownMenu>
-                          <Popover
-                            open={openPaymentPopover === order.id}
-                            onOpenChange={(open) => setOpenPaymentPopover(open ? order.id : null)}
-                          >
-                            <PopoverTrigger asChild>
-                              <Badge
-                                variant="outline"
-                                className="flex cursor-pointer items-center gap-1 text-[11px]"
-                                role="button"
-                                aria-label="Ver comprobante"
-                              >
-                                {order.paymentMethod === "transferencia" ? "Transferencia" : "Efectivo"}
-                                <span className="text-[11px] text-muted-foreground">
-                                  {paymentStatusLabel(order.paymentMethod ?? "efectivo", order.paymentProofStatus)}
-                                </span>
-                              </Badge>
-                            </PopoverTrigger>
-                            <PopoverContent align="end" className="w-64 space-y-3">
+              <Accordion
+                type="multiple"
+                defaultValue={accordionDefaults}
+                className="divide-y divide-border/70 px-2"
+              >
+                {groupedOrders.map((group, groupIndex) => (
+                  <AccordionItem
+                    key={group.status}
+                    value={group.status}
+                    className="border-0 px-2 py-1 [--trigger-height:44px]"
+                  >
+                    <AccordionTrigger className="rounded-lg px-2 text-sm font-semibold hover:no-underline">
+                      <div className="flex w-full items-center justify-between">
+                        <span>{group.label}</span>
+                        <Badge variant="outline" className="text-[11px]">
+                          {group.items.length} {group.items.length === 1 ? "pedido" : "pedidos"}
+                        </Badge>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="pt-2">
+                      {group.items.length === 0 ? (
+                        <p className="px-1 text-xs text-muted-foreground">Sin pedidos en este estado.</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {group.items.map((order, index) => (
+                            <motion.div
+                              key={order.id}
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ duration: 0.25, delay: index * 0.05 + groupIndex * 0.02 }}
+                              className="flex flex-col gap-3 rounded-lg border border-[color:var(--neutral-200)] bg-white px-3 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                            >
                               <div className="space-y-1">
                                 <p className="text-sm font-semibold">
-                                  {order.paymentMethod === "transferencia" ? "Transferencia" : "Efectivo"}
+                                  {order.clientName} · {formatCurrency(order.total)}
                                 </p>
                                 <p className="text-xs text-muted-foreground">
-                                  {paymentStatusLabel(order.paymentMethod ?? "efectivo", order.paymentProofStatus)}
+                                  {order.createdAt
+                                    ? new Date(order.createdAt).toLocaleString("es-AR", {
+                                        dateStyle: "medium",
+                                        timeStyle: "short",
+                                      })
+                                    : "Fecha no disponible"}
                                 </p>
-                              </div>
-                              {order.paymentMethod === "transferencia" ? (
-                                order.paymentProofStatus === "subido" ? (
-                                  <div className="space-y-2">
-                                    {order.paymentProofUrl ? (
-                                      <Button asChild size="sm" className="w-full">
-                                        <a href={order.paymentProofUrl} target="_blank" rel="noreferrer">
-                                          Ver comprobante
-                                        </a>
-                                      </Button>
-                                    ) : (
-                                      <Button size="sm" className="w-full" variant="outline" disabled>
-                                        Comprobante no disponible
-                                      </Button>
-                                    )}
-                                    <p className="text-xs text-muted-foreground">
-                                      Abrimos el comprobante cargado para esta orden.
-                                    </p>
-                                  </div>
-                                ) : (
+                                {order.deliveryDate ? (
                                   <p className="text-xs text-muted-foreground">
-                                    Sube el comprobante para habilitar la vista rápida.
+                                    Entrega:{" "}
+                                    {new Date(order.deliveryDate).toLocaleDateString("es-AR", {
+                                      weekday: "short",
+                                      month: "short",
+                                      day: "numeric",
+                                    })}
                                   </p>
-                                )
-                              ) : order.paymentProofStatus === "subido" ? (
-                                <p className="text-xs text-muted-foreground">Efectivo recibido.</p>
-                              ) : (
-                                <p className="text-xs text-muted-foreground">A pagar en la entrega.</p>
-                              )}
-                            </PopoverContent>
-                          </Popover>
-                          <Button asChild variant="ghost" size="sm">
-                            <Link href={orderDetailHref(order.id)}>
-                              Ver detalle
-                              <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
-                            </Link>
-                          </Button>
-                          <Button variant="outline" size="sm">
-                            <MessageCircle className="mr-2 h-4 w-4" />
-                            WhatsApp
-                          </Button>
+                                ) : null}
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      size="sm"
+                                      variant="secondary"
+                                      className={`rounded-full px-3 py-0 text-xs font-semibold capitalize ${statusBadge[order.status]}`}
+                                      disabled={!providerSlug || updatingOrderId === order.id}
+                                    >
+                                      {updatingOrderId === order.id
+                                        ? "Actualizando..."
+                                        : ORDER_STATUS_LABEL[order.status] ?? order.status}
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="w-44">
+                                    <DropdownMenuLabel>Estado del pedido</DropdownMenuLabel>
+                                    <DropdownMenuSeparator />
+                                    {ORDER_STATUS.map((option) => (
+                                      <DropdownMenuItem
+                                        key={option}
+                                        className="flex items-center justify-between capitalize"
+                                        disabled={updatingOrderId === order.id}
+                                        onClick={() => handleStatusChange(order.id, option)}
+                                      >
+                                        <span>{ORDER_STATUS_LABEL[option]}</span>
+                                        {order.status === option ? <Check className="h-4 w-4 text-primary" /> : null}
+                                      </DropdownMenuItem>
+                                    ))}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                                <Popover
+                                  open={openPaymentPopover === order.id}
+                                  onOpenChange={(open) => setOpenPaymentPopover(open ? order.id : null)}
+                                >
+                                  <PopoverTrigger asChild>
+                                    <Badge
+                                      variant="outline"
+                                      className="flex cursor-pointer items-center gap-1 text-[11px]"
+                                      role="button"
+                                      aria-label="Ver comprobante"
+                                    >
+                                      {order.paymentMethod === "transferencia" ? "Transferencia" : "Efectivo"}
+                                      <span className="text-[11px] text-muted-foreground">
+                                        {paymentStatusLabel(order.paymentMethod ?? "efectivo", order.paymentProofStatus)}
+                                      </span>
+                                    </Badge>
+                                  </PopoverTrigger>
+                                  <PopoverContent align="end" className="w-64 space-y-3">
+                                    <div className="space-y-1">
+                                      <p className="text-sm font-semibold">
+                                        {order.paymentMethod === "transferencia" ? "Transferencia" : "Efectivo"}
+                                      </p>
+                                      <p className="text-xs text-muted-foreground">
+                                        {paymentStatusLabel(order.paymentMethod ?? "efectivo", order.paymentProofStatus)}
+                                      </p>
+                                    </div>
+                                    {order.paymentMethod === "transferencia" ? (
+                                      order.paymentProofStatus === "subido" ? (
+                                        <div className="space-y-2">
+                                          {order.paymentProofUrl ? (
+                                            <Button asChild size="sm" className="w-full">
+                                              <a href={order.paymentProofUrl} target="_blank" rel="noreferrer">
+                                                Ver comprobante
+                                              </a>
+                                            </Button>
+                                          ) : (
+                                            <Button size="sm" className="w-full" variant="outline" disabled>
+                                              Comprobante no disponible
+                                            </Button>
+                                          )}
+                                          <p className="text-xs text-muted-foreground">
+                                            Abrimos el comprobante cargado para esta orden.
+                                          </p>
+                                        </div>
+                                      ) : (
+                                        <p className="text-xs text-muted-foreground">
+                                          Sube el comprobante para habilitar la vista rápida.
+                                        </p>
+                                      )
+                                    ) : order.paymentProofStatus === "subido" ? (
+                                      <p className="text-xs text-muted-foreground">Efectivo recibido.</p>
+                                    ) : (
+                                      <p className="text-xs text-muted-foreground">A pagar en la entrega.</p>
+                                    )}
+                                  </PopoverContent>
+                                </Popover>
+                                <Button asChild variant="ghost" size="sm">
+                                  <Link href={orderDetailHref(order.id)}>
+                                    Ver detalle
+                                    <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
+                                  </Link>
+                                </Button>
+                                <Button variant="outline" size="sm">
+                                  <MessageCircle className="mr-2 h-4 w-4" />
+                                  WhatsApp
+                                </Button>
+                              </div>
+                            </motion.div>
+                          ))}
                         </div>
-                      </motion.div>
-                    ))
-                  )}
-                </div>
-              ))
+                      )}
+                    </AccordionContent>
+                  </AccordionItem>
+                ))}
+              </Accordion>
             )}
           </CardContent>
         </Card>
@@ -475,47 +506,54 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                 ))}
               </div>
             ) : (
-              ["nuevo", "preparando", "entregado"].map((state) => {
-                const items =
-                  state === "nuevo"
-                    ? productSummary.nuevo
-                    : state === "preparando"
-                      ? productSummary.preparando
-                      : productSummary.entregado;
-                return (
-                  <div key={state} className="px-4 py-4">
-                    <div className="mb-2 flex items-center justify-between">
-                      <p className="text-sm font-semibold capitalize">
-                        {state === "preparando" ? "Preparado" : state}
-                      </p>
-                      <Badge variant="secondary" className="text-xs">
-                        {items.reduce((acc, item) => acc + item.quantity, 0)} uds
-                      </Badge>
-                    </div>
-                    {items.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">Sin artículos en este estado.</p>
-                    ) : (
-                      items.map((item, index) => (
-                        <motion.div
-                          key={`${state}-${item.productId}`}
-                          initial={{ opacity: 0, y: 8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: index * 0.02 }}
-                          className="flex items-center justify-between rounded-lg border border-[color:var(--neutral-200)] bg-white px-3 py-2"
-                        >
-                          <div>
-                            <p className="text-sm font-semibold">{item.name}</p>
-                            <p className="text-xs text-muted-foreground">{item.unit ?? "Unidad"}</p>
-                          </div>
-                          <Badge variant="outline" className="text-sm">
-                            {item.quantity}
+              <Accordion type="multiple" defaultValue={productAccordionDefaults} className="divide-y divide-border/70 px-2">
+                {(["nuevo", "preparando", "entregado"] as const).map((state) => {
+                  const items =
+                    state === "nuevo"
+                      ? productSummary.nuevo
+                      : state === "preparando"
+                        ? productSummary.preparando
+                        : productSummary.entregado;
+                  const label = state === "preparando" ? "Preparado" : state === "nuevo" ? "Nuevo" : "Entregado";
+                  return (
+                    <AccordionItem key={state} value={state} className="border-0 px-2 py-1 [--trigger-height:44px]">
+                      <AccordionTrigger className="rounded-lg px-2 text-sm font-semibold capitalize hover:no-underline">
+                        <div className="flex w-full items-center justify-between">
+                          <span>{label}</span>
+                          <Badge variant="secondary" className="text-[11px]">
+                            {items.reduce((acc, item) => acc + item.quantity, 0)} uds
                           </Badge>
-                        </motion.div>
-                      ))
-                    )}
-                  </div>
-                );
-              })
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent className="pt-2">
+                        {items.length === 0 ? (
+                          <p className="px-1 text-xs text-muted-foreground">Sin artículos en este estado.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {items.map((item, index) => (
+                              <motion.div
+                                key={`${state}-${item.productId}`}
+                                initial={{ opacity: 0, y: 8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: index * 0.02 }}
+                                className="flex items-center justify-between rounded-lg border border-[color:var(--neutral-200)] bg-white px-3 py-2 shadow-sm"
+                              >
+                                <div>
+                                  <p className="text-sm font-semibold">{item.name}</p>
+                                  <p className="text-xs text-muted-foreground">{item.unit ?? "Unidad"}</p>
+                                </div>
+                                <Badge variant="outline" className="text-sm">
+                                  {item.quantity}
+                                </Badge>
+                              </motion.div>
+                            ))}
+                          </div>
+                        )}
+                      </AccordionContent>
+                    </AccordionItem>
+                  );
+                })}
+              </Accordion>
             )}
           </CardContent>
         </Card>

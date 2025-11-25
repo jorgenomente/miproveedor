@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { CreditCard, Eye, EyeOff, FileUp, LayoutGrid, Rows, Search, ShoppingBag, Wallet } from "lucide-react";
+import { CreditCard, EyeOff, FileUp, LayoutGrid, Rows, Search, ShoppingCart, Wallet } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -171,6 +171,14 @@ export function ClientOrder({ provider, client, products, paymentSettings, histo
           quantity: safeQuantities[product.id] ?? 0,
         })),
     [products, safeQuantities],
+  );
+  const totalItems = useMemo(
+    () => Object.values(safeQuantities).reduce((acc, qty) => acc + qty, 0),
+    [safeQuantities],
+  );
+  const cartLabel = useMemo(
+    () => `${showSummary ? "Ocultar carrito · " : ""}${totalItems} artículo${totalItems === 1 ? "" : "s"}`,
+    [showSummary, totalItems],
   );
 
   const availableCategories = useMemo(() => {
@@ -635,9 +643,7 @@ export function ClientOrder({ provider, client, products, paymentSettings, histo
                   </div>
                   {hasFilters ? (
                     <Badge variant="secondary">{activeCategories.length + activeTags.length + activeBrands.length} activos</Badge>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">Opcional</span>
-                  )}
+                  ) : null}
                 </AccordionTrigger>
                 <AccordionContent className="px-3 pb-3 pt-0">
                   <div className="space-y-3">
@@ -1832,24 +1838,22 @@ export function ClientOrder({ provider, client, products, paymentSettings, histo
           transition={{ duration: 0.3, ease: "easeOut" }}
           className="fixed bottom-4 right-4 z-40 md:bottom-6 md:right-6"
         >
-          <div className="group/fab flex flex-col gap-2">
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-12 rounded-full border-primary/40 bg-white/90 px-3 text-primary shadow-lg shadow-primary/20 backdrop-blur"
-                  aria-label="Buscar artículo"
-                >
-                  <Search className="h-5 w-5" />
-                  <span className="max-w-0 overflow-hidden whitespace-nowrap pl-2 text-sm font-medium opacity-0 transition-[max-width,opacity] duration-200 group-hover/fab:max-w-[140px] group-hover/fab:opacity-100 group-focus-visible/fab:max-w-[140px] group-focus-visible/fab:opacity-100 group-active/fab:max-w-[140px] group-active/fab:opacity-100">
-                    Buscar artículo
-                  </span>
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-72 space-y-2 rounded-xl border-[color:var(--neutral-200)] bg-white p-3 shadow-lg">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold">Buscar producto</p>
+        <div className="flex flex-col gap-2">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-12 rounded-full border-primary/50 bg-white/95 px-3 text-primary shadow-lg shadow-primary/20 backdrop-blur"
+                aria-label="Buscar artículo"
+              >
+                <Search className="h-5 w-5" />
+                <span className="pl-2 text-sm font-medium">Buscar artículo</span>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72 space-y-2 rounded-xl border-[color:var(--neutral-200)] bg-white p-3 shadow-lg">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold">Buscar producto</p>
                   <Badge variant="outline">3+ letras</Badge>
                 </div>
                 <Input
@@ -1877,18 +1881,42 @@ export function ClientOrder({ provider, client, products, paymentSettings, histo
 
             <Button
               type="button"
-              className="h-12 rounded-full bg-primary px-3 text-primary-foreground shadow-lg shadow-primary/30 hover:bg-primary/90"
+              className={`relative h-12 rounded-full border-2 px-3 text-primary-foreground shadow-lg shadow-primary/30 transition-none ${
+                totalItems > 0
+                  ? "cart-glow border-transparent bg-primary"
+                  : "border-primary/50 bg-primary"
+              }`}
               onClick={() => setShowSummary((prev) => !prev)}
-              aria-label={showSummary ? "Ocultar resumen" : "Mostrar pedido"}
+              aria-label={showSummary ? "Ocultar carrito" : "Abrir carrito"}
             >
-              {showSummary ? <EyeOff className="h-5 w-5" /> : <ShoppingBag className="h-5 w-5" />}
-              <span className="max-w-0 overflow-hidden whitespace-nowrap pl-2 text-sm font-semibold opacity-0 transition-[max-width,opacity] duration-200 group-hover/fab:max-w-[160px] group-hover/fab:opacity-100 group-focus-visible/fab:max-w-[160px] group-focus-visible/fab:opacity-100 group-active/fab:max-w-[160px] group-active/fab:opacity-100">
-                {showSummary ? "Ocultar resumen" : "Mostrar pedido"}
-              </span>
+              <ShoppingCart className="h-5 w-5" />
+              <span className="pl-2 text-sm font-semibold">{cartLabel}</span>
             </Button>
           </div>
         </motion.div>
       </AnimatePresence>
+
+      <style jsx global>{`
+        .cart-glow {
+          background-image: linear-gradient(hsl(var(--primary)), hsl(var(--primary))),
+            linear-gradient(120deg, #6366f1, #22d3ee, #a855f7, #6366f1);
+          background-origin: border-box;
+          background-clip: padding-box, border-box;
+          animation: cartBorderShift 5s linear infinite;
+          box-shadow: 0 10px 30px rgba(59, 130, 246, 0.35);
+        }
+        @keyframes cartBorderShift {
+          0% {
+            background-position: 0% center;
+          }
+          50% {
+            background-position: 100% center;
+          }
+          100% {
+            background-position: 0% center;
+          }
+        }
+      `}</style>
     </div>
   );
 }

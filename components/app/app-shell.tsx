@@ -10,8 +10,8 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  BarChart3,
   Bell,
+  CreditCard,
   HelpCircle,
   LayoutDashboard,
   Menu,
@@ -20,6 +20,7 @@ import {
   ShoppingBag,
   Users,
   X,
+  Wallet,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -34,19 +35,40 @@ type NavItem = {
   icon: ComponentType<SVGProps<SVGSVGElement>>;
 };
 
-const NAV_ITEMS: NavItem[] = [
-  { label: "Dashboard", href: "/app", icon: LayoutDashboard },
-  { label: "Pedidos", href: "/app/orders", icon: Package },
-  { label: "Clientes", href: "/app/clients", icon: Users },
-  { label: "Productos", href: "/app/products", icon: ShoppingBag },
-  { label: "Reportes", href: "/app/payments", icon: BarChart3 },
-  { label: "Configuración", href: "/app/subscription", icon: Settings },
-];
+function buildNavItems(providerSlug?: string): NavItem[] {
+  const base = providerSlug ? `/app/${providerSlug}` : "/app";
+  const orders = providerSlug ? `${base}/orders` : "/app/orders";
+  const clients = providerSlug ? `${base}/clients` : "/app/clients";
+  const accounts = providerSlug ? `${base}/accounts` : "/app/accounts";
+  const payments = providerSlug ? `${base}/payments` : "/app/payments";
+  const products = providerSlug ? `${base}/products` : "/app/products";
+  const subscription = providerSlug ? `${base}/subscription` : "/app/subscription";
 
-function NavLinks({ activePath, onNavigate }: { activePath: string; onNavigate?: () => void }) {
+  return [
+    { label: "Dashboard", href: base, icon: LayoutDashboard },
+    { label: "Pedidos", href: orders, icon: Package },
+    { label: "Clientes", href: clients, icon: Users },
+    { label: "Cuentas", href: accounts, icon: Wallet },
+    { label: "Mis alias y pagos", href: payments, icon: CreditCard },
+    { label: "Productos", href: products, icon: ShoppingBag },
+    { label: "Configuración", href: subscription, icon: Settings },
+  ];
+}
+
+function NavLinks({
+  activePath,
+  providerSlug,
+  onNavigate,
+}: {
+  activePath: string;
+  providerSlug?: string;
+  onNavigate?: () => void;
+}) {
+  const navItems = useMemo(() => buildNavItems(providerSlug), [providerSlug]);
+
   return (
     <nav className="flex flex-col gap-1">
-      {NAV_ITEMS.map((item) => {
+      {navItems.map((item) => {
         const Icon = item.icon;
         const isActive = activePath === item.href || activePath.startsWith(`${item.href}/`);
         return (
@@ -73,7 +95,7 @@ function NavLinks({ activePath, onNavigate }: { activePath: string; onNavigate?:
   );
 }
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({ children, providerSlug }: { children: ReactNode; providerSlug?: string }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -87,7 +109,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <p className="text-xs text-[color:var(--neutral-500)]">Panel B2B</p>
         </div>
         <div className="flex-1 px-4 py-6">
-          <NavLinks activePath={activePath} />
+          <NavLinks activePath={activePath} providerSlug={providerSlug} />
         </div>
       </aside>
 
@@ -98,7 +120,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <p className="text-xs text-[color:var(--neutral-500)]">Panel B2B</p>
           </SheetHeader>
           <div className="px-4 pb-6">
-            <NavLinks activePath={activePath} onNavigate={() => setOpen(false)} />
+            <NavLinks activePath={activePath} providerSlug={providerSlug} onNavigate={() => setOpen(false)} />
           </div>
         </SheetContent>
       </Sheet>

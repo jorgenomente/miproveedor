@@ -100,6 +100,7 @@ model Client {
 
   provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
   orders   Order[]
+  payments ClientPayment[]
 
   @@unique([providerId, slug])
   @@map("clients")
@@ -149,6 +150,7 @@ model Order {
   client   Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   items    OrderItem[]
   deliveryRule DeliveryWindow? @relation(fields: [deliveryRuleId], references: [id], onDelete: SetNull)
+  clientPayments ClientPayment[]
 
   @@map("orders")
 }
@@ -180,6 +182,28 @@ model ProviderPayment {
   provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
 
   @@map("provider_payments")
+}
+
+model ClientPayment {
+  id         String         @id @default(uuid())
+  providerId String         @map("provider_id")
+  clientId   String         @map("client_id")
+  orderId    String?        @map("order_id")
+  amount     Decimal
+  status     PaymentStatus  @default(pending)
+  method     PaymentMethod? @map("method")
+  reference  String?
+  note       String?
+  paidAt     DateTime?      @map("paid_at")
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  client   Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  order    Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@map("client_payments")
+  @@index([providerId])
+  @@index([clientId])
 }
 
 model ProviderPaymentSettings {
