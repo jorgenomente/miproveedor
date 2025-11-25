@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { getDemoData } from "./demo-data";
 import { getProviderScope, type ProviderScope } from "./provider-scope";
 
 type RequireAuthOptions = {
@@ -9,6 +10,20 @@ type RequireAuthOptions = {
 
 export async function requireAuth(options: RequireAuthOptions = {}): Promise<ProviderScope> {
   const nextPath = options.next ?? "/app";
+
+  if (options.providerSlug === "demo") {
+    const demo = getDemoData();
+    return {
+      role: "provider",
+      provider: {
+        id: demo.provider.id,
+        name: demo.provider.name,
+        slug: demo.provider.slug,
+        is_active: true,
+      },
+    };
+  }
+
   const { scope, error } = await getProviderScope();
 
   if (!scope) {

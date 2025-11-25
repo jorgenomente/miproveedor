@@ -1,12 +1,16 @@
 "use client";
 
+import React, { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { motion } from "framer-motion";
 import { ArrowUpRight, CreditCard, Package, ShoppingBag, Users } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
 import { formatCurrency } from "@/lib/whatsapp";
+import { getSupabaseBrowser } from "@/lib/supabase-browser";
 
 type Metric = { label: string; value: string; trend?: string };
 
@@ -42,6 +46,14 @@ type Props = {
   activeSlug?: string;
   debug?: boolean;
   debugInfo?: DashboardDebugInfo;
+  basePathOverride?: string;
+  ordersHrefOverride?: string;
+  orderDetailHrefOverride?: string;
+  quickActionsOverride?: {
+    label: string;
+    href: string;
+    icon: React.ReactNode;
+  }[];
 };
 
 export type DashboardDebugInfo = {
@@ -64,11 +76,26 @@ export function DashboardClient({
   activeSlug,
   debug,
   debugInfo,
+  basePathOverride,
+  ordersHrefOverride,
+  orderDetailHrefOverride,
+  quickActionsOverride,
 }: Props) {
+  const router = useRouter();
+  const [alarmEnabled, setAlarmEnabled] = useState(true);
+  const [lastIncomingTs, setLastIncomingTs] = useState<number | null>(null);
+  const latestOrderRef = useRef<string | null>(null);
+  const isFirstRenderRef = useRef(true);
+  const [isRefreshing, startTransition] = useTransition();
+  const audioRef = useRef<AudioContext | null>(null);
   const providerSlug = provider?.slug ?? activeSlug;
-  const basePath = providerSlug ? `/app/${providerSlug}` : "/app";
+  const basePath = basePathOverride ?? (providerSlug ? `/app/${providerSlug}` : "/app");
   const orderDetailHref = (orderId: string) =>
-    providerSlug ? `/app/orders/${orderId}?provider=${providerSlug}` : `/app/orders/${orderId}`;
+    orderDetailHrefOverride
+      ? orderDetailHrefOverride
+      : providerSlug
+        ? `/app/orders/${orderId}?provider=${providerSlug}`
+        : `/app/orders/${orderId}`;
   const formattedDate = (value?: string | null) => {
     if (!value) return "No definido";
     const date = new Date(value);
@@ -81,7 +108,7 @@ export function DashboardClient({
       : provider?.subscriptionStatus === "canceled"
         ? { label: "Suscripción cancelada", variant: "destructive" as const }
         : { label: "Suscripción activa", variant: "secondary" as const };
-  const quickActions = [
+  const defaultQuickActions = [
     {
       label: "Ver pedidos",
       href: providerSlug ? `${basePath}/orders?provider=${providerSlug}` : `${basePath}/orders`,
@@ -108,6 +135,122 @@ export function DashboardClient({
       icon: <CreditCard className="h-4 w-4" />,
     },
   ];
+  const quickActions = quickActionsOverride ?? defaultQuickActions;
+  const ordersHref =
+    ordersHrefOverride ??
+    (providerSlug ? `${basePath}/orders?provider=${providerSlug}` : `${basePath}/orders`);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = localStorage.getItem("miproveedor:orderAlarmEnabled");
+    if (stored === "false") setAlarmEnabled(false);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("miproveedor:orderAlarmEnabled", alarmEnabled ? "true" : "false");
+  }, [alarmEnabled]);
+
+  useEffect(() => {
+    if (!recentOrders || recentOrders.length === 0) return;
+    const latestId = recentOrders[0]?.id;
+    if (!latestId) return;
+
+    if (isFirstRenderRef.current) {
+      latestOrderRef.current = latestId;
+      isFirstRenderRef.current = false;
+      return;
+    }
+
+    if (latestOrderRef.current && latestOrderRef.current !== latestId) {
+      latestOrderRef.current = latestId;
+      setLastIncomingTs(Date.now());
+      if (alarmEnabled && typeof document !== "undefined" && document.visibilityState === "visible") {
+        playChime();
+      }
+    } else {
+      latestOrderRef.current = latestId;
+    }
+  }, [recentOrders, alarmEnabled]);
+
+  const playChime = () => {
+    if (typeof window === "undefined") return;
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!audioRef.current) {
+        audioRef.current = new AudioCtx();
+      }
+      const ctx = audioRef.current;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.9);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 1);
+    } catch (error) {
+      console.warn("No se pudo reproducir alarma", error);
+    }
+  };
+
+  useEffect(() => {
+    if (!providerSlug) return;
+    let channel: any = null;
+    try {
+      const supabase = getSupabaseBrowser();
+      const isDemo = providerSlug === "demo";
+      const table = isDemo ? "demo_orders" : "orders";
+      const filter = isDemo
+        ? `provider_slug=eq.${providerSlug}`
+        : provider?.id
+          ? `provider_id=eq.${provider.id}`
+          : undefined;
+
+      channel = supabase
+        .channel(`realtime-orders-${providerSlug}`)
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table, filter },
+          () => {
+            setLastIncomingTs(Date.now());
+            if (alarmEnabled && document.visibilityState === "visible") {
+              playChime();
+            }
+            startTransition(() => {
+              router.refresh();
+            });
+          },
+        )
+        .subscribe();
+    } catch (error) {
+      console.warn("No se pudo iniciar realtime de pedidos", error);
+    }
+
+    return () => {
+      if (channel) {
+        try {
+          getSupabaseBrowser().removeChannel(channel);
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, [providerSlug, provider?.id, alarmEnabled, router]);
+
+  useEffect(() => {
+    if (providerSlug !== "demo") return;
+    const interval = setInterval(() => {
+      startTransition(() => {
+        router.refresh();
+      });
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [providerSlug, router]);
 
   return (
     <div className="relative isolate min-h-screen bg-linear-to-b from-background via-background to-secondary/50 px-4 pb-12 pt-8 sm:px-8">
@@ -200,16 +343,31 @@ export function DashboardClient({
           ))}
         </section>
 
-        <section className="grid gap-5">
+        <section className="grid gap-5" id="pedidos">
           <Card className="border-border/60 bg-card/80 shadow-sm backdrop-blur">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">Pedidos recientes</CardTitle>
-              <Button asChild variant="ghost" size="sm">
-                <Link href={providerSlug ? `${basePath}/orders?provider=${providerSlug}` : `${basePath}/orders`}>
-                  Ver todos
-                  <ArrowUpRight className="ml-1 h-4 w-4" />
-                </Link>
-              </Button>
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-lg">Pedidos recientes</CardTitle>
+                {lastIncomingTs ? (
+                  <Badge variant="secondary" className="animate-pulse">
+                    Nuevo pedido
+                  </Badge>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Switch checked={alarmEnabled} onCheckedChange={setAlarmEnabled} id="alarm-switch" />
+                  <label htmlFor="alarm-switch" className="cursor-pointer select-none">
+                    Alarma nuevos pedidos
+                  </label>
+                </div>
+                <Button asChild variant="ghost" size="sm">
+                  <Link href={ordersHref}>
+                    Ver todos
+                    <ArrowUpRight className="ml-1 h-4 w-4" />
+                  </Link>
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="divide-y divide-border/70 p-0">
               {recentOrders.length === 0 ? (

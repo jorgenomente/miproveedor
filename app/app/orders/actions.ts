@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { ORDER_STATUS, type OrderStatus } from "@/lib/order-status";
 import { getDemoData } from "@/lib/demo-data";
+import { fetchDemoOrderById, fetchRecentDemoOrders } from "@/lib/demo-orders";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { getProviderScope } from "@/lib/provider-scope";
 
@@ -136,13 +137,15 @@ export async function listPendingProducts(providerSlug: string): Promise<Pending
 
   if (providerSlug === "demo") {
     const demo = getDemoData();
+    const stored = await fetchRecentDemoOrders({ providerSlug: "demo" });
 
-    demo.orders.forEach((order) => {
+    [...stored, ...demo.orders].forEach((order) => {
       const normalized = normalizeStatus(order.status);
       order.items.forEach((item) => {
         const itemName = (item as { name?: string }).name ?? "Producto";
         const itemUnit = (item as { unit?: string | null }).unit ?? null;
-        addToBucket(normalized, item.productId, itemName, itemUnit, item.quantity);
+        const productId = (item as { productId?: string }).productId ?? "";
+        addToBucket(normalized, productId, itemName, itemUnit, item.quantity);
       });
     });
 
@@ -267,18 +270,37 @@ export async function listProviders(): Promise<
 export async function listOrders(providerSlug: string): Promise<ListOrdersResult> {
   if (providerSlug === "demo") {
     const demo = getDemoData();
-    const orders: OrderListItem[] = demo.orders.map((order) => ({
-      id: order.id,
-      clientName:
-        demo.clients.find((client) => client.slug === order.clientSlug)?.name ?? "Cliente demo",
-      status: normalizeStatus(order.status),
-      total: order.total,
-      createdAt: order.createdAt,
-      deliveryDate: (order as { deliveryDate?: string | null }).deliveryDate ?? null,
-      paymentMethod: (order as { paymentMethod?: "efectivo" | "transferencia" }).paymentMethod ?? null,
-      paymentProofStatus: (order as { paymentProofStatus?: "no_aplica" | "pendiente" | "subido" }).paymentProofStatus ?? null,
-      paymentProofUrl: (order as { paymentProofUrl?: string | null }).paymentProofUrl ?? null,
-    }));
+    const stored = await fetchRecentDemoOrders({ providerSlug: "demo" });
+    const orders: OrderListItem[] = [
+      ...stored.map((order) => ({
+        id: order.id,
+        clientName:
+          demo.clients.find((client) => client.slug === order.client_slug)?.name ?? "Cliente demo",
+        status: normalizeStatus(order.status),
+        total: order.total,
+        createdAt: order.created_at,
+        deliveryDate: order.delivery_date ?? null,
+        paymentMethod: order.payment_method ?? null,
+        paymentProofStatus: order.payment_proof_status ?? null,
+        paymentProofUrl: order.payment_proof_url ?? null,
+      })),
+      ...demo.orders.map((order) => ({
+        id: order.id,
+        clientName:
+          demo.clients.find((client) => client.slug === order.clientSlug)?.name ?? "Cliente demo",
+        status: normalizeStatus(order.status),
+        total: order.total,
+        createdAt: order.createdAt,
+        deliveryDate: (order as { deliveryDate?: string | null }).deliveryDate ?? null,
+        paymentMethod: (order as { paymentMethod?: "efectivo" | "transferencia" }).paymentMethod ?? null,
+        paymentProofStatus: (order as { paymentProofStatus?: "no_aplica" | "pendiente" | "subido" }).paymentProofStatus ?? null,
+        paymentProofUrl: (order as { paymentProofUrl?: string | null }).paymentProofUrl ?? null,
+      })),
+    ].sort((a, b) => {
+      const aDate = new Date(a.createdAt ?? "").getTime();
+      const bDate = new Date(b.createdAt ?? "").getTime();
+      return Number.isNaN(bDate) ? -1 : bDate - aDate;
+    });
 
     return {
       success: true,
@@ -366,6 +388,54 @@ export async function listOrders(providerSlug: string): Promise<ListOrdersResult
 }
 
 export async function getOrderDetail(orderId: string): Promise<OrderDetailResult> {
+  const storedDemo = await fetchDemoOrderById(orderId);
+  if (storedDemo?.provider_slug === "demo") {
+    const demo = getDemoData();
+    const client = demo.clients.find((c) => c.slug === storedDemo.client_slug);
+
+    return {
+      success: true,
+      order: {
+        id: storedDemo.id,
+        status: normalizeStatus(storedDemo.status),
+        contactName: storedDemo.contact_name ?? null,
+        contactPhone: storedDemo.contact_phone ?? null,
+        deliveryMethod: storedDemo.delivery_method ?? null,
+        note: storedDemo.note ?? null,
+        createdAt: storedDemo.created_at ?? null,
+        total: storedDemo.total,
+        deliveryDate: storedDemo.delivery_date ?? null,
+        deliveryRuleId: storedDemo.delivery_rule_id ?? null,
+        paymentMethod: storedDemo.payment_method ?? null,
+        paymentProofStatus: storedDemo.payment_proof_status ?? null,
+        paymentProofUrl: storedDemo.payment_proof_url ?? null,
+        provider: {
+          id: demo.provider.id,
+          name: demo.provider.name,
+          slug: demo.provider.slug,
+          contact_email: demo.provider.contact_email,
+          contact_phone: demo.provider.contact_phone,
+        },
+        client: {
+          id: client?.id ?? "",
+          name: client?.name ?? "Cliente demo",
+          slug: client?.slug ?? storedDemo.client_slug,
+          contact_name: client?.contact_name ?? null,
+          contact_phone: client?.contact_phone ?? null,
+          address: client?.address ?? null,
+        },
+        items: storedDemo.items.map((item) => ({
+          productId: item.productId,
+          productName: item.name,
+          unit: item.unit ?? null,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          subtotal: item.subtotal ?? item.unitPrice * item.quantity,
+        })),
+      },
+    };
+  }
+
   if (orderId === "demo" || orderId.startsWith("00000000-0000-4000-8000-00000000o")) {
     const demo = getDemoData();
     const order = demo.orders.find((item) => item.id === orderId) ?? demo.orders[0];
@@ -548,21 +618,29 @@ export async function getOrderDetail(orderId: string): Promise<OrderDetailResult
 export async function updateOrderStatus(
   payload: z.infer<typeof updateSchema>,
 ): Promise<UpdateOrderResult> {
-  if (payload.providerSlug === "demo") {
+  const parsed = updateSchema.safeParse(payload);
+  if (!parsed.success) {
+    return { success: false, errors: parsed.error.issues.map((issue) => issue.message) };
+  }
+
+  if (parsed.data.providerSlug === "demo") {
+    const supabase = getSupabaseAdmin();
+    if (supabase) {
+      await supabase
+        .from("demo_orders")
+        .update({ status: parsed.data.status })
+        .eq("id", parsed.data.orderId)
+        .eq("provider_slug", "demo");
+    }
     return {
       success: true,
-      message: "Estado actualizado en modo demo (no se guardan cambios).",
+      message: "Estado actualizado en modo demo (se reinicia cada 24h).",
     };
   }
 
   const scopeResult = await getProviderScope();
   if (scopeResult.error) {
     return { success: false, errors: [scopeResult.error] };
-  }
-
-  const parsed = updateSchema.safeParse(payload);
-  if (!parsed.success) {
-    return { success: false, errors: parsed.error.issues.map((issue) => issue.message) };
   }
 
   if (scopeResult.scope?.role === "provider" && scopeResult.scope.provider.slug !== parsed.data.providerSlug) {
@@ -621,13 +699,31 @@ export async function updateOrderStatus(
 export async function updateOrder(
   payload: z.infer<typeof updateOrderSchema>,
 ): Promise<UpdateOrderResult> {
-  if (payload.orderId.startsWith("00000000-0000-4000-8000-00000000o")) {
-    return { success: true, message: "Pedido demo actualizado (no se guardan cambios)." };
-  }
-
   const parsed = updateOrderSchema.safeParse(payload);
   if (!parsed.success) {
     return { success: false, errors: parsed.error.issues.map((issue) => issue.message) };
+  }
+
+  if (parsed.data.orderId.startsWith("00000000-0000-4000-8000-00000000o")) {
+    return { success: true, message: "Pedido demo actualizado (no se guardan cambios)." };
+  }
+
+  const storedDemo = await fetchDemoOrderById(parsed.data.orderId);
+  if (storedDemo?.provider_slug === "demo") {
+    const supabase = getSupabaseAdmin();
+    if (supabase) {
+      const updates: Record<string, unknown> = {};
+      if (parsed.data.status && parsed.data.status !== storedDemo.status) updates.status = parsed.data.status;
+      if (typeof parsed.data.contactName === "string") updates.contact_name = parsed.data.contactName || null;
+      if (typeof parsed.data.contactPhone === "string") updates.contact_phone = parsed.data.contactPhone || null;
+      if ("deliveryMethod" in parsed.data) updates.delivery_method = parsed.data.deliveryMethod || null;
+      if (parsed.data.paymentProofStatus) updates.payment_proof_status = parsed.data.paymentProofStatus;
+      if (typeof parsed.data.note === "string") updates.note = parsed.data.note || null;
+      if (Object.keys(updates).length > 0) {
+        await supabase.from("demo_orders").update(updates).eq("id", storedDemo.id);
+      }
+    }
+    return { success: true, message: "Pedido demo actualizado (se reinicia cada 24h)." };
   }
 
   const scopeResult = await getProviderScope();

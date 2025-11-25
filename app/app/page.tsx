@@ -3,6 +3,7 @@ export const revalidate = 0;
 
 import { DashboardClient, type DashboardDebugInfo, type OrderSummary, type ProviderSummary } from "./dashboard-client";
 import { getDemoData } from "@/lib/demo-data";
+import { fetchRecentDemoOrders } from "@/lib/demo-orders";
 import { getProviderScope } from "@/lib/provider-scope";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
@@ -54,13 +55,27 @@ async function fetchData(preferredProvider?: string) {
       subscribedAt: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000).toISOString(),
       renewsAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
     };
-    const demoOrders: OrderSummary[] = demo.orders.map((order) => ({
-      id: order.id,
-      status: order.status,
-      clientName: demo.clients.find((client) => client.slug === order.clientSlug)?.name ?? "Cliente demo",
-      total: order.total,
-      createdAt: order.createdAt,
-    }));
+    const storedOrders = await fetchRecentDemoOrders({ providerSlug: demo.provider.slug });
+    const demoOrders: OrderSummary[] = [
+      ...storedOrders.map((order) => ({
+        id: order.id,
+        status: order.status,
+        clientName: demo.clients.find((client) => client.slug === order.client_slug)?.name ?? "Cliente demo",
+        total: order.total,
+        createdAt: order.created_at,
+      })),
+      ...demo.orders.map((order) => ({
+        id: order.id,
+        status: order.status,
+        clientName: demo.clients.find((client) => client.slug === order.clientSlug)?.name ?? "Cliente demo",
+        total: order.total,
+        createdAt: order.createdAt,
+      })),
+    ].sort((a, b) => {
+      const aDate = new Date(a.createdAt ?? "").getTime();
+      const bDate = new Date(b.createdAt ?? "").getTime();
+      return Number.isNaN(bDate) ? -1 : bDate - aDate;
+    });
 
     debug.demo = true;
     debug.ordersLoaded = demoOrders.length;

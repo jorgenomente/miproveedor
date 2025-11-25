@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { getDemoData } from "@/lib/demo-data";
+import { fetchRecentDemoOrders } from "@/lib/demo-orders";
 import { type DeliveryRule } from "@/lib/delivery-windows";
 import { ClientOrder, type Client, type PaymentSettings, type Product, type Provider, type PublicOrderHistory } from "./client-order";
 
@@ -57,7 +58,27 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
       ],
     };
 
-    const history: PublicOrderHistory[] = demo.orders
+    const storedOrders = await fetchRecentDemoOrders({
+      providerSlug: demo.provider.slug,
+      clientSlug: params.clientSlug,
+    });
+    const storedHistory: PublicOrderHistory[] = storedOrders.map((order) => ({
+      id: order.id,
+      status: order.status,
+      paymentMethod: order.payment_method ?? "efectivo",
+      paymentProofStatus: order.payment_proof_status ?? "no_aplica",
+      total: order.total,
+      createdAt: order.created_at,
+      items: order.items.map((item) => ({
+        productName: item.name,
+        unit: item.unit ?? null,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        subtotal: item.subtotal ?? item.unitPrice * item.quantity,
+      })),
+    }));
+
+    const seededHistory: PublicOrderHistory[] = demo.orders
       .filter((order) => order.clientSlug === params.clientSlug)
       .map((order) => ({
         id: order.id,
@@ -82,6 +103,12 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
             };
           }),
       }));
+
+    const history = [...storedHistory, ...seededHistory].sort((a, b) => {
+      const aDate = new Date(a.createdAt ?? "").getTime();
+      const bDate = new Date(b.createdAt ?? "").getTime();
+      return Number.isNaN(bDate) ? -1 : bDate - aDate;
+    });
 
     return {
       provider,

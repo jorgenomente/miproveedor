@@ -21,10 +21,10 @@ export default function DemoPage() {
   }));
 
   const panelLinks = [
-    { label: "Dashboard", href: `/app/${demo.provider.slug}` },
-    { label: "Pedidos", href: `/app/${demo.provider.slug}/orders` },
-    { label: "Tiendas", href: `/app/${demo.provider.slug}/clients` },
-    { label: "Productos", href: `/app/${demo.provider.slug}/products` },
+    { label: "Dashboard", href: `/demo/panel` },
+    { label: "Pedidos", href: `/demo/panel#pedidos` },
+    { label: "Tiendas", href: `/demo/panel#clientes` },
+    { label: "Productos", href: `/demo/panel#productos` },
   ];
   const defaultPublicHref =
     publicLinks[0]?.href ?? `/${demo.provider.slug}/${demo.clients[0]?.slug ?? ""}`;
@@ -75,12 +75,12 @@ export default function DemoPage() {
             </h1>
             <p className="text-pretty text-sm text-muted-foreground md:text-base">
               No necesitas credenciales. Entra al panel, navega tiendas ficticias y abre un link
-              público para enviar un pedido de prueba. Los cambios no se guardan: es solo para
-              ver el flujo completo.
+              público para enviar un pedido de prueba. Los pedidos que envíes quedan visibles 24h
+              y se limpian solos; es solo para ver el flujo completo.
             </p>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <Button asChild size="lg">
-                <Link href={`/app/${demo.provider.slug}`}>
+                <Link href="/demo/panel">
                   Abrir panel demo
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>

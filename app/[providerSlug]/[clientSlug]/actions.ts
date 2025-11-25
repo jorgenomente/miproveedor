@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { Buffer } from "node:buffer";
 import { z } from "zod";
 import { getDemoData } from "@/lib/demo-data";
+import { persistDemoOrder } from "@/lib/demo-orders";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { pickNextDelivery, type DeliveryRule } from "@/lib/delivery-windows";
 
@@ -29,7 +30,7 @@ const createOrderSchema = z.object({
   items: z
     .array(
       z.object({
-        productId: z.string().uuid(),
+        productId: z.string().min(1),
         quantity: z.number().int().min(1),
       }),
     )
@@ -104,6 +105,15 @@ export async function createOrder(
     };
   }
 
+  const isUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+  if (parsed.data.providerSlug !== "demo") {
+    const invalidProduct = parsed.data.items.some((item) => !isUuid(item.productId));
+    if (invalidProduct) {
+      return { success: false, errors: ["Algún producto tiene un ID inválido."] };
+    }
+  }
+
   if (parsed.data.providerSlug === "demo") {
     const demo = getDemoData();
     const client = demo.clients.find((item) => item.slug === parsed.data.clientSlug);
@@ -146,9 +156,27 @@ export async function createOrder(
         ? `demo-proof://${parsed.data.paymentProof.filename}`
         : null;
 
+    const persisted = await persistDemoOrder({
+      providerSlug: parsed.data.providerSlug,
+      clientSlug: parsed.data.clientSlug,
+      status: "nuevo",
+      contactName: parsed.data.contactName,
+      contactPhone: parsed.data.contactPhone,
+      deliveryMethod: parsed.data.deliveryMethod ?? null,
+      paymentMethod: parsed.data.paymentMethod,
+      paymentProofStatus,
+      paymentProofUrl,
+      note: parsed.data.note ?? null,
+      total,
+      items: orderItems,
+      deliveryDate: slot?.deliveryDate ?? null,
+      deliveryRuleId: slot?.ruleId ?? null,
+      cutoffDate: slot?.cutoffDate ?? null,
+    });
+
     return {
       success: true,
-      orderId: `demo-order-${Date.now()}`,
+      orderId: persisted.id,
       total,
       items: orderItems,
       paymentMethod: parsed.data.paymentMethod,
