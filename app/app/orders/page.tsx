@@ -46,7 +46,10 @@ export type OrdersPageProps = { initialProviderSlug?: string };
 
 function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
   const [providers, setProviders] = useState<ProviderRow[]>([]);
-  const [providerSlug, setProviderSlug] = useState(initialProviderSlug ?? "");
+  const searchParams = useSearchParams();
+  const providerQuery = searchParams?.get("provider") ?? null;
+  const lockedProvider = Boolean(initialProviderSlug || providerQuery);
+  const [providerSlug, setProviderSlug] = useState(initialProviderSlug ?? providerQuery ?? "");
   const [orders, setOrders] = useState<OrderListItem[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
@@ -60,17 +63,28 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
   const [itemsError, setItemsError] = useState<string | null>(null);
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [openPaymentPopover, setOpenPaymentPopover] = useState<string | null>(null);
-  const searchParams = useSearchParams();
-  const lockedProvider = Boolean(initialProviderSlug);
-  const paymentStatusLabel: Record<string, string> = {
-    no_aplica: "A pagar en entrega",
-    pendiente: "Comprobante pendiente",
-    subido: "Comprobante cargado",
-  };
+  const [searchClient, setSearchClient] = useState("");
+  const paymentStatusLabel = useCallback(
+    (method?: "efectivo" | "transferencia" | null, status?: "no_aplica" | "pendiente" | "subido" | null) => {
+      if (method === "transferencia") {
+        if (status === "subido") return "Comprobante cargado";
+        if (status === "pendiente") return "Comprobante pendiente";
+        return "Comprobante pendiente";
+      }
+      // Efectivo
+      return status === "subido" ? "Efectivo recibido" : "A pagar en la entrega";
+    },
+    [],
+  );
   const preferredProvider = useMemo(() => {
-    if (lockedProvider) return initialProviderSlug ?? undefined;
-    return searchParams?.get("provider") ?? undefined;
-  }, [initialProviderSlug, lockedProvider, searchParams]);
+    return initialProviderSlug || providerQuery || undefined;
+  }, [initialProviderSlug, providerQuery]);
+
+  useEffect(() => {
+    if (lockedProvider && preferredProvider && preferredProvider !== providerSlug) {
+      setProviderSlug(preferredProvider);
+    }
+  }, [lockedProvider, preferredProvider, providerSlug]);
 
   const loadProviders = useCallback(async () => {
     setProvidersError(null);
@@ -136,8 +150,9 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
       setUpdatingOrderId(orderId);
       const response = await updateOrderStatus({ providerSlug, orderId, status: nextStatus });
       if (!response.success && previousStatus) {
+        const rollbackStatus = previousStatus;
         setOrders((prev) =>
-          prev.map((order) => (order.id === orderId ? { ...order, status: previousStatus } : order)),
+          prev.map((order) => (order.id === orderId ? { ...order, status: rollbackStatus } : order)),
         );
         setOrdersError(response.errors.join("\n"));
       }
@@ -156,6 +171,26 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
   }, [loadOrders, loadPendingItems, providerSlug]);
 
   const provider = useMemo(() => providers.find((item) => item.slug === providerSlug), [providers, providerSlug]);
+  const orderDetailHref = useCallback(
+    (orderId: string) => (providerSlug ? `/app/orders/${orderId}?provider=${providerSlug}` : `/app/orders/${orderId}`),
+    [providerSlug],
+  );
+  const filteredOrders = useMemo(() => {
+    const term = searchClient.trim().toLowerCase();
+    if (!term) return orders;
+    return orders.filter((order) => order.clientName.toLowerCase().includes(term));
+  }, [orders, searchClient]);
+  const groupedOrders = useMemo(
+    () =>
+      ORDER_STATUS.map((status) => ({
+        status,
+        label: status === "nuevo" ? "Pedidos nuevos" : status === "preparando" ? "Pedidos preparados" : "Pedidos entregados",
+        items: filteredOrders.filter((order) => order.status === status),
+      })),
+    [filteredOrders],
+  );
+  const hasOrders = orders.length > 0;
+  const hasFilteredOrders = filteredOrders.length > 0;
 
   return (
     <div className="relative isolate min-h-screen bg-gradient-to-b from-background via-background to-secondary/50 px-4 pb-12 pt-6 sm:px-8">
@@ -216,7 +251,12 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
               </p>
             </div>
             <div className="w-56">
-              <Input placeholder="Buscar tienda (próximamente)" disabled />
+              <Input
+                placeholder="Buscar cliente"
+                value={searchClient}
+                onChange={(event) => setSearchClient(event.target.value)}
+                aria-label="Buscar cliente"
+              />
             </div>
           </CardHeader>
           <CardContent className="divide-y divide-border/70 p-0">
@@ -241,144 +281,158 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                   </div>
                 ))}
               </div>
-            ) : orders.length === 0 ? (
+            ) : !hasOrders ? (
               <div className="px-4 py-6 text-sm text-muted-foreground">
                 {provider ? "Aún no hay pedidos." : "Selecciona un proveedor para ver pedidos."}
               </div>
+            ) : !hasFilteredOrders ? (
+              <div className="px-4 py-6 text-sm text-muted-foreground">
+                {searchClient.trim()
+                  ? `No se encontraron clientes que coincidan con “${searchClient.trim()}”.`
+                  : "Aún no hay pedidos para mostrar."}
+              </div>
             ) : (
-              orders.map((order, index) => (
-                <motion.div
-                  key={order.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.25, delay: index * 0.05 }}
-                  className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold">
-                      {order.clientName} · {formatCurrency(order.total)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {order.createdAt
-                        ? new Date(order.createdAt).toLocaleString("es-AR", {
-                            dateStyle: "medium",
-                            timeStyle: "short",
-                          })
-                        : "Fecha no disponible"}
-                    </p>
-                    {order.deliveryDate ? (
-                      <p className="text-xs text-muted-foreground">
-                        Entrega:{" "}
-                        {new Date(order.deliveryDate).toLocaleDateString("es-AR", {
-                          weekday: "short",
-                          month: "short",
-                          day: "numeric",
-                        })}
-                      </p>
-                    ) : null}
+              groupedOrders.map((group, groupIndex) => (
+                <div key={group.status} className="space-y-3 px-4 py-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold">{group.label}</p>
+                    <Badge variant="outline" className="text-xs">
+                      {group.items.length} {group.items.length === 1 ? "pedido" : "pedidos"}
+                    </Badge>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          className={`rounded-full px-3 py-0 text-xs font-semibold capitalize ${statusBadge[order.status]}`}
-                          disabled={!providerSlug || updatingOrderId === order.id}
-                        >
-                          {updatingOrderId === order.id ? "Actualizando..." : ORDER_STATUS_LABEL[order.status] ?? order.status}
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-44">
-                        <DropdownMenuLabel>Estado del pedido</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        {ORDER_STATUS.map((option) => (
-                          <DropdownMenuItem
-                            key={option}
-                            className="flex items-center justify-between capitalize"
-                            disabled={updatingOrderId === order.id}
-                            onClick={() => handleStatusChange(order.id, option)}
-                          >
-                            <span>{ORDER_STATUS_LABEL[option]}</span>
-                            {order.status === option ? <Check className="h-4 w-4 text-primary" /> : null}
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                    {order.paymentMethod ? (
-                      <Popover
-                        open={openPaymentPopover === order.id}
-                        onOpenChange={(open) => setOpenPaymentPopover(open ? order.id : null)}
+                  {group.items.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">Sin pedidos en este estado.</p>
+                  ) : (
+                    group.items.map((order, index) => (
+                      <motion.div
+                        key={order.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.25, delay: index * 0.05 + groupIndex * 0.02 }}
+                        className="flex flex-col gap-3 rounded-lg border border-border/60 bg-card/70 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
                       >
-                        <PopoverTrigger asChild>
-                          <Badge
-                            variant="outline"
-                            className="flex cursor-pointer items-center gap-1 text-[11px]"
-                            role="button"
-                            aria-label="Ver comprobante"
-                          >
-                            {order.paymentMethod === "transferencia" ? "Transferencia" : "Efectivo"}
-                            <span className="text-[11px] text-muted-foreground">
-                              {paymentStatusLabel[order.paymentProofStatus ?? "no_aplica"] ?? ""}
-                            </span>
-                          </Badge>
-                        </PopoverTrigger>
-                        <PopoverContent align="end" className="w-64 space-y-3">
-                          <div className="space-y-1">
-                            <p className="text-sm font-semibold">
-                              {order.paymentMethod === "transferencia" ? "Transferencia" : "Efectivo"}
-                            </p>
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold">
+                            {order.clientName} · {formatCurrency(order.total)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {order.createdAt
+                              ? new Date(order.createdAt).toLocaleString("es-AR", {
+                                  dateStyle: "medium",
+                                  timeStyle: "short",
+                                })
+                              : "Fecha no disponible"}
+                          </p>
+                          {order.deliveryDate ? (
                             <p className="text-xs text-muted-foreground">
-                              {paymentStatusLabel[order.paymentProofStatus ?? "no_aplica"] ?? "Estado de pago"}
+                              Entrega:{" "}
+                              {new Date(order.deliveryDate).toLocaleDateString("es-AR", {
+                                weekday: "short",
+                                month: "short",
+                                day: "numeric",
+                              })}
                             </p>
-                          </div>
-                          {order.paymentMethod === "transferencia" ? (
-                            order.paymentProofStatus === "subido" ? (
-                              <div className="space-y-2">
-                                {order.paymentProofUrl ? (
-                                  <Button asChild size="sm" className="w-full">
-                                    <a href={order.paymentProofUrl} target="_blank" rel="noreferrer">
-                                      Ver comprobante
-                                    </a>
-                                  </Button>
-                                ) : (
-                                  <Button size="sm" className="w-full" variant="outline" disabled>
-                                    Comprobante no disponible
-                                  </Button>
-                                )}
+                          ) : null}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                className={`rounded-full px-3 py-0 text-xs font-semibold capitalize ${statusBadge[order.status]}`}
+                                disabled={!providerSlug || updatingOrderId === order.id}
+                              >
+                                {updatingOrderId === order.id ? "Actualizando..." : ORDER_STATUS_LABEL[order.status] ?? order.status}
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-44">
+                              <DropdownMenuLabel>Estado del pedido</DropdownMenuLabel>
+                              <DropdownMenuSeparator />
+                              {ORDER_STATUS.map((option) => (
+                                <DropdownMenuItem
+                                  key={option}
+                                  className="flex items-center justify-between capitalize"
+                                  disabled={updatingOrderId === order.id}
+                                  onClick={() => handleStatusChange(order.id, option)}
+                                >
+                                  <span>{ORDER_STATUS_LABEL[option]}</span>
+                                  {order.status === option ? <Check className="h-4 w-4 text-primary" /> : null}
+                                </DropdownMenuItem>
+                              ))}
+                            </DropdownMenuContent>
+                      </DropdownMenu>
+                          <Popover
+                            open={openPaymentPopover === order.id}
+                            onOpenChange={(open) => setOpenPaymentPopover(open ? order.id : null)}
+                          >
+                            <PopoverTrigger asChild>
+                              <Badge
+                                variant="outline"
+                                className="flex cursor-pointer items-center gap-1 text-[11px]"
+                                role="button"
+                                aria-label="Ver comprobante"
+                              >
+                                {order.paymentMethod === "transferencia" ? "Transferencia" : "Efectivo"}
+                                <span className="text-[11px] text-muted-foreground">
+                                  {paymentStatusLabel(order.paymentMethod ?? "efectivo", order.paymentProofStatus)}
+                                </span>
+                              </Badge>
+                            </PopoverTrigger>
+                            <PopoverContent align="end" className="w-64 space-y-3">
+                              <div className="space-y-1">
+                                <p className="text-sm font-semibold">
+                                  {order.paymentMethod === "transferencia" ? "Transferencia" : "Efectivo"}
+                                </p>
                                 <p className="text-xs text-muted-foreground">
-                                  Abrimos el comprobante cargado para esta orden.
+                                  {paymentStatusLabel(order.paymentMethod ?? "efectivo", order.paymentProofStatus)}
                                 </p>
                               </div>
-                            ) : (
-                              <p className="text-xs text-muted-foreground">
-                                Sube el comprobante para habilitar la vista rápida.
-                              </p>
-                            )
-                          ) : (
-                            <p className="text-xs text-muted-foreground">
-                              Pago en efectivo, no se necesita comprobante.
-                            </p>
-                          )}
-                        </PopoverContent>
-                      </Popover>
-                    ) : null}
-                    <Button asChild variant="ghost" size="sm">
-                      <Link
-                        href={
-                          providerSlug ? `/app/orders/${order.id}?provider=${providerSlug}` : `/app/orders/${order.id}`
-                        }
-                      >
-                        Ver detalle
-                        <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
-                      </Link>
-                    </Button>
-                    <Button variant="outline" size="sm">
-                      <MessageCircle className="mr-2 h-4 w-4" />
-                      WhatsApp
-                    </Button>
-                  </div>
-                </motion.div>
+                              {order.paymentMethod === "transferencia" ? (
+                                order.paymentProofStatus === "subido" ? (
+                                  <div className="space-y-2">
+                                    {order.paymentProofUrl ? (
+                                      <Button asChild size="sm" className="w-full">
+                                        <a href={order.paymentProofUrl} target="_blank" rel="noreferrer">
+                                          Ver comprobante
+                                        </a>
+                                      </Button>
+                                    ) : (
+                                      <Button size="sm" className="w-full" variant="outline" disabled>
+                                        Comprobante no disponible
+                                      </Button>
+                                    )}
+                                    <p className="text-xs text-muted-foreground">
+                                      Abrimos el comprobante cargado para esta orden.
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <p className="text-xs text-muted-foreground">
+                                    Sube el comprobante para habilitar la vista rápida.
+                                  </p>
+                                )
+                              ) : order.paymentProofStatus === "subido" ? (
+                                <p className="text-xs text-muted-foreground">Efectivo recibido.</p>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">A pagar en la entrega.</p>
+                              )}
+                            </PopoverContent>
+                          </Popover>
+                          <Button asChild variant="ghost" size="sm">
+                            <Link href={orderDetailHref(order.id)}>
+                              Ver detalle
+                              <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
+                            </Link>
+                          </Button>
+                          <Button variant="outline" size="sm">
+                            <MessageCircle className="mr-2 h-4 w-4" />
+                            WhatsApp
+                          </Button>
+                        </div>
+                      </motion.div>
+                    ))
+                  )}
+                </div>
               ))
             )}
           </CardContent>

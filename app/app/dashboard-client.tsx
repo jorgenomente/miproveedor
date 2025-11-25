@@ -67,6 +67,8 @@ export function DashboardClient({
 }: Props) {
   const providerSlug = provider?.slug ?? activeSlug;
   const basePath = providerSlug ? `/app/${providerSlug}` : "/app";
+  const orderDetailHref = (orderId: string) =>
+    providerSlug ? `/app/orders/${orderId}?provider=${providerSlug}` : `/app/orders/${orderId}`;
   const formattedDate = (value?: string | null) => {
     if (!value) return "No definido";
     const date = new Date(value);
@@ -241,13 +243,7 @@ export function DashboardClient({
                         {formatCurrency(order.total)}
                       </p>
                       <Button asChild size="icon" variant="ghost">
-                        <Link
-                          href={
-                            providerSlug
-                              ? `${basePath}/orders/${order.id}?provider=${providerSlug}`
-                              : `${basePath}/orders/${order.id}`
-                          }
-                        >
+                        <Link href={orderDetailHref(order.id)}>
                           <ArrowUpRight className="h-4 w-4" />
                         </Link>
                       </Button>

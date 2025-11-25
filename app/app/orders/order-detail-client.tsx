@@ -183,7 +183,7 @@ export function OrderDetailClient({ order, backHref }: Props) {
   };
 
   return (
-    <div className="relative isolate min-h-screen bg-gradient-to-b from-background via-background to-secondary/50 px-4 pb-12 pt-6 sm:px-8">
+    <div className="relative isolate min-h-screen bg-linear-to-b from-background via-background to-secondary/50 px-4 pb-12 pt-6 sm:px-8">
       <main className="mx-auto flex max-w-5xl flex-col gap-6">
         <div className="flex items-center justify-between">
           <Button asChild variant="ghost" size="sm">
@@ -235,7 +235,7 @@ export function OrderDetailClient({ order, backHref }: Props) {
                   {isDirty && !pending ? (
                     <>
                       <motion.div
-                        className="pointer-events-none absolute inset-[-4px] rounded-md blur-sm"
+                        className="pointer-events-none absolute -inset-1 rounded-md blur-sm"
                         style={{
                           background: `linear-gradient(120deg, ${accent.trail.join(", ")})`,
                           opacity: 0.85,
@@ -247,7 +247,7 @@ export function OrderDetailClient({ order, backHref }: Props) {
                         transition={{ repeat: Infinity, duration: 2.8, ease: "easeInOut" }}
                       />
                       <motion.div
-                        className="pointer-events-none absolute inset-[-2px] rounded-md"
+                        className="pointer-events-none absolute -inset-0.5 rounded-md"
                         style={{
                           boxShadow: `0 0 0 2px ${accent.trail[0]}, 0 0 18px ${accent.trail[0]}`,
                         }}

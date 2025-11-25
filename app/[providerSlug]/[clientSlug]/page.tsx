@@ -45,9 +45,16 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
     const paymentSettings: PaymentSettings = {
       cashEnabled: true,
       transferEnabled: true,
-      transferAlias: "ALIAS.DEMO",
-      transferCbu: "0000000000000000000000",
       transferNotes: "Envía tu comprobante por WhatsApp o súbelo al enviar el pedido.",
+      transferProfiles: [
+        {
+          id: "demo-transfer-1",
+          label: "Cuenta principal",
+          alias: "ALIAS.DEMO",
+          cbu: "0000000000000000000000",
+          isActive: true,
+        },
+      ],
     };
 
     const history: PublicOrderHistory[] = demo.orders
@@ -61,13 +68,19 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
         createdAt: order.createdAt,
         items:
           order.displayItems ??
-          order.items.map((item) => ({
-            productName: item.name,
-            unit: item.unit,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            subtotal: item.unitPrice * item.quantity,
-          })),
+          order.items.map((item) => {
+            const product = demo.products.find((p) => p.id === item.productId);
+            const unitPrice = (item as { unitPrice?: number }).unitPrice ?? Number(product?.price ?? 0);
+            const unit = (item as { unit?: string | null }).unit ?? product?.unit ?? null;
+            const name = (item as { name?: string }).name ?? product?.name ?? "Producto";
+            return {
+              productName: name,
+              unit,
+              quantity: item.quantity,
+              unitPrice,
+              subtotal: unitPrice * item.quantity,
+            };
+          }),
       }));
 
     return {
@@ -100,11 +113,10 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
           is_out_of_stock: product.is_out_of_stock ?? false,
         };
       }),
-    paymentSettings,
-    deliveryRules,
-    history,
-  };
-}
+      paymentSettings,
+      history,
+    };
+  }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
@@ -164,18 +176,41 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
     };
   }
 
-  const { data: paymentSettingsRow } = await supabase
-    .from("provider_payment_settings")
-    .select("cash_enabled, transfer_enabled, transfer_alias, transfer_cbu, transfer_notes")
-    .eq("provider_id", provider.id)
-    .maybeSingle();
+  const [{ data: paymentSettingsRow, error: paymentSettingsError }, { data: transferProfiles, error: profilesError }] =
+    await Promise.all([
+      supabase
+        .from("provider_payment_settings")
+        .select("cash_enabled, transfer_enabled, transfer_notes")
+        .eq("provider_id", provider.id)
+        .maybeSingle(),
+      supabase
+        .from("provider_transfer_profiles")
+        .select("id, label, alias, cbu, extra_info, is_active")
+        .eq("provider_id", provider.id)
+        .order("created_at", { ascending: true }),
+    ]);
+
+  if (paymentSettingsError) {
+    return { error: `No pudimos cargar los métodos de pago: ${paymentSettingsError.message}` };
+  }
+
+  if (profilesError) {
+    return { error: `No pudimos cargar las cuentas de transferencia: ${profilesError.message}` };
+  }
 
   const paymentSettings: PaymentSettings = {
     cashEnabled: paymentSettingsRow?.cash_enabled ?? true,
     transferEnabled: paymentSettingsRow?.transfer_enabled ?? true,
-    transferAlias: paymentSettingsRow?.transfer_alias ?? null,
-    transferCbu: paymentSettingsRow?.transfer_cbu ?? null,
     transferNotes: paymentSettingsRow?.transfer_notes ?? null,
+    transferProfiles:
+      transferProfiles?.map((profile) => ({
+        id: profile.id,
+        label: profile.label ?? null,
+        alias: profile.alias ?? null,
+        cbu: profile.cbu ?? null,
+        extraInfo: profile.extra_info ?? null,
+        isActive: profile.is_active ?? true,
+      })) ?? [],
   };
 
   const { data: deliveryRows, error: deliveryError } = await supabase
@@ -240,11 +275,28 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
 
       const total = items.reduce((acc, item) => acc + item.subtotal, 0);
 
+      const rawPaymentMethod = (order as { payment_method?: string | null }).payment_method ?? null;
+      const paymentMethod =
+        rawPaymentMethod === "transferencia"
+          ? "transferencia"
+          : rawPaymentMethod === "efectivo"
+            ? "efectivo"
+            : null;
+      const rawProofStatus = (order as { payment_proof_status?: string | null }).payment_proof_status ?? null;
+      const paymentProofStatus =
+        rawProofStatus === "pendiente"
+          ? "pendiente"
+          : rawProofStatus === "subido"
+            ? "subido"
+            : rawProofStatus === "no_aplica"
+              ? "no_aplica"
+              : null;
+
       return {
         id: order.id,
         status: order.status,
-        paymentMethod: (order as { payment_method?: string }).payment_method ?? null,
-        paymentProofStatus: (order as { payment_proof_status?: string }).payment_proof_status ?? null,
+        paymentMethod,
+        paymentProofStatus,
         paymentProofUrl: (order as { payment_proof_url?: string | null }).payment_proof_url ?? null,
         total,
         createdAt: order.created_at,

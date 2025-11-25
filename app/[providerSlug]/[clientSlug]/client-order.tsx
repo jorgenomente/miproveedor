@@ -47,12 +47,22 @@ export type Client = {
   address?: string;
 };
 
+export type TransferProfile = {
+  id: string;
+  label?: string | null;
+  alias?: string | null;
+  cbu?: string | null;
+  extraInfo?: string | null;
+  isActive?: boolean | null;
+};
+
 export type PaymentSettings = {
   cashEnabled: boolean;
   transferEnabled: boolean;
   transferAlias?: string | null;
   transferCbu?: string | null;
   transferNotes?: string | null;
+  transferProfiles?: TransferProfile[];
 };
 
 export type PublicOrderHistory = {
@@ -105,7 +115,7 @@ export function ClientOrder({ provider, client, products, paymentSettings, histo
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [contactName, setContactName] = useState(() => client.contactName ?? "");
   const [contactPhone, setContactPhone] = useState(() => client.contactPhone ?? "");
-  const [deliveryMethod, setDeliveryMethod] = useState("");
+  const [deliveryMethod, setDeliveryMethod] = useState<"retiro" | "envio" | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<"efectivo" | "transferencia" | "">(defaultPaymentMethod as
     | "efectivo"
     | "transferencia"
@@ -195,11 +205,22 @@ export function ClientOrder({ provider, client, products, paymentSettings, histo
     return methods;
   }, [paymentSettings]);
 
-const paymentStatusLabel: Record<string, { label: string; tone: "muted" | "warn" | "ok" }> = {
-  no_aplica: { label: "A pagar en la entrega", tone: "muted" },
-  pendiente: { label: "Comprobante pendiente", tone: "warn" },
-  subido: { label: "Comprobante cargado", tone: "ok" },
-};
+  const primaryTransferProfile = useMemo(
+    () =>
+      (paymentSettings.transferProfiles ?? []).find(
+        (profile) => (profile.isActive ?? true) && (profile.alias || profile.cbu),
+      ),
+    [paymentSettings.transferProfiles],
+  );
+
+  const transferAlias = primaryTransferProfile?.alias ?? paymentSettings.transferAlias ?? null;
+  const transferCbu = primaryTransferProfile?.cbu ?? paymentSettings.transferCbu ?? null;
+
+  const paymentStatusLabel: Record<string, { label: string; tone: "muted" | "warn" | "ok" }> = {
+    no_aplica: { label: "A pagar en la entrega", tone: "muted" },
+    pendiente: { label: "Comprobante pendiente", tone: "warn" },
+    subido: { label: "Comprobante cargado", tone: "ok" },
+  };
 
   const statusBadge: Record<string, string> = {
     nuevo: "bg-primary/10 text-primary",
@@ -461,7 +482,7 @@ const paymentStatusLabel: Record<string, { label: string; tone: "muted" | "warn"
     clientName: client.name,
     contactName,
     contactPhone,
-    deliveryMethod,
+    deliveryMethod: deliveryMethod ?? undefined,
     note,
     paymentMethod: (paymentMethod || undefined) as "efectivo" | "transferencia" | undefined,
     paymentProofStatus:
@@ -760,57 +781,6 @@ const paymentStatusLabel: Record<string, { label: string; tone: "muted" | "warn"
               <span>Total estimado</span>
               <span>{formatCurrency(total)}</span>
             </div>
-            <div className="rounded-lg border border-border/60 bg-secondary/30 p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-[11px] font-semibold uppercase text-muted-foreground">Entrega estimada</p>
-                <Badge variant="outline" className="text-[11px]">
-                  {deliverySlot ? WEEKDAYS[deliverySlot.deliveryDate.getDay()] : "Sin reglas"}
-                </Badge>
-              </div>
-              {deliverySlot ? (
-                <div className="space-y-1">
-                  <p className="text-sm font-semibold leading-tight">
-                    Entrega estimada {formatDayLabel(deliverySlot.deliveryDate)}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Hacé el pedido antes de {WEEKDAYS[deliverySlot.cutoffDate.getDay()]} {formatTimeLabel(deliverySlot.cutoffDate)}.
-                  </p>
-                  {confirmedDeliveryDate ? (
-                    <p className="text-xs text-emerald-600 dark:text-emerald-300">
-                      Tu pedido se guardó para {formatDayLabel(confirmedDeliveryDate)}.
-                    </p>
-                  ) : null}
-                </div>
-              ) : (
-                <p className="text-xs text-destructive">
-                  El proveedor aún no configuró horarios de entrega, avísale o vuelve más tarde.
-                </p>
-              )}
-            </div>
-            <div className="rounded-lg border border-border/60 bg-secondary/30 p-3">
-              <p className="text-[11px] font-semibold uppercase text-muted-foreground">Pago seleccionado</p>
-              <div className="mt-1 flex items-center gap-2 text-sm">
-                {paymentMethod === "transferencia" ? (
-                  <CreditCard className="h-4 w-4 text-primary" />
-                ) : paymentMethod === "efectivo" ? (
-                  <Wallet className="h-4 w-4 text-primary" />
-                ) : null}
-                <span className="font-semibold">
-                  {paymentMethod === "transferencia"
-                    ? "Transferencia"
-                    : paymentMethod === "efectivo"
-                      ? "Efectivo"
-                      : "Elegí un método de pago"}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {paymentMethod === "transferencia"
-                  ? "Podrás adjuntar o enviar luego el comprobante."
-                  : paymentMethod === "efectivo"
-                    ? "Marcaremos el pedido como a pagar al recibir."
-                    : "Selecciona un método para continuar."}
-              </p>
-            </div>
 
             <form
               className="space-y-3 pt-2"
@@ -840,7 +810,7 @@ const paymentStatusLabel: Record<string, { label: string; tone: "muted" | "warn"
                     clientSlug: client.slug,
                     contactName,
                     contactPhone,
-                    deliveryMethod: deliveryMethod || undefined,
+                    deliveryMethod: deliveryMethod ?? undefined,
                     paymentMethod: paymentMethod as "efectivo" | "transferencia",
                     paymentProof: paymentMethod === "transferencia" ? paymentProofData ?? undefined : undefined,
                     note,
@@ -912,9 +882,9 @@ const paymentStatusLabel: Record<string, { label: string; tone: "muted" | "warn"
               <div className="grid gap-2">
                 <Label htmlFor="deliveryMethod">Método de entrega</Label>
                 <Select
-                  value={deliveryMethod || "none"}
+                  value={deliveryMethod ?? "none"}
                   onValueChange={(value) =>
-                    setDeliveryMethod(value === "none" ? "" : (value as "retiro" | "envio"))
+                    setDeliveryMethod(value === "none" ? null : (value as "retiro" | "envio"))
                   }
                 >
                   <SelectTrigger id="deliveryMethod">
@@ -978,13 +948,14 @@ const paymentStatusLabel: Record<string, { label: string; tone: "muted" | "warn"
                         Transferencia
                       </Badge>
                     </div>
-                    {paymentSettings.transferAlias ? (
-                      <p className="text-sm font-semibold">Alias: {paymentSettings.transferAlias}</p>
+                    {primaryTransferProfile?.label ? (
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {primaryTransferProfile.label}
+                      </p>
                     ) : null}
-                    {paymentSettings.transferCbu ? (
-                      <p className="text-sm font-semibold">CBU/CVU: {paymentSettings.transferCbu}</p>
-                    ) : null}
-                    {!paymentSettings.transferAlias && !paymentSettings.transferCbu ? (
+                    {transferAlias ? <p className="text-sm font-semibold">Alias: {transferAlias}</p> : null}
+                    {transferCbu ? <p className="text-sm font-semibold">CBU/CVU: {transferCbu}</p> : null}
+                    {!transferAlias && !transferCbu ? (
                       <p className="text-xs text-muted-foreground">El proveedor no cargó alias/CBU.</p>
                     ) : null}
                     {paymentSettings.transferNotes ? (
@@ -1030,6 +1001,57 @@ const paymentStatusLabel: Record<string, { label: string; tone: "muted" | "warn"
                   onChange={(event) => setNote(event.target.value)}
                   rows={3}
                 />
+              </div>
+              <div className="space-y-3 rounded-lg border border-border/60 bg-secondary/30 p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-semibold uppercase text-muted-foreground">Entrega estimada</p>
+                  <Badge variant="outline" className="text-[11px]">
+                    {deliverySlot ? WEEKDAYS[deliverySlot.deliveryDate.getDay()] : "Sin reglas"}
+                  </Badge>
+                </div>
+                {deliverySlot ? (
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold leading-tight">
+                      Entrega estimada {formatDayLabel(deliverySlot.deliveryDate)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Hacé el pedido antes de {WEEKDAYS[deliverySlot.cutoffDate.getDay()]} {formatTimeLabel(deliverySlot.cutoffDate)}.
+                    </p>
+                    {confirmedDeliveryDate ? (
+                      <p className="text-xs text-emerald-600 dark:text-emerald-300">
+                        Tu pedido se guardó para {formatDayLabel(confirmedDeliveryDate)}.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="text-xs text-destructive">
+                    El proveedor aún no configuró horarios de entrega, avísale o vuelve más tarde.
+                  </p>
+                )}
+              </div>
+              <div className="space-y-1 rounded-lg border border-border/60 bg-secondary/30 p-3">
+                <p className="text-[11px] font-semibold uppercase text-muted-foreground">Pago seleccionado</p>
+                <div className="mt-1 flex items-center gap-2 text-sm">
+                  {paymentMethod === "transferencia" ? (
+                    <CreditCard className="h-4 w-4 text-primary" />
+                  ) : paymentMethod === "efectivo" ? (
+                    <Wallet className="h-4 w-4 text-primary" />
+                  ) : null}
+                  <span className="font-semibold">
+                    {paymentMethod === "transferencia"
+                      ? "Transferencia"
+                      : paymentMethod === "efectivo"
+                        ? "Efectivo"
+                        : "Elegí un método de pago"}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {paymentMethod === "transferencia"
+                    ? "Podrás adjuntar o enviar luego el comprobante."
+                    : paymentMethod === "efectivo"
+                      ? "Marcaremos el pedido como a pagar al recibir."
+                      : "Selecciona un método para continuar."}
+                </p>
               </div>
               <Button type="submit" className="w-full" disabled={items.length === 0 || !deliverySlot}>
                 {pendingOrder ? "Enviando..." : "Enviar pedido"}

@@ -138,13 +138,19 @@ async function fetchOrder({
 
     const items =
       order.displayItems ??
-      order.items.map((item) => ({
-        productName: item.name,
-        unit: item.unit,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        subtotal: item.unitPrice * item.quantity,
-      }));
+      order.items.map((item) => {
+        const product = demo.products.find((p) => p.id === item.productId);
+        const unitPrice = (item as { unitPrice?: number }).unitPrice ?? Number(product?.price ?? 0);
+        const unit = (item as { unit?: string | null }).unit ?? product?.unit ?? null;
+        const name = (item as { name?: string }).name ?? product?.name ?? "Producto";
+        return {
+          productName: name,
+          unit,
+          quantity: item.quantity,
+          unitPrice,
+          subtotal: unitPrice * item.quantity,
+        };
+      });
 
     return {
       id: order.id,

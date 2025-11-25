@@ -383,14 +383,11 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
   const deliveryWindowsPreview = useMemo(() => {
     if (!deliveryRulesValidation.sorted.length) return [];
     return deliveryRulesValidation.sorted.map((entry, index, arr) => {
-      const prev = arr[(index - 1 + arr.length) % arr.length];
-      const start = prev.windowStartMinute;
-      const end = entry.windowEndMinute;
       return {
         id: entry.rule.id ?? `preview-${index}`,
         deliveryWeekday: entry.rule.deliveryWeekday,
-        start,
-        end,
+        start: entry.windowStartMinute,
+        end: entry.windowEndMinute,
       };
     });
   }, [deliveryRulesValidation.sorted]);

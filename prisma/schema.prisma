@@ -66,6 +66,7 @@ model Provider {
   payments ProviderPayment[]
   paymentSettings ProviderPaymentSettings?
   deliveryWindows DeliveryWindow[]
+  transferProfiles ProviderTransferProfile[]
 
   @@map("providers")
 }
@@ -196,6 +197,23 @@ model ProviderPaymentSettings {
 
   @@unique([providerId])
   @@map("provider_payment_settings")
+}
+
+model ProviderTransferProfile {
+  id         String   @id @default(uuid())
+  providerId String   @map("provider_id")
+  label      String?
+  alias      String?
+  cbu        String?
+  extraInfo  String?  @map("extra_info")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@map("provider_transfer_profiles")
+  @@index([providerId])
 }
 
 model DeliveryWindow {
