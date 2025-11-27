@@ -1,7 +1,5 @@
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-import { ArrowUpRight } from "lucide-react";
 import { DashboardClient, type OrderSummary, type ProviderSummary } from "@/app/app/dashboard-client";
 import { getDemoData } from "@/lib/demo-data";
 import { fetchRecentDemoOrders } from "@/lib/demo-orders";
@@ -56,19 +54,6 @@ export default async function DemoPanelPage() {
 
   const metrics = buildMetrics(orders);
   const recentOrders = orders.slice(0, 5);
-  const quickActions = [
-    {
-      label: "Pedidos demo",
-      href: "#pedidos",
-      icon: <ArrowUpRight className="h-4 w-4" />,
-    },
-    {
-      label: "Links públicos",
-      href: "/demo",
-      icon: <ArrowUpRight className="h-4 w-4" />,
-    },
-  ];
-
   return (
     <DashboardClient
       provider={provider}
@@ -78,7 +63,6 @@ export default async function DemoPanelPage() {
       basePathOverride="/demo/panel"
       ordersHrefOverride="#pedidos"
       orderDetailHrefOverride="#pedidos"
-      quickActionsOverride={quickActions}
       debugInfo={{ demo: true, ordersLoaded: orders.length, resolvedProvider: provider }}
     />
   );

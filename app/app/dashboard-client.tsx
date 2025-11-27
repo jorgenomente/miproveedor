@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { motion } from "framer-motion";
-import { ArrowUpRight, CreditCard, Package, ShoppingBag, Users, Wallet } from "lucide-react";
+import { ArrowUpRight, CreditCard, Phone, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { RealtimeChannel } from "@supabase/supabase-js";
@@ -20,6 +20,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { formatCurrency } from "@/lib/whatsapp";
 import { getSupabaseBrowser } from "@/lib/supabase-browser";
+import { ORDER_STATUS_LABEL } from "@/lib/order-status";
 
 type Metric = { label: string; value: string; trend?: string };
 
@@ -38,6 +39,8 @@ export type OrderSummary = {
   status: string;
   total: number;
   createdAt?: string | null;
+  paymentMethod?: "efectivo" | "transferencia" | null;
+  contactPhone?: string | null;
 };
 
 const statusBadge: Record<string, string> = {
@@ -58,11 +61,6 @@ type Props = {
   basePathOverride?: string;
   ordersHrefOverride?: string;
   orderDetailHrefOverride?: string;
-  quickActionsOverride?: {
-    label: string;
-    href: string;
-    icon: React.ReactNode;
-  }[];
 };
 
 export type DashboardDebugInfo = {
@@ -88,7 +86,6 @@ export function DashboardClient({
   basePathOverride,
   ordersHrefOverride,
   orderDetailHrefOverride,
-  quickActionsOverride,
 }: Props) {
   const router = useRouter();
   const [alarmEnabled, setAlarmEnabled] = useState(true);
@@ -121,39 +118,6 @@ export function DashboardClient({
       : provider?.subscriptionStatus === "canceled"
         ? { label: "Suscripción cancelada", variant: "destructive" as const }
         : { label: "Suscripción activa", variant: "secondary" as const };
-  const defaultQuickActions = [
-    {
-      label: "Ver pedidos",
-      href: providerSlug ? `${basePath}/orders?provider=${providerSlug}` : `${basePath}/orders`,
-      icon: <ShoppingBag className="h-4 w-4" />,
-    },
-    {
-      label: "Clientes y links",
-      href: `${basePath}/clients`,
-      icon: <Users className="h-4 w-4" />,
-    },
-    {
-      label: "Cuentas",
-      href: `${basePath}/accounts`,
-      icon: <Wallet className="h-4 w-4" />,
-    },
-    {
-      label: "Mis alias y pagos",
-      href: `${basePath}/payments`,
-      icon: <CreditCard className="h-4 w-4" />,
-    },
-    {
-      label: "Administrar artículos",
-      href: `${basePath}/products`,
-      icon: <Package className="h-4 w-4" />,
-    },
-    {
-      label: "Mi suscripción",
-      href: `${basePath}/subscription`,
-      icon: <CreditCard className="h-4 w-4" />,
-    },
-  ];
-  const quickActions = quickActionsOverride ?? defaultQuickActions;
   const ordersHref =
     ordersHrefOverride ??
     (providerSlug ? `${basePath}/orders?provider=${providerSlug}` : `${basePath}/orders`);
@@ -358,27 +322,6 @@ export function DashboardClient({
           </div>
         </header>
 
-        <Card className="border-[color:var(--neutral-200)] bg-white shadow-sm">
-          <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            {quickActions.map((action) => (
-              <Button
-                key={action.href}
-                asChild
-                variant="ghost"
-                className="justify-start rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] text-[color:var(--neutral-900)] hover:bg-[color:var(--info-light)]"
-              >
-                <Link href={action.href}>
-                  <span className="mr-2 inline-flex h-8 w-8 items-center justify-center rounded-md bg-[color:var(--info-light)] text-[color:var(--brand-deep)]">
-                    {action.icon}
-                  </span>
-                  <span className="mr-auto">{action.label}</span>
-                  <ArrowUpRight className="ml-2 h-4 w-4 text-[color:var(--neutral-500)]" />
-                </Link>
-              </Button>
-            ))}
-          </CardContent>
-        </Card>
-
         {debug ? (
           <Card className="border-primary/50 bg-primary/5 shadow-sm">
             <CardHeader className="pb-2">
@@ -486,10 +429,23 @@ export function DashboardClient({
                   recentOrders.map((order) => (
                     <div
                       key={order.id}
-                      className="flex items-center justify-between px-4 py-3"
+                      className="grid gap-2 border-b border-border/70 px-4 py-3 last:border-b-0 sm:grid-cols-[1.2fr_auto]"
                     >
-                      <div>
-                        <p className="text-sm font-semibold">{order.clientName}</p>
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold">{order.clientName}</p>
+                          <span
+                            className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusBadge[order.status] ?? "bg-border text-foreground"}`}
+                          >
+                            {ORDER_STATUS_LABEL[order.status as keyof typeof ORDER_STATUS_LABEL] ?? order.status}
+                          </span>
+                          {order.paymentMethod ? (
+                            <Badge variant="secondary" className="flex items-center gap-1 text-[11px]">
+                              {order.paymentMethod === "transferencia" ? <CreditCard className="h-3.5 w-3.5" /> : <Wallet className="h-3.5 w-3.5" />}
+                              {order.paymentMethod === "transferencia" ? "Transferencia" : "Efectivo"}
+                            </Badge>
+                          ) : null}
+                        </div>
                         <p className="text-xs text-muted-foreground">
                           {order.createdAt
                             ? new Date(order.createdAt).toLocaleString("es-AR", {
@@ -498,19 +454,36 @@ export function DashboardClient({
                               })
                             : "Fecha no disponible"}
                         </p>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          {order.contactPhone ? (
+                            <a
+                              href={`https://wa.me/${order.contactPhone.replace(/\D/g, "")}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-primary hover:bg-primary/15"
+                            >
+                              <Phone className="h-3.5 w-3.5" />
+                              {order.contactPhone}
+                            </a>
+                          ) : (
+                            <span className="rounded-full bg-muted px-2 py-0.5">Sin WhatsApp</span>
+                          )}
+                          {!order.paymentMethod ? (
+                            <Badge variant="outline" className="text-[11px]">
+                              Pago no especificado
+                            </Badge>
+                          ) : null}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadge[order.status]}`}
-                        >
-                          {order.status}
-                        </span>
-                        <p className="text-sm font-semibold">
-                          {formatCurrency(order.total)}
-                        </p>
-                        <Button asChild size="icon" variant="ghost">
+                      <div className="flex items-center justify-end gap-3">
+                        <div className="text-right">
+                          <p className="text-sm font-semibold">{formatCurrency(order.total)}</p>
+                          <p className="text-[11px] text-muted-foreground">Total</p>
+                        </div>
+                        <Button asChild size="sm" variant="outline">
                           <Link href={orderDetailHref(order.id)}>
-                            <ArrowUpRight className="h-4 w-4" />
+                            Ver detalle
+                            <ArrowUpRight className="ml-1 h-4 w-4" />
                           </Link>
                         </Button>
                       </div>

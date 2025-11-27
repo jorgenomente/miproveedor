@@ -18,6 +18,8 @@ const demoOrderSchema = z.object({
   contactName: z.string().min(1),
   contactPhone: z.string().min(1),
   deliveryMethod: z.string().nullable().optional(),
+  deliveryZoneName: z.string().nullable().optional(),
+  shippingCost: z.number().nonnegative().optional(),
   paymentMethod: z.enum(["efectivo", "transferencia"]),
   paymentProofStatus: z.enum(["no_aplica", "pendiente", "subido"]).default("pendiente"),
   paymentProofUrl: z.string().nullable().optional(),
@@ -43,6 +45,8 @@ export type DemoOrderRecord = {
   payment_proof_url: string | null;
   note: string | null;
   total: number;
+  delivery_zone_name?: string | null;
+  shipping_cost?: number | null;
   delivery_date?: string | null;
   delivery_rule_id?: string | null;
   cutoff_date?: string | null;
@@ -66,6 +70,8 @@ const mapRecord = (row: any): DemoOrderRecord | null => {
     payment_proof_url: row.payment_proof_url ?? null,
     note: row.note ?? null,
     total: Number(row.total ?? 0),
+    delivery_zone_name: row.delivery_zone_name ?? null,
+    shipping_cost: Number(row.shipping_cost ?? 0),
     delivery_date: row.delivery_date ?? null,
     delivery_rule_id: row.delivery_rule_id ?? null,
     cutoff_date: row.cutoff_date ?? null,
@@ -110,6 +116,8 @@ export async function persistDemoOrder(input: z.infer<typeof demoOrderSchema>) {
       payment_proof_url: parsed.data.paymentProofUrl ?? null,
       note: parsed.data.note ?? null,
       total: parsed.data.total,
+      delivery_zone_name: parsed.data.deliveryZoneName ?? null,
+      shipping_cost: parsed.data.shippingCost ?? 0,
       delivery_date: parsed.data.deliveryDate ?? null,
       delivery_rule_id: parsed.data.deliveryRuleId ?? null,
       cutoff_date: parsed.data.cutoffDate ?? null,

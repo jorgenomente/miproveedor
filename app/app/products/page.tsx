@@ -16,6 +16,7 @@ import {
   RefreshCcw,
   Rows,
   Tag,
+  Truck,
   ToggleLeft,
   Trash2,
   Upload,
@@ -58,6 +59,10 @@ import {
   saveDeliveryRules,
   type DeliveryRuleInput,
   type DeliveryRuleRow,
+  listDeliveryZones,
+  createDeliveryZone,
+  deleteDeliveryZone,
+  type DeliveryZone,
 } from "./actions";
 import {
   WEEKDAYS,
@@ -259,6 +264,13 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
   const [rulesError, setRulesError] = useState<string | null>(null);
   const [rulesMessage, setRulesMessage] = useState<string | null>(null);
   const [savingRules, startSavingRules] = useTransition();
+  const [deliveryZones, setDeliveryZones] = useState<DeliveryZone[]>([]);
+  const [loadingZones, setLoadingZones] = useState(false);
+  const [zonesError, setZonesError] = useState<string | null>(null);
+  const [zoneName, setZoneName] = useState("");
+  const [zonePrice, setZonePrice] = useState<string>("");
+  const [savingZone, startSavingZone] = useTransition();
+  const [showDeliveryZonesModal, setShowDeliveryZonesModal] = useState(false);
 
   const loadProducts = useCallback(
     async (slug: string) => {
@@ -315,6 +327,26 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
     },
     [hydrateRules],
   );
+
+  const loadDeliveryZones = useCallback(
+    async (slug: string) => {
+      if (!slug) return;
+      setLoadingZones(true);
+      setZonesError(null);
+      const response = await listDeliveryZones(slug);
+      if (response.success) {
+        setDeliveryZones(response.zones);
+      } else {
+      setZonesError(response.errors?.join("\n") ?? "No se pudieron cargar los costos de envío.");
+    }
+    setLoadingZones(false);
+  },
+    [],
+  );
+
+  useEffect(() => {
+    void loadDeliveryZones(providerSlug);
+  }, [loadDeliveryZones, providerSlug]);
 
   useEffect(() => {
     if (showDeliveryRulesModal) {
@@ -421,6 +453,47 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
       }
     });
   }, [deliveryRulesValidation.errors, deliveryRules, providerSlug, loadDeliveryRulesModal, startSavingRules]);
+
+  const handleCreateZone = useCallback(
+    async (event?: FormEvent<HTMLFormElement>) => {
+      if (event) event.preventDefault();
+      if (!providerSlug) return;
+      setZonesError(null);
+      startSavingZone(async () => {
+        const response = await createDeliveryZone({
+          providerSlug,
+          name: zoneName.trim(),
+          price: Number(zonePrice || 0),
+        });
+        if (response.success) {
+          if (response.zone) {
+            setDeliveryZones((prev) => [...prev, response.zone!].sort((a, b) => a.name.localeCompare(b.name)));
+          } else {
+            await loadDeliveryZones(providerSlug);
+          }
+          setZoneName("");
+          setZonePrice("");
+        } else {
+          setZonesError(response.errors?.join("\n") ?? "No se pudo guardar el costo de envío.");
+        }
+      });
+    },
+    [providerSlug, zoneName, zonePrice, loadDeliveryZones, startSavingZone],
+  );
+
+  const handleDeleteZone = useCallback(
+    async (zoneId: string) => {
+      if (!providerSlug) return;
+      setZonesError(null);
+      const response = await deleteDeliveryZone(providerSlug, zoneId);
+      if (response.success) {
+        setDeliveryZones((prev) => prev.filter((zone) => zone.id !== zoneId));
+      } else {
+        setZonesError(response.errors?.join("\n") ?? "No se pudo eliminar el costo.");
+      }
+    },
+    [providerSlug],
+  );
 
   const handleImageInput = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -1026,6 +1099,15 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                 variant="outline"
                 size="sm"
                 className="hidden sm:inline-flex"
+                onClick={() => setShowDeliveryZonesModal(true)}
+              >
+                <Truck className="mr-2 h-4 w-4" />
+                Costo de envío
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="hidden sm:inline-flex"
                 onClick={() => setShowDeliveryRulesModal(true)}
               >
                 <CalendarClock className="mr-2 h-4 w-4" />
@@ -1037,6 +1119,10 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex justify-end sm:hidden">
+              <Button variant="outline" size="sm" onClick={() => setShowDeliveryZonesModal(true)} className="mr-2">
+                <Truck className="mr-2 h-4 w-4" />
+                Costo de envío
+              </Button>
               <Button variant="outline" size="sm" onClick={() => setShowDeliveryRulesModal(true)}>
                 <CalendarClock className="mr-2 h-4 w-4" />
                 Reglas de entrega
@@ -1362,6 +1448,90 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
         </Card>
 
       </main>
+
+      <Dialog open={showDeliveryZonesModal} onOpenChange={setShowDeliveryZonesModal}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Costos de envío por localidad</DialogTitle>
+            <DialogDescription>Define zonas y su precio fijo. Se mostrarán en el link público al elegir envío.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {zonesError ? (
+              <div className="rounded-md border border-destructive/60 bg-destructive/10 p-3 text-sm text-destructive">
+                {zonesError}
+              </div>
+            ) : null}
+            <form className="space-y-3" onSubmit={(event) => void handleCreateZone(event)}>
+              <div className="grid gap-2">
+                <Label htmlFor="zoneName">Localidad / zona</Label>
+                <Input
+                  id="zoneName"
+                  value={zoneName}
+                  onChange={(event) => setZoneName(event.target.value)}
+                  placeholder="Ej: CABA, Zona Norte"
+                  required
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="zonePrice">Precio</Label>
+                <Input
+                  id="zonePrice"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={zonePrice}
+                  onChange={(event) => setZonePrice(event.target.value)}
+                  placeholder="0"
+                  required
+                />
+              </div>
+              <DialogFooter>
+                <Button type="submit" disabled={!providerSlug || savingZone || !zoneName.trim()}>
+                  {savingZone ? "Guardando..." : "Guardar costo"}
+                </Button>
+              </DialogFooter>
+            </form>
+
+            <div className="space-y-2 rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold">Zonas creadas</p>
+                <Badge variant="outline">{deliveryZones.length}</Badge>
+              </div>
+              {loadingZones ? (
+                <div className="space-y-2">
+                  {[0, 1, 2].map((item) => (
+                    <Skeleton key={item} className="h-10 w-full" />
+                  ))}
+                </div>
+              ) : deliveryZones.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Aún no cargaste costos de envío.</p>
+              ) : (
+                <div className="space-y-2">
+                  {deliveryZones.map((zone) => (
+                    <div
+                      key={zone.id}
+                      className="flex items-center justify-between rounded-md border border-[color:var(--neutral-200)] bg-white px-3 py-2 shadow-sm"
+                    >
+                      <div>
+                        <p className="text-sm font-semibold">{zone.name}</p>
+                        <p className="text-xs text-muted-foreground">{formatCurrency(zone.price)}</p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Eliminar ${zone.name}`}
+                        onClick={() => void handleDeleteZone(zone.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showDeliveryRulesModal} onOpenChange={setShowDeliveryRulesModal}>
         <DialogContent className="max-w-3xl max-h-[86vh] overflow-y-auto">

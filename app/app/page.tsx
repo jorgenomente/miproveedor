@@ -89,6 +89,8 @@ async function fetchData(preferredProvider?: string) {
         clientName: demo.clients.find((client) => client.slug === order.client_slug)?.name ?? "Cliente demo",
         total: order.total,
         createdAt: order.created_at,
+        paymentMethod: order.payment_method,
+        contactPhone: order.contact_phone,
       })),
       ...demo.orders.map((order) => ({
         id: order.id,
@@ -96,6 +98,8 @@ async function fetchData(preferredProvider?: string) {
         clientName: demo.clients.find((client) => client.slug === order.clientSlug)?.name ?? "Cliente demo",
         total: order.total,
         createdAt: order.createdAt,
+        paymentMethod: order.paymentMethod ?? null,
+        contactPhone: order.contactPhone ?? null,
       })),
     ].sort((a, b) => {
       const aDate = new Date(a.createdAt ?? "").getTime();
@@ -223,7 +227,7 @@ async function fetchData(preferredProvider?: string) {
   const { data: orders, error: ordersError } = await supabase
     .from("orders")
     .select(
-      "id, status, created_at, client:clients(name), order_items(quantity, unit_price)",
+      "id, status, created_at, contact_phone, payment_method, shipping_cost, client:clients(name), order_items(quantity, unit_price)",
     )
     .eq("provider_id", provider.id)
     .order("created_at", { ascending: false })
@@ -236,11 +240,12 @@ async function fetchData(preferredProvider?: string) {
 
   const parsedOrders: OrderSummary[] =
     orders?.map((order) => {
+      const shippingCost = Number((order as { shipping_cost?: number | null }).shipping_cost ?? 0);
       const total =
-        order.order_items?.reduce(
+        (order.order_items?.reduce(
           (acc, item) => acc + Number(item.unit_price ?? 0) * item.quantity,
           0,
-        ) ?? 0;
+        ) ?? 0) + shippingCost;
       const clientName =
         Array.isArray(order.client) && order.client.length > 0
           ? order.client[0]?.name ?? "Cliente"
@@ -252,6 +257,8 @@ async function fetchData(preferredProvider?: string) {
         clientName,
         total,
         createdAt: order.created_at,
+        paymentMethod: (order as { payment_method?: "efectivo" | "transferencia" | null }).payment_method ?? null,
+        contactPhone: (order as { contact_phone?: string | null }).contact_phone ?? null,
       };
     }) ?? [];
 

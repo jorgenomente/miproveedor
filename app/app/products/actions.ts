@@ -38,6 +38,12 @@ const createSchema = z.object({
     }),
 });
 
+const deliveryZoneSchema = z.object({
+  providerSlug: z.string().min(2, "Proveedor requerido"),
+  name: z.string().trim().min(2, "Nombre requerido"),
+  price: z.number().nonnegative("El costo debe ser mayor o igual a 0"),
+});
+
 const activeSchema = z.object({
   providerSlug: z.string().min(2),
   productId: z.string().uuid(),
@@ -150,6 +156,13 @@ export type DeliveryRuleRow = {
   cutoffTimeMinutes: number;
   deliveryWeekday: number;
   deliveryTimeMinutes: number;
+};
+
+export type DeliveryZone = {
+  id: string;
+  name: string;
+  price: number;
+  isActive: boolean;
 };
 
 export type ListDeliveryRulesResult =
@@ -1343,4 +1356,122 @@ export async function saveDeliveryRules(payload: {
   }
 
   return { success: true, message: "Reglas de entrega actualizadas." };
+}
+
+export async function listDeliveryZones(providerSlug: string): Promise<{ success: boolean; zones: DeliveryZone[]; errors?: string[] }> {
+  const demoZones: DeliveryZone[] = [
+    { id: "demo-zone-1", name: "CABA", price: 1200, isActive: true },
+    { id: "demo-zone-2", name: "GBA Norte", price: 1800, isActive: true },
+    { id: "demo-zone-3", name: "GBA Oeste", price: 2100, isActive: true },
+  ];
+
+  if (providerSlug === "demo") return { success: true, zones: demoZones };
+
+  const scopeResult = await getProviderScope();
+  if (scopeResult.error) return { success: false, zones: [], errors: [scopeResult.error] };
+
+  if (scopeResult.scope?.role === "provider" && scopeResult.scope.provider.slug !== providerSlug) {
+    return { success: false, zones: [], errors: ["No tienes acceso a este proveedor."] };
+  }
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return { success: false, zones: [], errors: ["Faltan credenciales de Supabase (SERVICE_ROLE / URL)."] };
+
+  const { provider, error: providerError } = await getProviderBySlug(providerSlug);
+  if (providerError || !provider) return { success: false, zones: [], errors: [providerError ?? "Proveedor no encontrado."] };
+
+  const { data, error } = await supabase
+    .from("delivery_zones")
+    .select("id, name, price, is_active")
+    .eq("provider_id", provider.id)
+    .order("name", { ascending: true });
+
+  if (error) return { success: false, zones: [], errors: [`No se pudieron cargar los costos: ${error.message}`] };
+
+  const zones =
+    data?.map((row) => ({
+      id: row.id,
+      name: row.name ?? "Zona",
+      price: Number(row.price ?? 0),
+      isActive: row.is_active ?? true,
+    })) ?? [];
+
+  return { success: true, zones };
+}
+
+export async function createDeliveryZone(payload: z.infer<typeof deliveryZoneSchema>): Promise<{ success: boolean; message?: string; errors?: string[]; zone?: DeliveryZone }> {
+  if (payload.providerSlug === "demo") {
+    const zone: DeliveryZone = {
+      id: randomUUID(),
+      name: payload.name,
+      price: payload.price,
+      isActive: true,
+    };
+    return { success: true, message: "Modo demo: no se guarda en base, pero se simula el alta.", zone };
+  }
+
+  const parsed = deliveryZoneSchema.safeParse(payload);
+  if (!parsed.success) return { success: false, errors: parsed.error.issues.map((issue) => issue.message) };
+
+  const scopeResult = await getProviderScope();
+  if (scopeResult.error) return { success: false, errors: [scopeResult.error] };
+  if (scopeResult.scope?.role === "provider" && scopeResult.scope.provider.slug !== parsed.data.providerSlug) {
+    return { success: false, errors: ["No tienes acceso a este proveedor."] };
+  }
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return { success: false, errors: ["Faltan credenciales de Supabase (SERVICE_ROLE / URL)."] };
+
+  const { provider, error: providerError } = await getProviderBySlug(parsed.data.providerSlug);
+  if (providerError || !provider) return { success: false, errors: [providerError ?? "Proveedor no encontrado."] };
+
+  const { data, error } = await supabase
+    .from("delivery_zones")
+    .insert({
+      provider_id: provider.id,
+      name: parsed.data.name,
+      price: parsed.data.price,
+      is_active: true,
+    })
+    .select("id, name, price, is_active")
+    .single();
+
+  if (error || !data) return { success: false, errors: [`No se pudo guardar el costo: ${error?.message ?? "sin detalle"}`] };
+
+  return {
+    success: true,
+    message: "Costo de envío guardado.",
+    zone: {
+      id: data.id,
+      name: data.name ?? "Zona",
+      price: Number(data.price ?? 0),
+      isActive: data.is_active ?? true,
+    },
+  };
+}
+
+export async function deleteDeliveryZone(providerSlug: string, zoneId: string): Promise<{ success: boolean; errors?: string[] }> {
+  if (providerSlug === "demo") return { success: true };
+
+  const scopeResult = await getProviderScope();
+  if (scopeResult.error) return { success: false, errors: [scopeResult.error] };
+  if (scopeResult.scope?.role === "provider" && scopeResult.scope.provider.slug !== providerSlug) {
+    return { success: false, errors: ["No tienes acceso a este proveedor."] };
+  }
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return { success: false, errors: ["Faltan credenciales de Supabase (SERVICE_ROLE / URL)."] };
+
+  const { provider, error: providerError } = await getProviderBySlug(providerSlug);
+  if (providerError || !provider) return { success: false, errors: [providerError ?? "Proveedor no encontrado."] };
+
+  const { error } = await supabase
+    .from("delivery_zones")
+    .delete()
+    .eq("provider_id", provider.id)
+    .eq("id", zoneId);
+
+  if (error) return { success: false, errors: [`No se pudo eliminar: ${error.message}`] };
+
+  return { success: true };
 }

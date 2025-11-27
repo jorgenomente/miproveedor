@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { getDemoData } from "@/lib/demo-data";
 import { fetchRecentDemoOrders } from "@/lib/demo-orders";
 import { type DeliveryRule } from "@/lib/delivery-windows";
-import { ClientOrder, type Client, type PaymentSettings, type Product, type Provider, type PublicOrderHistory } from "./client-order";
+import { ClientOrder, type Client, type PaymentSettings, type Product, type Provider, type PublicOrderHistory, type DeliveryZone, type DraftState } from "./client-order";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +14,8 @@ type LoadedData =
       paymentSettings: PaymentSettings;
       history: PublicOrderHistory[];
       deliveryRules: DeliveryRule[];
+      deliveryZones: DeliveryZone[];
+      drafts: DraftState[];
       error?: undefined;
     }
   | {
@@ -23,6 +25,8 @@ type LoadedData =
       paymentSettings?: undefined;
       history?: undefined;
       deliveryRules?: undefined;
+      deliveryZones?: undefined;
+      drafts?: undefined;
       error: string;
     };
 
@@ -42,6 +46,10 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
     const demoDeliveryRules: DeliveryRule[] = [
       { id: "demo-rule-1", cutoffWeekday: 2, cutoffTimeMinutes: 20 * 60, deliveryWeekday: 5, deliveryTimeMinutes: 10 * 60 },
       { id: "demo-rule-2", cutoffWeekday: 6, cutoffTimeMinutes: 20 * 60, deliveryWeekday: 2, deliveryTimeMinutes: 10 * 60 },
+    ];
+    const demoDeliveryZones: DeliveryZone[] = [
+      { id: "demo-zone-1", name: "CABA", price: 1200, isActive: true },
+      { id: "demo-zone-2", name: "GBA", price: 1800, isActive: true },
     ];
     const paymentSettings: PaymentSettings = {
       cashEnabled: true,
@@ -121,6 +129,8 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
         address: client.address ?? undefined,
       },
       deliveryRules: demoDeliveryRules,
+      deliveryZones: demoDeliveryZones,
+      drafts: [],
     products: demo.products.map((product) => {
       const basePrice = Number(product.price ?? 0);
       const discount = Number(product.discount_percent ?? 0);
@@ -261,6 +271,56 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
       deliveryTimeMinutes: row.delivery_time_minutes ?? 10 * 60,
     })) ?? [];
 
+  const { data: deliveryZonesRows, error: deliveryZonesError } = await supabase
+    .from("delivery_zones")
+    .select("id, name, price, is_active")
+    .eq("provider_id", provider.id)
+    .order("name", { ascending: true });
+
+  if (deliveryZonesError) {
+    return { error: `No pudimos cargar los costos de envío: ${deliveryZonesError.message}` };
+  }
+
+  const deliveryZones: DeliveryZone[] =
+    deliveryZonesRows?.filter((row) => row.is_active !== false).map((row) => ({
+      id: row.id,
+      name: row.name ?? "Zona",
+      price: Number(row.price ?? 0),
+      isActive: row.is_active ?? true,
+    })) ?? [];
+
+  const { data: draftRows, error: draftsError } = await supabase
+    .from("client_order_drafts")
+    .select("id, payload, created_at")
+    .eq("provider_id", provider.id)
+    .eq("client_id", client.id)
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  const missingDraftTable =
+    draftsError?.message?.toLowerCase().includes("could not find the table") &&
+    draftsError.message.includes("client_order_drafts");
+
+  if (draftsError && !missingDraftTable) {
+    return { error: `No pudimos cargar los borradores: ${draftsError.message}` };
+  }
+
+  const drafts: DraftState[] =
+    draftRows?.map((row) => ({
+      id: row.id,
+      label: new Date(row.created_at ?? "").toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" }),
+      createdAt: row.created_at ?? new Date().toISOString(),
+      data: {
+        quantities: ((row.payload as any)?.quantities ?? {}) as Record<string, number>,
+        contactName: (row.payload as any)?.contactName ?? "",
+        contactPhone: (row.payload as any)?.contactPhone ?? "",
+        deliveryMethod: (row.payload as any)?.deliveryMethod ?? null,
+        deliveryZoneId: (row.payload as any)?.deliveryZoneId ?? null,
+        paymentMethod: (row.payload as any)?.paymentMethod ?? "",
+        note: (row.payload as any)?.note ?? "",
+      },
+    })) ?? [];
+
   const { data: orders } = await supabase
     .from("orders")
     .select(
@@ -301,7 +361,8 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
           };
         }) ?? [];
 
-      const total = items.reduce((acc, item) => acc + item.subtotal, 0);
+      const shippingCost = Number((order as { shipping_cost?: number | null }).shipping_cost ?? 0);
+      const total = items.reduce((acc, item) => acc + item.subtotal, 0) + shippingCost;
 
       const rawPaymentMethod = (order as { payment_method?: string | null }).payment_method ?? null;
       const paymentMethod =
@@ -366,6 +427,8 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
     }),
       paymentSettings,
       deliveryRules,
+      deliveryZones,
+      drafts,
       history,
     };
 }
@@ -396,6 +459,8 @@ export default async function ClientOrderPage({
       products={data.products as Product[]}
       paymentSettings={data.paymentSettings as PaymentSettings}
       deliveryRules={data.deliveryRules as DeliveryRule[]}
+      deliveryZones={data.deliveryZones as DeliveryZone[]}
+      drafts={data.drafts as DraftState[]}
       history={data.history as PublicOrderHistory[]}
     />
   );

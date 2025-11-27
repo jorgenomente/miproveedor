@@ -17,6 +17,7 @@ const createOrderSchema = z.object({
   contactName: z.string().min(2),
   contactPhone: z.string().min(4),
   deliveryMethod: z.enum(["retiro", "envio"]).optional(),
+  deliveryZoneId: z.string().uuid().optional(),
   paymentMethod: z.enum(["efectivo", "transferencia"]),
   paymentProof: z
     .object({
@@ -40,6 +41,10 @@ const createOrderSchema = z.object({
 const DEMO_DELIVERY_RULES: DeliveryRule[] = [
   { id: "demo-rule-1", cutoffWeekday: 2, cutoffTimeMinutes: 20 * 60, deliveryWeekday: 5, deliveryTimeMinutes: 10 * 60 },
   { id: "demo-rule-2", cutoffWeekday: 6, cutoffTimeMinutes: 20 * 60, deliveryWeekday: 2, deliveryTimeMinutes: 10 * 60 },
+];
+const DEMO_DELIVERY_ZONES = [
+  { id: "demo-zone-1", name: "CABA", price: 1200 },
+  { id: "demo-zone-2", name: "GBA", price: 1800 },
 ];
 
 const PROVIDER_TIME_ZONE = "America/Argentina/Buenos_Aires";
@@ -75,6 +80,34 @@ export type CreateOrderResult =
       deliveryDate?: string | null;
       deliveryRuleId?: string | null;
       cutoffDate?: string | null;
+      shippingCost?: number;
+      deliveryZoneId?: string | null;
+      deliveryZoneName?: string | null;
+    }
+  | { success: false; errors: string[] };
+
+const draftSchema = z.object({
+  providerSlug: z.string().min(2),
+  clientSlug: z.string().min(2),
+  payload: z.object({
+    quantities: z.record(z.string(), z.number().int().nonnegative()),
+    contactName: z.string().optional().default(""),
+    contactPhone: z.string().optional().default(""),
+    deliveryMethod: z.enum(["retiro", "envio"]).nullable(),
+    deliveryZoneId: z.string().uuid().nullable(),
+    paymentMethod: z.enum(["efectivo", "transferencia"]).optional(),
+    note: z.string().optional().default(""),
+  }),
+});
+
+export type SaveDraftResult =
+  | {
+      success: true;
+      draft: {
+        id: string;
+        createdAt: string;
+        payload: z.infer<typeof draftSchema>["payload"];
+      };
     }
   | { success: false; errors: string[] };
 
@@ -140,7 +173,12 @@ export async function createOrder(
       };
     });
 
-    const total = orderItems.reduce((acc, item) => acc + item.unitPrice * item.quantity, 0);
+    const shippingCost =
+      parsed.data.deliveryMethod === "envio" && parsed.data.deliveryZoneId
+        ? Number(DEMO_DELIVERY_ZONES.find((zone) => zone.id === parsed.data.deliveryZoneId)?.price ?? 0)
+        : 0;
+
+    const total = orderItems.reduce((acc, item) => acc + item.unitPrice * item.quantity, 0) + shippingCost;
 
     const slot = resolveNextDelivery(DEMO_DELIVERY_RULES);
 
@@ -168,6 +206,11 @@ export async function createOrder(
       paymentProofUrl,
       note: parsed.data.note ?? null,
       total,
+      deliveryZoneName:
+        parsed.data.deliveryMethod === "envio"
+          ? DEMO_DELIVERY_ZONES.find((zone) => zone.id === parsed.data.deliveryZoneId)?.name ?? null
+          : null,
+      shippingCost,
       items: orderItems,
       deliveryDate: slot?.deliveryDate ?? null,
       deliveryRuleId: slot?.ruleId ?? null,
@@ -185,6 +228,12 @@ export async function createOrder(
       deliveryDate: slot?.deliveryDate ?? null,
       deliveryRuleId: slot?.ruleId ?? null,
       cutoffDate: slot?.cutoffDate ?? null,
+      shippingCost,
+      deliveryZoneId: parsed.data.deliveryMethod === "envio" ? parsed.data.deliveryZoneId ?? null : null,
+      deliveryZoneName:
+        parsed.data.deliveryMethod === "envio"
+          ? DEMO_DELIVERY_ZONES.find((zone) => zone.id === parsed.data.deliveryZoneId)?.name ?? null
+          : null,
     };
   }
 
@@ -278,8 +327,6 @@ export async function createOrder(
     };
   });
 
-  const total = orderItems.reduce((acc, item) => acc + item.unitPrice * item.quantity, 0);
-
   const { data: paymentSettingsRow } = await supabase
     .from("provider_payment_settings")
     .select("cash_enabled, transfer_enabled")
@@ -304,6 +351,37 @@ export async function createOrder(
   if (parsed.data.paymentMethod === "efectivo" && parsed.data.paymentProof) {
     return { success: false, errors: ["El comprobante solo aplica si eliges transferencia."] };
   }
+
+  let shippingCost = 0;
+  let deliveryZoneId: string | null = null;
+  let deliveryZoneName: string | null = null;
+
+  if (parsed.data.deliveryMethod === "envio") {
+    if (parsed.data.deliveryZoneId) {
+      const { data: zone, error: zoneError } = await supabase
+        .from("delivery_zones")
+        .select("id, name, price, is_active, provider_id")
+        .eq("id", parsed.data.deliveryZoneId)
+        .eq("provider_id", provider.id)
+        .maybeSingle();
+
+      if (zoneError) {
+        return { success: false, errors: [`No se pudo validar el costo de envío: ${zoneError.message}`] };
+      }
+
+      if (!zone || zone.is_active === false) {
+        return { success: false, errors: ["La zona de envío seleccionada ya no está disponible."] };
+      }
+
+      deliveryZoneId = zone.id;
+      shippingCost = Number(zone.price ?? 0);
+      deliveryZoneName = zone.name ?? null;
+    } else {
+      shippingCost = 0;
+    }
+  }
+
+  const total = orderItems.reduce((acc, item) => acc + item.unitPrice * item.quantity, 0) + shippingCost;
 
   let paymentProofUrl: string | null = null;
   let paymentProofStatus: "no_aplica" | "pendiente" | "subido" =
@@ -371,6 +449,8 @@ export async function createOrder(
       contact_name: parsed.data.contactName,
       contact_phone: parsed.data.contactPhone,
       delivery_method: parsed.data.deliveryMethod ?? null,
+      delivery_zone_id: deliveryZoneId,
+      shipping_cost: shippingCost,
       payment_method: parsed.data.paymentMethod,
       payment_proof_status: paymentProofStatus,
       payment_proof_url: paymentProofUrl,
@@ -417,6 +497,83 @@ export async function createOrder(
     deliveryDate: slot.deliveryDate,
     deliveryRuleId: slot.ruleId,
     cutoffDate: slot.cutoffDate,
+    shippingCost,
+    deliveryZoneId,
+    deliveryZoneName,
+  };
+}
+
+export async function saveDraft(payload: z.infer<typeof draftSchema>): Promise<SaveDraftResult> {
+  const parsed = draftSchema.safeParse(payload);
+  if (!parsed.success) {
+    return { success: false, errors: parsed.error.issues.map((issue) => issue.message) };
+  }
+
+  if (parsed.data.providerSlug === "demo") {
+    return {
+      success: true,
+      draft: {
+        id: randomUUID(),
+        createdAt: new Date().toISOString(),
+        payload: parsed.data.payload,
+      },
+    };
+  }
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return { success: false, errors: ["Faltan credenciales de Supabase (SERVICE_ROLE / URL)."] };
+
+  const { data: provider } = await supabase
+    .from("providers")
+    .select("id")
+    .eq("slug", parsed.data.providerSlug)
+    .maybeSingle();
+  if (!provider) return { success: false, errors: ["Proveedor no encontrado."] };
+
+  const { data: client } = await supabase
+    .from("clients")
+    .select("id")
+    .eq("provider_id", provider.id)
+    .eq("slug", parsed.data.clientSlug)
+    .maybeSingle();
+  if (!client) return { success: false, errors: ["Tienda no encontrada."] };
+
+  const { data, error } = await supabase
+    .from("client_order_drafts")
+    .insert({
+      provider_id: provider.id,
+      client_id: client.id,
+      payload: parsed.data.payload,
+    })
+    .select("id, created_at")
+    .maybeSingle();
+
+  const missingTable =
+    error?.message?.toLowerCase().includes("could not find the table") && error.message.includes("client_order_drafts");
+
+  if (missingTable) {
+    // If the drafts table is not available, fall back to local-only draft persistence.
+    return {
+      success: true,
+      draft: {
+        id: randomUUID(),
+        createdAt: new Date().toISOString(),
+        payload: parsed.data.payload,
+      },
+    };
+  }
+
+  if (error || !data) {
+    return { success: false, errors: [`No se pudo guardar el borrador: ${error?.message ?? "sin detalle"}`] };
+  }
+
+  return {
+    success: true,
+    draft: {
+      id: data.id,
+      createdAt: data.created_at ?? new Date().toISOString(),
+      payload: parsed.data.payload,
+    },
   };
 }
 
