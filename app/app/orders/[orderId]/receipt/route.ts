@@ -1,144 +1,347 @@
+import type PDFKit from "pdfkit";
 import { NextResponse, type NextRequest } from "next/server";
-import { formatCurrency } from "@/lib/whatsapp";
 import { getOrderDetail, type OrderDetail } from "../../actions";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-function escapePdfText(text: string) {
-  const encoded = Buffer.from(text ?? "", "latin1").toString("latin1");
-  return encoded.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+type PdfProvider = {
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+};
+
+type PdfClient = {
+  name: string;
+  user?: string | null;
+  phone?: string | null;
+  id?: string | null;
+};
+
+type PdfRow = {
+  date?: string | null;
+  orderNumber: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+  balance: number;
+};
+
+const PRIMARY = "#4B4EAA";
+const TEXT = "#111827";
+const MUTED = "#6B7280";
+const LINE = "#E6E6E6";
+const ROW_ALT = "#FAFAFA";
+const HEADER_BG = "#F8F9FA";
+const PAGE_MARGIN = 34;
+
+const formatDate = (value?: string | number | Date | null) => {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "—";
+  return parsed.toLocaleDateString("es-AR");
+};
+
+const formatMoney = (value: number) =>
+  new Intl.NumberFormat("es-AR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Number.isFinite(value) ? value : 0);
+
+function drawHeader(doc: PDFKit.PDFDocument, issuedAt: Date) {
+  const width = doc.page.width - PAGE_MARGIN * 2;
+  const y = PAGE_MARGIN;
+
+  doc
+    .moveTo(PAGE_MARGIN, y)
+    .lineTo(PAGE_MARGIN + width, y)
+    .strokeColor(LINE)
+    .lineWidth(1)
+    .stroke();
+
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(22)
+    .fillColor(PRIMARY)
+    .text("REMITO", PAGE_MARGIN, y + 12, { width, align: "center" });
+
+  doc
+    .font("Helvetica")
+    .fontSize(11)
+    .fillColor(MUTED)
+    .text(`Fecha: ${formatDate(issuedAt)}`, PAGE_MARGIN, y + 36, { width, align: "center" });
+
+  doc
+    .moveTo(PAGE_MARGIN, y + 60)
+    .lineTo(PAGE_MARGIN + width, y + 60)
+    .strokeColor(LINE)
+    .lineWidth(1)
+    .stroke();
+
+  return y + 78;
 }
 
-function textLine(x: number, y: number, fontSize: number, text: string) {
-  return [
-    "BT",
-    `/F1 ${fontSize} Tf`,
-    "0 g",
-    `1 0 0 1 ${x} ${y} Tm`,
-    `(${escapePdfText(text)}) Tj`,
-    "ET",
-  ].join("\n");
+function drawProviderBlock(doc: PDFKit.PDFDocument, provider: PdfProvider, startY: number) {
+  const width = doc.page.width - PAGE_MARGIN * 2;
+  const line = [provider.phone ? `Tel: ${provider.phone}` : null, provider.email].filter(Boolean).join(" · ");
+  doc.font("Helvetica-Bold").fontSize(12).fillColor(TEXT).text("Jorge Pulido", PAGE_MARGIN, startY, {
+    width,
+    align: "left",
+  });
+  if (line) {
+    doc.font("Helvetica").fontSize(10.5).fillColor(MUTED).text(line, PAGE_MARGIN, startY + 16, { width, align: "left" });
+  }
+  return startY + 34;
 }
 
-function buildPdf(order: OrderDetail) {
-  if (!order) throw new Error("Pedido no disponible para PDF.");
+function drawClientCard(doc: PDFKit.PDFDocument, client: PdfClient, startY: number) {
+  const width = doc.page.width - PAGE_MARGIN * 2;
+  const cardHeight = 90;
+  doc
+    .roundedRect(PAGE_MARGIN, startY, width, cardHeight, 6)
+    .strokeColor(LINE)
+    .lineWidth(1)
+    .fillAndStroke("#FFFFFF", LINE);
 
-  const lines: string[] = [];
-  const headerY = 740; // start lower for more top margin
+  const padding = 14;
+  const x = PAGE_MARGIN + padding;
+  let y = startY + padding;
 
-  // Background cards
-  lines.push("q");
-  lines.push("0.96 0.98 1 rg");
-  lines.push("50 670 512 90 re f");
-  lines.push("Q");
+  doc.font("Helvetica-Bold").fontSize(12).fillColor(TEXT).text(client.name || "Cliente", x, y, { width: width - padding * 2 });
+  y += 18;
 
-  // Header
-  lines.push(textLine(60, headerY, 18, "Remito de entrega"));
-  lines.push(
-    textLine(
-      60,
-      headerY - 22,
-      11,
-      `Pedido ${order.id.slice(0, 8)} · ${new Date(order.createdAt ?? Date.now()).toLocaleString("es-AR")}`,
-    ),
-  );
+  const lines = [
+    client.user ? `Usuario: ${client.user}` : null,
+    client.phone ? `Tel: ${client.phone}` : null,
+    client.id ? `ID Cliente: ${client.id}` : null,
+  ].filter(Boolean);
 
-  // Provider + client blocks
-  const providerContact = [order.provider.contact_email, order.provider.contact_phone].filter(Boolean).join(" · ");
-  lines.push("q");
-  lines.push("0.9 0.93 0.99 rg");
-  lines.push("50 610 250 90 re f");
-  lines.push("0.85 0.89 0.96 RG 1 w 50 610 250 90 re S");
-  lines.push("Q");
-  lines.push(textLine(60, 688, 12, "Proveedor"));
-  lines.push(textLine(60, 670, 11, order.provider.name));
-  if (providerContact) lines.push(textLine(60, 654, 10, providerContact));
-
-  lines.push("q");
-  lines.push("0.95 0.92 1 rg");
-  lines.push("312 610 250 90 re f");
-  lines.push("0.86 0.8 0.97 RG 1 w 312 610 250 90 re S");
-  lines.push("Q");
-  lines.push(textLine(322, 688, 12, "Cliente"));
-  lines.push(textLine(322, 670, 11, order.client.name));
-  if (order.client.address) lines.push(textLine(322, 654, 10, order.client.address));
-  if (order.client.contact_phone) lines.push(textLine(322, 638, 10, `Tel: ${order.client.contact_phone}`));
-
-  // Status and delivery
-  lines.push(textLine(60, 602, 11, `Estado: ${order.status}`));
-  lines.push(textLine(60, 586, 11, `Entrega: ${order.deliveryMethod ? order.deliveryMethod : "No especificada"}`));
-  if (order.note) {
-    lines.push(textLine(60, 566, 10, `Nota: ${order.note}`));
-  }
-
-  // Table header
-  lines.push("q");
-  lines.push("0.9 0.92 0.95 rg");
-  lines.push("50 520 512 30 re f");
-  lines.push("0.78 0.82 0.88 RG 1 w 50 520 512 30 re S");
-  lines.push("Q");
-  lines.push(textLine(60, 540, 11, "Producto"));
-  lines.push(textLine(310, 540, 11, "Cant."));
-  lines.push(textLine(370, 540, 11, "P. unit"));
-  lines.push(textLine(450, 540, 11, "Subtotal"));
-
-  // Items
-  let currentY = 518;
-  order.items.forEach((item, index) => {
-    const bg = index % 2 === 0 ? "0.98 0.99 1" : "1 1 1";
-    lines.push("q");
-    lines.push(`${bg} rg`);
-    lines.push(`50 ${currentY - 6} 512 26 re f`);
-    lines.push("Q");
-    lines.push(textLine(60, currentY + 10, 11, `${item.productName}${item.unit ? ` (${item.unit})` : ""}`));
-    lines.push(textLine(310, currentY + 10, 11, `${item.quantity}`));
-    lines.push(textLine(370, currentY + 10, 11, `${formatCurrency(item.unitPrice)}`));
-    lines.push(textLine(450, currentY + 10, 11, `${formatCurrency(item.subtotal)}`));
-    currentY -= 26;
+  doc.font("Helvetica").fontSize(10.5).fillColor(MUTED);
+  lines.forEach((line) => {
+    doc.text(line as string, x, y, { width: width - padding * 2, lineBreak: false });
+    y += 14;
   });
 
-  // Total box
-  lines.push("q");
-  lines.push("0.93 1 0.95 rg");
-  lines.push(`350 ${currentY - 16} 212 40 re f`);
-  lines.push("0.7 0.9 0.78 RG 1 w");
-  lines.push(`350 ${currentY - 16} 212 40 re S`);
-  lines.push("Q");
-  lines.push(textLine(360, currentY + 10, 11, "Total"));
-  lines.push(textLine(430, currentY + 10, 14, formatCurrency(order.total)));
+  return startY + cardHeight + 22;
+}
 
-  const contentStream = `${lines.join("\n")}\n`;
-  const contentLength = Buffer.byteLength(contentStream, "binary");
+function drawTable(doc: PDFKit.PDFDocument, rows: PdfRow[], startY: number) {
+  const availableWidth = doc.page.width - PAGE_MARGIN * 2;
+  const weights = [0.14, 0.13, 0.3, 0.09, 0.11, 0.11, 0.12];
+  const base = availableWidth / weights.reduce((acc, w) => acc + w, 0);
 
-  const objects: string[] = [];
-  objects.push("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
-  objects.push("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
-  objects.push(
-    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>\nendobj\n",
-  );
-  objects.push(`4 0 obj\n<< /Length ${contentLength} >>\nstream\n${contentStream}endstream\nendobj\n`);
-  objects.push("5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n");
+  const columns: { key: keyof PdfRow; label: string; width: number; align?: "left" | "right"; format?: "money" | "text" | "date" | "number"; noWrap?: boolean }[] =
+    [
+      { key: "date", label: "Fecha", width: base * weights[0], format: "date", noWrap: true },
+      { key: "orderNumber", label: "Pedido", width: base * weights[1], align: "right", noWrap: true },
+      { key: "description", label: "Descripción", width: base * weights[2], format: "text" },
+      { key: "quantity", label: "Cant.", width: base * weights[3], align: "right", format: "number", noWrap: true },
+      { key: "unitPrice", label: "Unitario", width: base * weights[4], align: "right", format: "money", noWrap: true },
+      { key: "subtotal", label: "Subtotal", width: base * weights[5], align: "right", format: "money", noWrap: true },
+      { key: "balance", label: "Saldo", width: base * weights[6], align: "right", format: "money", noWrap: true },
+    ];
 
-  let pdf = "%PDF-1.4\n";
-  const offsets: number[] = [];
-  let position = Buffer.byteLength(pdf, "binary");
+  let y = startY;
+  const headerHeight = 28;
+  const rowHeight = 28;
 
-  for (const obj of objects) {
-    offsets.push(position);
-    pdf += obj;
-    position += Buffer.byteLength(obj, "binary");
+  const renderHeader = () => {
+    doc.rect(PAGE_MARGIN, y, availableWidth, headerHeight).fill(HEADER_BG);
+    let x = PAGE_MARGIN + 10;
+    columns.forEach((col) => {
+      doc
+        .fillColor(TEXT)
+        .font("Helvetica-Bold")
+        .fontSize(10.5)
+        .text(col.label, x, y + 8, { width: col.width - 14, align: col.align ?? "left", lineBreak: false });
+      x += col.width;
+    });
+    y += headerHeight;
+    doc
+      .strokeColor(LINE)
+      .lineWidth(0.8)
+      .moveTo(PAGE_MARGIN, y)
+      .lineTo(PAGE_MARGIN + availableWidth, y)
+      .stroke();
+  };
+
+  const ensureSpace = (neededHeight: number) => {
+    if (y + neededHeight > doc.page.height - PAGE_MARGIN - 120) {
+      doc.addPage();
+      y = PAGE_MARGIN;
+      renderHeader();
+    }
+  };
+
+  renderHeader();
+
+  rows.forEach((row, index) => {
+    const descCol = columns.find((c) => c.key === "description")!;
+    const descText = row.description ?? "—";
+    const descHeight = doc.heightOfString(descText, {
+      width: descCol.width - 14,
+      align: "left",
+    });
+    const dynamicHeight = Math.max(rowHeight, descHeight + 14);
+
+    ensureSpace(dynamicHeight);
+    const isAlt = index % 2 === 1;
+
+    doc.rect(PAGE_MARGIN, y, availableWidth, dynamicHeight).fillColor(isAlt ? ROW_ALT : "#FFFFFF").fill();
+
+    let x = PAGE_MARGIN + 10;
+    columns.forEach((col) => {
+      const raw = row[col.key];
+      let text: string;
+      switch (col.format) {
+        case "money":
+          text = `$ ${formatMoney(raw as number)}`;
+          break;
+        case "date":
+          text = formatDate(raw as string);
+          break;
+        case "number":
+          text = Number.isFinite(raw as number) ? new Intl.NumberFormat("es-AR", { maximumFractionDigits: 2 }).format(raw as number) : "—";
+          break;
+        default:
+          text = (raw as string) ?? "—";
+      }
+
+      doc
+        .fillColor(TEXT)
+        .font("Helvetica")
+        .fontSize(10)
+        .text(text, x, y + 7, { width: col.width - 14, align: col.align ?? "left", lineBreak: col.noWrap ? false : undefined });
+      x += col.width;
+    });
+
+    doc
+      .strokeColor("#EFEFEF")
+      .lineWidth(0.6)
+      .moveTo(PAGE_MARGIN, y + dynamicHeight)
+      .lineTo(PAGE_MARGIN + availableWidth, y + dynamicHeight)
+      .stroke();
+
+    y += dynamicHeight;
+  });
+
+  return y + 20;
+}
+
+function drawTotals(doc: PDFKit.PDFDocument, totalDue: number, startY: number) {
+  const width = doc.page.width - PAGE_MARGIN * 2;
+  const cardWidth = 220;
+  const cardHeight = 90;
+  const x = PAGE_MARGIN + (width - cardWidth);
+  const y = startY;
+
+  doc
+    .roundedRect(x, y, cardWidth, cardHeight, 8)
+    .strokeColor(LINE)
+    .lineWidth(1)
+    .fillAndStroke("#FFFFFF", LINE);
+
+  doc
+    .font("Helvetica")
+    .fontSize(11)
+    .fillColor(MUTED)
+    .text("TOTAL ADEUDADO", x + 14, y + 18, { width: cardWidth - 28, align: "right" });
+
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(14)
+    .fillColor(TEXT)
+    .text(`$ ${formatMoney(totalDue)}`, x + 14, y + 42, { width: cardWidth - 28, align: "right", lineBreak: false });
+
+  doc
+    .moveTo(x + 18, y + cardHeight - 18)
+    .lineTo(x + cardWidth - 18, y + cardHeight - 18)
+    .strokeColor(LINE)
+    .lineWidth(1)
+    .stroke();
+
+  return y + cardHeight + 24;
+}
+
+function drawFooter(doc: PDFKit.PDFDocument, startY: number) {
+  const width = doc.page.width - PAGE_MARGIN * 2;
+  const y = Math.max(startY + 24, doc.page.height - PAGE_MARGIN - 120);
+
+  doc.font("Helvetica-Bold").fontSize(10).fillColor("#777777").text("Gracias por su confianza.", PAGE_MARGIN, y, { width });
+  doc
+    .font("Helvetica")
+    .fontSize(9.5)
+    .fillColor("#777777")
+    .text("Para información de pago consulte alias/CBU con su proveedor habitual.", PAGE_MARGIN, y + 16, { width });
+  doc
+    .font("Helvetica")
+    .fontSize(9.5)
+    .fillColor("#777777")
+    .text("Ante discrepancias, comuníquese dentro de las próximas 48 hs.", PAGE_MARGIN, y + 30, { width });
+  doc
+    .font("Helvetica")
+    .fontSize(8.5)
+    .fillColor("#9CA3AF")
+    .text("Generado con miproveedor.app", PAGE_MARGIN, doc.page.height - PAGE_MARGIN - 14, { width, align: "right" });
+}
+
+async function buildPdf(order: OrderDetail): Promise<Buffer> {
+  const pdfModule = await import("pdfkit/js/pdfkit.standalone.js");
+  const PDFDocument = (pdfModule as any).default ?? (pdfModule as any);
+  if (!PDFDocument) {
+    throw new Error("pdfkit no disponible en el runtime.");
   }
 
-  const xrefStart = position;
-  let xref = "xref\n0 6\n";
-  xref += "0000000000 65535 f \n";
-  offsets.forEach((offset) => {
-    xref += `${offset.toString().padStart(10, "0")} 00000 n \n`;
-  });
-  pdf += xref;
-  pdf += `trailer << /Size 6 /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+  const doc: PDFKit.PDFDocument = new PDFDocument({ size: "A4", margin: PAGE_MARGIN });
+  const buffers: Buffer[] = [];
+  doc.on("data", (chunk) => buffers.push(chunk as Buffer));
+  const endPromise = new Promise<Buffer>((resolve) => doc.on("end", () => resolve(Buffer.concat(buffers))));
 
-  return Buffer.from(pdf, "binary");
+  const provider: PdfProvider = {
+    name: order.provider.name,
+    phone: order.provider.contact_phone ?? undefined,
+    email: order.provider.contact_email ?? undefined,
+  };
+
+  const client: PdfClient = {
+    name: order.client.name,
+    user: order.contactName ?? order.client.contact_name ?? undefined,
+    phone: order.client.contact_phone ?? undefined,
+    id: order.client.slug ?? order.client.id ?? undefined,
+  };
+
+  const rows: PdfRow[] = order.items.map((item) => {
+    const subtotal = item.subtotal ?? item.unitPrice * item.quantity;
+    return {
+      date: order.createdAt,
+      orderNumber: order.id.slice(0, 8),
+      description: `${item.productName}${item.unit ? ` (${item.unit})` : ""}`,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      subtotal,
+      balance: subtotal,
+    };
+  });
+
+  const totalDue = rows.reduce((acc, row) => acc + row.balance, 0);
+
+  const afterHeader = drawHeader(doc, new Date(order.createdAt ?? Date.now()));
+  const afterProvider = drawProviderBlock(doc, provider, afterHeader + 4);
+  const tableStart = drawClientCard(doc, client, afterProvider + 12);
+  const afterTable = drawTable(doc, rows, tableStart + 10);
+
+  let totalsY = afterTable;
+  if (totalsY > doc.page.height - PAGE_MARGIN - 180) {
+    doc.addPage();
+    totalsY = PAGE_MARGIN;
+  }
+
+  const afterTotals = drawTotals(doc, totalDue, totalsY);
+  drawFooter(doc, afterTotals);
+
+  doc.end();
+  return endPromise;
 }
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ orderId: string }> }) {
@@ -148,7 +351,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ or
     return NextResponse.json({ error: detail.errors.join(" · ") }, { status: 404 });
   }
 
-  const pdf = buildPdf(detail.order);
+  const pdf = await buildPdf(detail.order);
   return new NextResponse(pdf, {
     status: 200,
     headers: {

@@ -1,50 +1,73 @@
 "use client";
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { FormEvent, useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition, type KeyboardEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, Banknote, CheckCircle2, Clock3, DollarSign, RefreshCcw, ShoppingBag, Wallet } from "lucide-react";
+import {
+  ArrowLeft,
+  Banknote,
+  CheckCircle2,
+  Clock3,
+  DollarSign,
+  FileStack,
+  Eye,
+  FileUp,
+  Download,
+  RefreshCcw,
+  ShieldCheck,
+  ShoppingBag,
+  Wallet,
+  ChevronDown,
+  Trash2,
+  FileText,
+} from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency } from "@/lib/whatsapp";
 import { listProviders, type ProviderRow } from "../orders/actions";
 import {
   getClientAccounts,
+  markOrderProofStatus,
   recordClientPayment,
+  updateOrderStatus,
+  deleteOrder,
   type AccountOrder,
   type AccountPayment,
   type ClientAccount,
 } from "./actions";
 
 export type AccountsPageProps = { initialProviderSlug?: string };
-
-type PaymentFormState = {
-  clientId?: string;
-  orderId?: string | null;
-  amount: string;
-  method?: "efectivo" | "transferencia";
-  status?: "pending" | "approved" | "rejected";
-  reference?: string;
-  note?: string;
-  paidAt?: string;
-};
 
 const statusLabel: Record<string, string> = {
   pending: "Pendiente",
@@ -75,19 +98,178 @@ function PaymentBadge({ payment }: { payment: AccountPayment }) {
   );
 }
 
-function OrderRow({ order }: { order: AccountOrder }) {
+const shortId = (id: string) => (id?.length > 8 ? id.slice(0, 8) : id);
+
+const proofLabel: Record<string, { label: string; tone: string }> = {
+  no_aplica: { label: "No aplica", tone: "bg-slate-100 text-slate-700" },
+  pendiente: { label: "Comprobante pendiente", tone: "bg-amber-100 text-amber-800" },
+  subido: { label: "Comprobante subido", tone: "bg-blue-100 text-blue-800" },
+  verificado: { label: "Comprobante verificado", tone: "bg-emerald-100 text-emerald-800" },
+};
+
+function OrderRow({
+  order,
+  payments,
+  onConfirmCash,
+  onVerifyTransfer,
+  isProcessing,
+  onChangeStatus,
+  isStatusUpdating,
+  onDelete,
+  isDeleting,
+}: {
+  order: AccountOrder;
+  payments: AccountPayment[];
+  onConfirmCash: (order: AccountOrder) => void;
+  onVerifyTransfer: (order: AccountOrder) => void;
+  isProcessing?: boolean;
+  onChangeStatus: (order: AccountOrder, status: AccountOrder["status"]) => void;
+  isStatusUpdating?: boolean;
+  onDelete: (order: AccountOrder) => void;
+  isDeleting?: boolean;
+}) {
+  const approvedPayment = payments.find((payment) => payment.orderId === order.id && payment.status === "approved");
+  const hasApprovedTransfer = payments.some(
+    (payment) => payment.orderId === order.id && payment.status === "approved" && payment.method === "transferencia",
+  );
+  const cashReceived = approvedPayment?.method === "efectivo";
+  const transferVerified = order.paymentProofStatus === "verificado" || (order.paymentProofStatus === "subido" && hasApprovedTransfer);
+  const proofInfo = transferVerified
+    ? proofLabel.verificado
+    : proofLabel[order.paymentProofStatus ?? "no_aplica"] ?? proofLabel.no_aplica;
+  const orderStatuses: AccountOrder["status"][] = ["nuevo", "preparando", "enviado", "entregado", "cancelado"];
+
   return (
-    <div className="flex items-center justify-between rounded-lg border border-muted/40 bg-white/60 px-3 py-2">
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <span>Pedido #{order.id.slice(0, 6)}</span>
-          <Badge variant="secondary" className={orderStatusTone[order.status] ?? "bg-muted text-foreground"}>
-            {order.status}
-          </Badge>
+    <div className="flex flex-col gap-3 rounded-lg border border-muted/40 bg-white/60 px-3 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+            <span>Pedido #{shortId(order.id)}</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold transition ${
+                    orderStatusTone[order.status] ?? "bg-muted text-foreground"
+                  } ${isProcessing || isStatusUpdating ? "opacity-70" : "hover:brightness-95"}`}
+                  disabled={isProcessing || isStatusUpdating}
+                >
+                  {order.status}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" sideOffset={6} className="w-44">
+                {orderStatuses.map((status) => (
+                  <DropdownMenuItem
+                    key={status}
+                    onClick={() => onChangeStatus(order, status)}
+                    disabled={isProcessing || isStatusUpdating || status === order.status}
+                    className="flex items-center justify-between text-sm capitalize"
+                  >
+                    <span className="capitalize">{status}</span>
+                    <span className={`h-2 w-2 rounded-full ${orderStatusTone[status] ?? "bg-muted"} opacity-80`} />
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {order.paymentMethod ? (
+              <Badge variant="outline" className="gap-1">
+                <Wallet className="h-3.5 w-3.5" />
+                {order.paymentMethod === "efectivo" ? "Efectivo" : "Transferencia"}
+              </Badge>
+            ) : null}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {order.createdAt ? new Date(order.createdAt).toLocaleString() : "Sin fecha"}
+          </p>
         </div>
-        <p className="text-xs text-muted-foreground">{order.createdAt ? new Date(order.createdAt).toLocaleString() : "Sin fecha"}</p>
+        <div className="flex flex-col items-end gap-2">
+          <div className="text-right text-sm font-semibold">{formatCurrency(order.total)}</div>
+        </div>
       </div>
-      <div className="text-right text-sm font-semibold">{formatCurrency(order.total)}</div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2 text-destructive hover:bg-destructive/10"
+                disabled={isProcessing || isStatusUpdating || isDeleting}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+              <AlertDialogTitle>Archivar pedido</AlertDialogTitle>
+              <AlertDialogDescription>
+                El pedido se moverá a Pedidos eliminados en Configuración. Podrás restaurarlo más adelante.
+              </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-white hover:bg-destructive/90"
+                  onClick={() => onDelete(order)}
+                  disabled={isProcessing || isStatusUpdating || isDeleting}
+                >
+                Archivar
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {order.paymentMethod === "efectivo" ? (
+            <>
+              <Badge variant="outline" className="gap-1 bg-emerald-50 text-emerald-800">
+                <Banknote className="h-3.5 w-3.5" />
+                Efectivo
+              </Badge>
+              <Button
+                size="sm"
+                variant={cashReceived ? "secondary" : "outline"}
+                className={`h-8 gap-2 ${cashReceived ? "bg-emerald-50 text-emerald-800" : ""}`}
+                disabled={cashReceived || isProcessing}
+                onClick={() => onConfirmCash(order)}
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                {cashReceived ? "Efectivo recibido" : "Marcar efectivo recibido"}
+              </Button>
+            </>
+          ) : null}
+
+          {order.paymentMethod === "transferencia" ? (
+            <>
+              <Badge variant="outline" className={`gap-1 ${proofInfo.tone}`}>
+                <FileUp className="h-3.5 w-3.5" />
+                {proofInfo.label}
+              </Badge>
+              {order.paymentProofUrl ? (
+                <Button asChild size="sm" variant="ghost" className="h-8 gap-1 text-xs">
+                  <a href={order.paymentProofUrl} target="_blank" rel="noreferrer">
+                    <Eye className="h-4 w-4" />
+                    Ver comprobante
+                  </a>
+                </Button>
+              ) : null}
+              <Button
+                size="sm"
+                variant={transferVerified ? "secondary" : "outline"}
+                className={`h-8 gap-2 ${transferVerified ? "bg-emerald-50 text-emerald-800" : ""}`}
+                disabled={isProcessing}
+                onClick={() => onVerifyTransfer(order)}
+              >
+                <ShieldCheck className="h-4 w-4" />
+                {transferVerified ? "Desmarcar" : "Comprobante verificado"}
+              </Button>
+            </>
+          ) : null}
+        </div>
+      </div>
+
     </div>
   );
 }
@@ -122,13 +304,13 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [saving, startSaving] = useTransition();
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
-  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
-  const [paymentForm, setPaymentForm] = useState<PaymentFormState>({
-    amount: "",
-    status: "approved",
-    method: "transferencia",
-    paidAt: new Date().toISOString().slice(0, 16),
-  });
+  const [markingOrderId, setMarkingOrderId] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(true);
+  const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+  const [archivingOrderId, setArchivingOrderId] = useState<string | null>(null);
+  const [summaryAccount, setSummaryAccount] = useState<ClientAccount | null>(null);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [downloadingSummary, setDownloadingSummary] = useState(false);
 
   const filteredAccounts = useMemo(() => accounts, [accounts]);
 
@@ -150,6 +332,99 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
     );
     return totals;
   }, [filteredAccounts]);
+  const pendingPayments = useMemo(
+    () => (selectedAccount ? selectedAccount.payments.filter((payment) => payment.status === "pending") : []),
+    [selectedAccount],
+  );
+  const approvedPayments = useMemo(
+    () => (selectedAccount ? selectedAccount.payments.filter((payment) => payment.status === "approved") : []),
+    [selectedAccount],
+  );
+
+  const isOrderConfirmed = useCallback(
+    (order: AccountOrder, payments: AccountPayment[]) => {
+      const hasApprovedCash = payments.some(
+        (payment) => payment.orderId === order.id && payment.status === "approved" && payment.method === "efectivo",
+      );
+      const hasApprovedTransfer = payments.some(
+        (payment) => payment.orderId === order.id && payment.status === "approved" && payment.method === "transferencia",
+      );
+      const proofVerified =
+        order.paymentProofStatus === "verificado" || (order.paymentProofStatus === "subido" && hasApprovedTransfer);
+      const cashReceived = order.paymentMethod === "efectivo" && hasApprovedCash;
+      return order.status === "entregado" && (proofVerified || cashReceived);
+    },
+    [],
+  );
+
+  const confirmedOrders = useMemo(() => {
+    if (!selectedAccount) return [];
+    return selectedAccount.orders.filter((order) => isOrderConfirmed(order, selectedAccount.payments));
+  }, [isOrderConfirmed, selectedAccount]);
+
+  const pendingOrders = useMemo(() => {
+    if (!selectedAccount) return [];
+    return selectedAccount.orders.filter((order) => !isOrderConfirmed(order, selectedAccount.payments));
+  }, [isOrderConfirmed, selectedAccount]);
+
+  const summaryCompletedOrders = useMemo(() => {
+    if (!summaryAccount) return [];
+    return summaryAccount.orders.filter((order) => isOrderConfirmed(order, summaryAccount.payments));
+  }, [isOrderConfirmed, summaryAccount]);
+
+  const summaryPendingOrders = useMemo(() => {
+    if (!summaryAccount) return [];
+    return summaryAccount.orders.filter((order) => !isOrderConfirmed(order, summaryAccount.payments));
+  }, [isOrderConfirmed, summaryAccount]);
+
+  const summaryTotals = useMemo(
+    () => ({
+      completed: summaryCompletedOrders.reduce((acc, order) => acc + order.total, 0),
+      pending: summaryPendingOrders.reduce((acc, order) => acc + order.total, 0),
+    }),
+    [summaryCompletedOrders, summaryPendingOrders],
+  );
+
+  const handleCardKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>, clientId: string) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        setSelectedClientId(clientId);
+      }
+    },
+    [],
+  );
+
+  const openSummaryForAccount = useCallback((account: ClientAccount) => {
+    setSelectedClientId(account.client.id);
+    setSummaryAccount(account);
+    setSummaryOpen(true);
+  }, []);
+
+  const handleDownloadSummary = useCallback(async () => {
+    if (!providerSlug || !summaryAccount) return;
+    try {
+      setDownloadingSummary(true);
+      const params = new URLSearchParams({ provider: providerSlug, clientId: summaryAccount.client.id });
+      const response = await fetch(`/app/accounts/summary?${params.toString()}`);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({ error: "No se pudo generar el PDF." }));
+        throw new Error(payload.error ?? "No se pudo generar el PDF.");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `resumen-${summaryAccount.client.slug ?? "cliente"}.pdf`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+      setError((err as Error).message ?? "No se pudo descargar el resumen.");
+    } finally {
+      setDownloadingSummary(false);
+    }
+  }, [providerSlug, summaryAccount]);
 
   const loadProviders = useCallback(async () => {
     const response = await listProviders();
@@ -198,37 +473,114 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
     setSelectedClientId(null);
   }, [providerSlug]);
 
-  const handleRecordPayment = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!selectedAccount) return;
-    const formData = new FormData(event.currentTarget);
-    const payload = {
-      providerSlug,
-      clientId: selectedAccount.client.id,
-      orderId: (formData.get("orderId") as string) || null,
-      amount: Number(formData.get("amount") ?? 0),
-      method: (formData.get("method") as PaymentFormState["method"]) ?? null,
-      status: (formData.get("status") as PaymentFormState["status"]) ?? "approved",
-      reference: (formData.get("reference") as string) || null,
-      note: (formData.get("note") as string) || null,
-      paidAt: (() => {
-        const value = formData.get("paidAt") as string;
-        if (!value) return null;
-        const parsed = new Date(value);
-        return parsed.toISOString();
-      })(),
-    };
-    startSaving(async () => {
-      const response = await recordClientPayment(payload);
-      if (response.success) {
+  const confirmCashPayment = useCallback(
+    async (order: AccountOrder) => {
+      if (!providerSlug || !selectedAccount) return;
+      try {
+        setMarkingOrderId(order.id);
+        const response = await recordClientPayment({
+          providerSlug,
+          clientId: selectedAccount.client.id,
+          orderId: order.id,
+          amount: order.total,
+          method: "efectivo",
+          status: "approved",
+          reference: `Efectivo pedido #${shortId(order.id)}`,
+          note: null,
+          paidAt: new Date().toISOString(),
+        });
+        if (!response.success) {
+          setError(response.errors.join("\n"));
+          return;
+        }
         await loadAccounts(providerSlug);
-        setPaymentDialogOpen(false);
-        setPaymentForm((prev) => ({ ...prev, amount: "", reference: "", note: "" }));
-      } else {
-        setError(response.errors.join("\n"));
+      } finally {
+        setMarkingOrderId(null);
       }
-    });
-  };
+    },
+    [loadAccounts, providerSlug, selectedAccount],
+  );
+
+  const verifyTransferPayment = useCallback(
+    async (order: AccountOrder) => {
+      if (!providerSlug || !selectedAccount) return;
+      const hasApprovedTransfer = selectedAccount.payments.some(
+        (payment) => payment.orderId === order.id && payment.status === "approved" && payment.method === "transferencia",
+      );
+      try {
+        setMarkingOrderId(order.id);
+        const transferCurrentlyVerified =
+          order.paymentProofStatus === "verificado" || (order.paymentProofStatus === "subido" && hasApprovedTransfer);
+        const nextStatus = transferCurrentlyVerified ? "pendiente" : "verificado";
+        const response = await markOrderProofStatus({
+          providerSlug,
+          orderId: order.id,
+          status: nextStatus,
+        });
+        if (!response.success) {
+          setError(response.errors.join("\n"));
+          return;
+        }
+        if (nextStatus === "verificado" && !hasApprovedTransfer) {
+          const paymentResponse = await recordClientPayment({
+            providerSlug,
+            clientId: selectedAccount.client.id,
+            orderId: order.id,
+            amount: order.total,
+            method: "transferencia",
+            status: "approved",
+            reference: `Transferencia verificada #${shortId(order.id)}`,
+            note: null,
+            paidAt: new Date().toISOString(),
+          });
+          if (!paymentResponse.success) {
+            setError(paymentResponse.errors.join("\n"));
+            return;
+          }
+        }
+        await loadAccounts(providerSlug);
+      } finally {
+        setMarkingOrderId(null);
+      }
+    },
+    [loadAccounts, providerSlug, selectedAccount],
+  );
+
+  const handleUpdateOrderStatus = useCallback(
+    async (order: AccountOrder, status: AccountOrder["status"]) => {
+      if (!providerSlug) return;
+      try {
+        setStatusUpdatingId(order.id);
+        const response = await updateOrderStatus({ providerSlug, orderId: order.id, status });
+        if (!response.success) {
+          setError(response.errors.join("\n"));
+          return;
+        }
+        await loadAccounts(providerSlug);
+      } finally {
+        setStatusUpdatingId(null);
+      }
+    },
+    [loadAccounts, providerSlug],
+  );
+
+  const handleDeleteOrder = useCallback(
+    async (order: AccountOrder) => {
+      if (!providerSlug) return;
+      try {
+        setArchivingOrderId(order.id);
+        const response = await deleteOrder({ providerSlug, orderId: order.id });
+        if (!response.success) {
+          setError(response.errors.join("\n"));
+          return;
+        }
+        await loadAccounts(providerSlug);
+      } finally {
+        setArchivingOrderId(null);
+      }
+    },
+    [loadAccounts, providerSlug],
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -310,15 +662,18 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
                   const isActive = selectedAccount?.client.id === account.client.id;
                   const highlight = account.totals.pending > 0 ? "border-amber-300 shadow-[0_10px_40px_-24px_rgba(251,191,36,0.8)]" : "border-slate-200";
                   return (
-                    <motion.button
+                    <motion.div
                       key={account.client.id}
                       layout
-                      type="button"
                       onClick={() => setSelectedClientId(account.client.id)}
-                      className={`flex flex-col items-start rounded-xl border ${highlight} bg-white p-4 text-left transition hover:shadow-md focus:outline-none`}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(event) => handleCardKeyDown(event, account.client.id)}
+                      className={`flex flex-col items-start rounded-xl border ${highlight} bg-white p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2`}
                       initial={{ opacity: 0, y: 12 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 8 }}
+                      whileHover={{ y: -2 }}
                       transition={{ delay: index * 0.03 }}
                     >
                       <div className="flex w-full items-start justify-between gap-3">
@@ -341,7 +696,22 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
                           <p className="text-sm font-semibold text-emerald-800">{formatCurrency(account.totals.paid)}</p>
                         </div>
                       </div>
-                    </motion.button>
+                      <div className="mt-3 flex w-full items-center justify-between gap-2">
+                        <div className="text-xs text-muted-foreground">Actualizado automáticamente con cada pedido.</div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 gap-2"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openSummaryForAccount(account);
+                          }}
+                        >
+                          <FileText className="h-4 w-4" />
+                          Obtener resumen
+                        </Button>
+                      </div>
+                    </motion.div>
                   );
                 })}
               </div>
@@ -358,231 +728,360 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ type: "spring", stiffness: 120, damping: 18 }}
         >
-          <div className="flex flex-col gap-3 border-b border-[color:var(--neutral-100)] px-4 py-4 md:flex-row md:items-center md:justify-between md:px-6">
+          <motion.button
+            type="button"
+            onClick={() => setDetailsOpen((prev) => !prev)}
+            aria-expanded={detailsOpen}
+            className="group flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-4 text-left transition hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-offset-2 md:px-6"
+            whileTap={{ scale: 0.99 }}
+          >
             <div>
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Detalle</p>
-              <h3 className="text-lg font-semibold leading-tight">{selectedAccount.client.name}</h3>
-              {selectedAccount.client.contactPhone ? (
-                <p className="text-sm text-muted-foreground">{selectedAccount.client.contactPhone}</p>
-              ) : null}
+              <div className="space-y-1">
+                <h3 className="text-lg font-semibold leading-tight">{selectedAccount.client.name}</h3>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground md:text-sm">
+                  {selectedAccount.client.contactName ? <span>{selectedAccount.client.contactName}</span> : null}
+                  {selectedAccount.client.contactPhone ? (
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700 md:text-xs">
+                      {selectedAccount.client.contactPhone}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary" className="bg-amber-50 text-amber-800">
-                Pendiente {formatCurrency(selectedAccount.totals.pending)}
-              </Badge>
-              <Badge variant="secondary" className="bg-emerald-50 text-emerald-800">
-                Pagado {formatCurrency(selectedAccount.totals.paid)}
-              </Badge>
-              <Dialog
-                open={paymentDialogOpen}
-                onOpenChange={(open) => {
-                  setPaymentDialogOpen(open);
-                  if (open && selectedAccount) {
-                    setPaymentForm((prev) => ({
-                      ...prev,
-                      orderId: null,
-                      amount: selectedAccount.totals.pending > 0 ? String(selectedAccount.totals.pending.toFixed(2)) : "",
-                      paidAt: new Date().toISOString().slice(0, 16),
-                    }));
-                  }
-                }}
+            <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="secondary" className="bg-amber-50 text-amber-800">
+                  Pendiente {formatCurrency(selectedAccount.totals.pending)}
+                </Badge>
+                <Badge variant="secondary" className="bg-emerald-50 text-emerald-800">
+                  Pagado {formatCurrency(selectedAccount.totals.paid)}
+                </Badge>
+              </div>
+              <motion.span
+                aria-hidden
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-700 transition group-hover:bg-slate-200"
+                animate={{ rotate: detailsOpen ? 0 : -90 }}
+                transition={{ type: "spring", stiffness: 180, damping: 12 }}
               >
-                <DialogTrigger asChild>
-                  <Button size="sm" className="shadow-sm">
-                    <Banknote className="mr-2 h-4 w-4" />
-                    Registrar pago
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-lg">
-                  <DialogHeader>
-                    <DialogTitle>Registrar pago</DialogTitle>
-                    <DialogDescription>
-                      Deja asentado un pago manual para controlar el saldo del cliente.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <form className="space-y-4" onSubmit={handleRecordPayment}>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label htmlFor="amount">Monto</Label>
-                        <Input
-                          id="amount"
-                          name="amount"
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          required
-                          value={paymentForm.amount}
-                          onChange={(event) => setPaymentForm((prev) => ({ ...prev, amount: event.target.value }))}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="paidAt">Fecha de pago</Label>
-                        <Input
-                          id="paidAt"
-                          name="paidAt"
-                          type="datetime-local"
-                          value={paymentForm.paidAt}
-                          onChange={(event) => setPaymentForm((prev) => ({ ...prev, paidAt: event.target.value }))}
-                        />
-                      </div>
-                    </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label>Método</Label>
-                        <Select
-                          name="method"
-                          value={paymentForm.method}
-                          onValueChange={(value) => setPaymentForm((prev) => ({ ...prev, method: value as PaymentFormState["method"] }))}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Elige método" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="transferencia">Transferencia</SelectItem>
-                            <SelectItem value="efectivo">Efectivo</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Estado</Label>
-                        <Select
-                          name="status"
-                          value={paymentForm.status}
-                          onValueChange={(value) => setPaymentForm((prev) => ({ ...prev, status: value as PaymentFormState["status"] }))}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Estado" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="approved">Aprobado</SelectItem>
-                            <SelectItem value="pending">Pendiente</SelectItem>
-                            <SelectItem value="rejected">Rechazado</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Asociar a pedido</Label>
-                      <Select
-                        name="orderId"
-                        value={paymentForm.orderId ?? ""}
-                        onValueChange={(value) => setPaymentForm((prev) => ({ ...prev, orderId: value || null }))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="(Opcional) elige un pedido" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="">Sin pedido</SelectItem>
-                          {selectedAccount.orders.map((order) => (
-                            <SelectItem key={order.id} value={order.id}>
-                              Pedido #{order.id.slice(0, 6)} · {formatCurrency(order.total)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="reference">Referencia</Label>
-                      <Input
-                        id="reference"
-                        name="reference"
-                        placeholder="Alias, comprobante o nota corta"
-                        value={paymentForm.reference ?? ""}
-                        onChange={(event) => setPaymentForm((prev) => ({ ...prev, reference: event.target.value }))}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="note">Notas internas</Label>
-                      <Textarea
-                        id="note"
-                        name="note"
-                        rows={3}
-                        placeholder="Ej: pendiente de aprobar, falta comprobante..."
-                        value={paymentForm.note ?? ""}
-                        onChange={(event) => setPaymentForm((prev) => ({ ...prev, note: event.target.value }))}
-                      />
-                    </div>
-                    <div className="flex items-center justify-end gap-2">
-                      <Button type="button" variant="ghost" onClick={() => setPaymentDialogOpen(false)}>
-                        Cancelar
-                      </Button>
-                      <Button type="submit" disabled={saving || !providerSlug}>
-                        {saving ? "Guardando..." : "Guardar pago"}
-                      </Button>
-                    </div>
-                  </form>
-                </DialogContent>
-              </Dialog>
+                <ChevronDown className="h-4 w-4" />
+              </motion.span>
             </div>
-          </div>
-          <div className="grid gap-6 p-4 md:grid-cols-2 md:p-6">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  <ShoppingBag className="h-4 w-4 text-[color:var(--brand-deep)]" />
-                  Pedidos ({selectedAccount.orders.length})
-                </div>
-                <Badge variant="outline" className="bg-slate-50">
-                  Último {selectedAccount.totals.lastOrderAt ? new Date(selectedAccount.totals.lastOrderAt).toLocaleDateString() : "—"}
-                </Badge>
-              </div>
-              <div className="space-y-2">
-                {selectedAccount.orders.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-muted/60 px-4 py-6 text-center text-sm text-muted-foreground">
-                    Aún no hay pedidos de este cliente.
+          </motion.button>
+          <AnimatePresence initial={false}>
+            {detailsOpen ? (
+              <motion.div
+                key="account-body"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ type: "spring", stiffness: 140, damping: 18 }}
+                className="overflow-hidden"
+              >
+                <div className="space-y-6 p-4 md:p-6">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-sm font-semibold">
+                        <ShoppingBag className="h-4 w-4 text-[color:var(--brand-deep)]" />
+                        Pedidos
+                      </div>
+                      <Badge variant="outline" className="bg-slate-50">
+                        Último{" "}
+                        {selectedAccount.totals.lastOrderAt ? new Date(selectedAccount.totals.lastOrderAt).toLocaleDateString() : "—"}
+                      </Badge>
+                    </div>
+                    <Accordion type="multiple" defaultValue={["pending-orders"]} className="space-y-3">
+                      <AccordionItem value="pending-orders" className="overflow-hidden rounded-xl border border-(--neutral-200) bg-white">
+                        <AccordionTrigger className="px-4 py-3 hover:no-underline">
+                          <div className="flex w-full items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 text-sm font-semibold">
+                              <Clock3 className="h-4 w-4 text-amber-700" />
+                              Pedidos por confirmar
+                            </div>
+                            <Badge variant="outline">{pendingOrders.length}</Badge>
+                          </div>
+                        </AccordionTrigger>
+                        <AccordionContent className="px-4 pb-4">
+                          {pendingOrders.length === 0 ? (
+                            <div className="rounded-lg border border-dashed border-muted/60 px-4 py-6 text-center text-sm text-muted-foreground">
+                              Sin pedidos por confirmar.
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {pendingOrders.map((order) => (
+                              <OrderRow
+                                key={order.id}
+                                order={order}
+                                payments={selectedAccount.payments}
+                                onConfirmCash={confirmCashPayment}
+                                onVerifyTransfer={verifyTransferPayment}
+                                isProcessing={markingOrderId === order.id || saving}
+                                onChangeStatus={handleUpdateOrderStatus}
+                                isStatusUpdating={statusUpdatingId === order.id}
+                                onDelete={handleDeleteOrder}
+                                isDeleting={archivingOrderId === order.id}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </AccordionContent>
+                      </AccordionItem>
+
+                      <AccordionItem value="confirmed-orders" className="overflow-hidden rounded-xl border border-(--neutral-200) bg-white">
+                        <AccordionTrigger className="px-4 py-3 hover:no-underline">
+                          <div className="flex w-full items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 text-sm font-semibold">
+                              <CheckCircle2 className="h-4 w-4 text-emerald-700" />
+                              Pedidos confirmados
+                            </div>
+                            <Badge variant="outline" className="bg-emerald-50 text-emerald-800">
+                              {confirmedOrders.length}
+                            </Badge>
+                          </div>
+                        </AccordionTrigger>
+                        <AccordionContent className="px-4 pb-4">
+                          {confirmedOrders.length === 0 ? (
+                            <div className="rounded-lg border border-dashed border-muted/60 px-4 py-6 text-center text-sm text-muted-foreground">
+                              No hay pedidos confirmados todavía.
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {confirmedOrders.map((order) => (
+                              <OrderRow
+                                key={order.id}
+                                order={order}
+                                payments={selectedAccount.payments}
+                                onConfirmCash={confirmCashPayment}
+                                onVerifyTransfer={verifyTransferPayment}
+                                isProcessing={markingOrderId === order.id || saving}
+                                onChangeStatus={handleUpdateOrderStatus}
+                                isStatusUpdating={statusUpdatingId === order.id}
+                                onDelete={handleDeleteOrder}
+                                isDeleting={archivingOrderId === order.id}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </AccordionContent>
+                      </AccordionItem>
+                    </Accordion>
                   </div>
-                ) : (
-                  selectedAccount.orders.map((order) => <OrderRow key={order.id} order={order} />)
-                )}
-              </div>
-            </div>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  <DollarSign className="h-4 w-4 text-[color:var(--brand-primary-dark)]" />
-                  Pagos ({selectedAccount.payments.length})
-                </div>
-                <Badge variant="outline" className="bg-amber-50 text-amber-800">
-                  Pendientes {formatCurrency(selectedAccount.totals.pendingPayments)}
-                </Badge>
-              </div>
-              <div className="space-y-2">
-                {selectedAccount.payments.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-muted/60 px-4 py-6 text-center text-sm text-muted-foreground">
-                    Sin pagos registrados todavía.
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-sm font-semibold">
+                        <DollarSign className="h-4 w-4 text-[color:var(--brand-primary-dark)]" />
+                        Pagos ({selectedAccount.payments.length})
+                      </div>
+                      <Badge variant="outline" className="bg-amber-50 text-amber-800">
+                        Pendientes {formatCurrency(selectedAccount.totals.pendingPayments)}
+                      </Badge>
+                    </div>
+                    <Accordion type="multiple" defaultValue={["pending-payments"]} className="space-y-3">
+                      <AccordionItem value="pending-payments" className="overflow-hidden rounded-xl border border-(--neutral-200) bg-white">
+                        <AccordionTrigger className="px-4 py-3 hover:no-underline">
+                          <div className="flex w-full items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 text-sm font-semibold">
+                              <FileStack className="h-4 w-4 text-amber-600" />
+                              Pagos pendientes por confirmar
+                            </div>
+                            <Badge variant="outline">{pendingPayments.length}</Badge>
+                          </div>
+                        </AccordionTrigger>
+                        <AccordionContent className="px-4 pb-4">
+                          {pendingPayments.length === 0 ? (
+                            <div className="rounded-lg border border-dashed border-muted/60 px-4 py-6 text-center text-sm text-muted-foreground">
+                              Sin pagos pendientes.
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {pendingPayments.map((payment) => (
+                                <PaymentRow key={payment.id} payment={payment} />
+                              ))}
+                            </div>
+                          )}
+                        </AccordionContent>
+                      </AccordionItem>
+
+                      <AccordionItem value="approved-payments" className="overflow-hidden rounded-xl border border-(--neutral-200) bg-white">
+                        <AccordionTrigger className="px-4 py-3 hover:no-underline">
+                          <div className="flex w-full items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 text-sm font-semibold">
+                              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                              Pagos confirmados
+                            </div>
+                            <Badge variant="outline" className="bg-emerald-50 text-emerald-800">
+                              {approvedPayments.length}
+                            </Badge>
+                          </div>
+                        </AccordionTrigger>
+                        <AccordionContent className="px-4 pb-4">
+                          {approvedPayments.length === 0 ? (
+                            <div className="rounded-lg border border-dashed border-muted/60 px-4 py-6 text-center text-sm text-muted-foreground">
+                              No hay pagos confirmados todavía.
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {approvedPayments.map((payment) => (
+                                <PaymentRow key={payment.id} payment={payment} />
+                              ))}
+                            </div>
+                          )}
+                        </AccordionContent>
+                      </AccordionItem>
+                    </Accordion>
                   </div>
-                ) : (
-                  selectedAccount.payments.map((payment) => <PaymentRow key={payment.id} payment={payment} />)
-                )}
-              </div>
-            </div>
-          </div>
-          <Separator />
-          <div className="grid gap-3 border-t border-[color:var(--neutral-100)] p-4 md:grid-cols-3 md:p-6">
-            <div className="flex items-center gap-3 rounded-lg bg-slate-50 px-3 py-2">
-              <Wallet className="h-5 w-5 text-slate-600" />
-              <div>
-                <p className="text-xs text-muted-foreground">Saldo pendiente</p>
-                <p className="text-sm font-semibold text-slate-900">{formatCurrency(selectedAccount.totals.pending)}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 rounded-lg bg-emerald-50 px-3 py-2">
-              <CheckCircle2 className="h-5 w-5 text-emerald-800" />
-              <div>
-                <p className="text-xs text-emerald-700">Pagado</p>
-                <p className="text-sm font-semibold text-emerald-900">{formatCurrency(selectedAccount.totals.paid)}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 rounded-lg bg-amber-50 px-3 py-2">
-              <Clock3 className="h-5 w-5 text-amber-800" />
-              <div>
-                <p className="text-xs text-amber-700">Pagos en curso</p>
-                <p className="text-sm font-semibold text-amber-900">{formatCurrency(selectedAccount.totals.pendingPayments)}</p>
-              </div>
-            </div>
-          </div>
+                </div>
+                <Separator />
+                <div className="grid gap-3 border-t border-[color:var(--neutral-100)] p-4 md:grid-cols-3 md:p-6">
+                  <div className="flex items-center gap-3 rounded-lg bg-slate-50 px-3 py-2">
+                    <Wallet className="h-5 w-5 text-slate-600" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Saldo pendiente</p>
+                      <p className="text-sm font-semibold text-slate-900">{formatCurrency(selectedAccount.totals.pending)}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 rounded-lg bg-emerald-50 px-3 py-2">
+                    <CheckCircle2 className="h-5 w-5 text-emerald-800" />
+                    <div>
+                      <p className="text-xs text-emerald-700">Pagado</p>
+                      <p className="text-sm font-semibold text-emerald-900">{formatCurrency(selectedAccount.totals.paid)}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 rounded-lg bg-amber-50 px-3 py-2">
+                    <Clock3 className="h-5 w-5 text-amber-800" />
+                    <div>
+                      <p className="text-xs text-amber-700">Pagos en curso</p>
+                      <p className="text-sm font-semibold text-amber-900">
+                        {formatCurrency(selectedAccount.totals.pendingPayments)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
         </motion.div>
       ) : null}
+
+      <Dialog
+        open={summaryOpen}
+        onOpenChange={(open) => {
+          setSummaryOpen(open);
+          if (!open) setSummaryAccount(null);
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-[color:var(--brand-primary-dark)]" />
+              Resumen de {summaryAccount?.client.name ?? "cliente"}
+            </DialogTitle>
+            <DialogDescription>Pedidos completados y pendientes por cobrar.</DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-end">
+            <Button
+              size="sm"
+              variant="secondary"
+              className="gap-2"
+              onClick={handleDownloadSummary}
+              disabled={!summaryAccount || downloadingSummary}
+            >
+              <Download className={`h-4 w-4 ${downloadingSummary ? "animate-bounce" : ""}`} />
+              {downloadingSummary ? "Generando..." : "Descargar resumen PDF"}
+            </Button>
+          </div>
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ type: "spring", stiffness: 140, damping: 16 }}
+            className="space-y-4"
+          >
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl bg-gradient-to-br from-emerald-50 via-white to-emerald-100/60 p-3 shadow-sm">
+                <p className="text-xs uppercase tracking-wide text-emerald-700">Completados</p>
+                <p className="text-lg font-semibold text-emerald-900">{formatCurrency(summaryTotals.completed)}</p>
+                <p className="text-xs text-emerald-800/80">{summaryCompletedOrders.length} pedido(s)</p>
+              </div>
+              <div className="rounded-xl bg-gradient-to-br from-amber-50 via-white to-amber-100/70 p-3 shadow-sm">
+                <p className="text-xs uppercase tracking-wide text-amber-700">Pendientes por cobrar</p>
+                <p className="text-lg font-semibold text-amber-900">{formatCurrency(summaryTotals.pending)}</p>
+                <p className="text-xs text-amber-800/80">{summaryPendingOrders.length} pedido(s)</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold">Pedidos completados</p>
+                <Badge variant="outline" className="bg-emerald-50 text-emerald-800">
+                  {summaryCompletedOrders.length}
+                </Badge>
+              </div>
+              {summaryCompletedOrders.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-muted/60 px-3 py-4 text-sm text-muted-foreground">
+                  Todavía no hay pedidos completados.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {summaryCompletedOrders.map((order, index) => (
+                    <motion.div
+                      key={order.id}
+                      initial={{ opacity: 0, x: -8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: index * 0.04 }}
+                      className="flex items-center justify-between rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-2"
+                    >
+                      <div className="flex flex-col">
+                        <span className="text-xs text-muted-foreground">Pedido #{shortId(order.id)}</span>
+                        <span className="text-sm font-semibold text-emerald-900">{formatCurrency(order.total)}</span>
+                      </div>
+                      <Badge variant="secondary" className="bg-emerald-100 text-emerald-800">
+                        {order.status}
+                      </Badge>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold">Pedidos pendientes por cobrar</p>
+                <Badge variant="outline">{summaryPendingOrders.length}</Badge>
+              </div>
+              {summaryPendingOrders.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-muted/60 px-3 py-4 text-sm text-muted-foreground">
+                  No hay pedidos pendientes ahora mismo.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {summaryPendingOrders.map((order, index) => (
+                    <motion.div
+                      key={order.id}
+                      initial={{ opacity: 0, x: 8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: index * 0.04 }}
+                      className="flex items-center justify-between rounded-lg border border-slate-200 bg-white/80 px-3 py-2"
+                    >
+                      <div className="flex flex-col">
+                        <span className="text-xs text-muted-foreground">Pedido #{shortId(order.id)}</span>
+                        <span className="text-sm font-semibold text-slate-900">{formatCurrency(order.total)}</span>
+                      </div>
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${
+                          orderStatusTone[order.status] ?? "bg-slate-100 text-slate-700"
+                        }`}
+                      >
+                        {order.status}
+                      </span>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -342,8 +342,8 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
     )
     .eq("provider_id", provider.id)
     .eq("client_id", client.id)
-    .order("created_at", { ascending: false })
-    .limit(20);
+    .eq("is_archived", false)
+    .order("created_at", { ascending: false });
 
   const history: PublicOrderHistory[] =
     orders?.map((order) => {

@@ -2,7 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { CreditCard, EyeOff, FileUp, LayoutGrid, Rows, Search, ShoppingCart, Trash2, Wallet } from "lucide-react";
+import {
+  ChevronDown,
+  CreditCard,
+  EyeOff,
+  FileUp,
+  LayoutGrid,
+  MessageCircle,
+  Rows,
+  Search,
+  ShoppingCart,
+  Trash2,
+  Wallet,
+} from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -133,6 +145,8 @@ type Props = {
   drafts: DraftState[];
 };
 
+const shortOrderId = (id: string) => (id?.length > 8 ? id.slice(0, 8) : id);
+
 export function ClientOrder({
   provider,
   client,
@@ -192,10 +206,17 @@ export function ClientOrder({
   const [drafts, setDrafts] = useState<DraftState[]>(initialDrafts);
   const [showDraftsModal, setShowDraftsModal] = useState(false);
   const [draftMessage, setDraftMessage] = useState<string | null>(null);
+  const [openDraftIds, setOpenDraftIds] = useState<string[]>([]);
+  const [proofSuccess, setProofSuccess] = useState<{ orderId: string; total: number | null } | null>(null);
   const draftsKey = useMemo(
     () => `miproveedor:drafts:${provider.slug}:${client.slug}`,
     [client.slug, provider.slug],
   );
+  const productLookup = useMemo(() => {
+    const map = new Map<string, Product>();
+    products.forEach((product) => map.set(product.id, product));
+    return map;
+  }, [products]);
   const resetOrderDraft = useCallback(() => {
     setServerItems(null);
     setServerTotal(null);
@@ -419,17 +440,35 @@ export function ClientOrder({
     () => historyItems.filter((item) => !isCompleted(item)),
     [historyItems],
   );
+  const pendingProofUploads = useMemo(
+    () =>
+      pendingHistory.filter(
+        (item) => item.paymentMethod === "transferencia" && item.paymentProofStatus !== "subido",
+      ).length,
+    [pendingHistory],
+  );
   const completedHistory = useMemo(
     () => historyItems.filter((item) => isCompleted(item)),
     [historyItems],
   );
   const historyAccordionDefaults = useMemo(() => ["pending"], []);
+  const proofShortId = useMemo(() => (proofSuccess?.orderId ? shortOrderId(proofSuccess.orderId) : null), [proofSuccess]);
+  const proofWhatsAppLink = useMemo(() => {
+    if (!proofSuccess || !provider.contact_phone) return null;
+    const phone = provider.contact_phone.replace(/[^+0-9]/g, "");
+    const totalLabel = formatCurrency(proofSuccess.total ?? 0);
+    const text = encodeURIComponent(
+      `Hola, ya he cargado el comprobante correspondiente al pedido #${proofShortId ?? proofSuccess.orderId} de monto total ${totalLabel}.`,
+    );
+    return `https://wa.me/${phone}?text=${text}`;
+  }, [proofShortId, proofSuccess, provider.contact_phone]);
 
   const uploadHistoryProof = async (orderId: string, file?: File | null) => {
     if (!file) return;
     try {
       setUploadingProofFor(orderId);
       const { payload, preview } = await compressProofFile(file);
+      const targetOrder = historyItems.find((item) => item.id === orderId);
       const response = await updatePaymentProof({
         providerSlug: provider.slug,
         clientSlug: client.slug,
@@ -453,6 +492,7 @@ export function ClientOrder({
             : item,
         ),
       );
+      setProofSuccess({ orderId, total: targetOrder?.total ?? null });
     } catch (err) {
       setFormError((err as Error).message);
     } finally {
@@ -698,7 +738,7 @@ export function ClientOrder({
           },
         ];
         setDrafts(next);
-        setDraftMessage("Borrador guardado en la nube.");
+        setDraftMessage("Borrador guardado con éxito.");
       } else {
         setDraftMessage(response.errors.join("\n"));
       }
@@ -738,6 +778,9 @@ export function ClientOrder({
     },
     [drafts],
   );
+  const toggleDraftDetails = useCallback((draftId: string) => {
+    setOpenDraftIds((prev) => (prev.includes(draftId) ? prev.filter((id) => id !== draftId) : [...prev, draftId]));
+  }, []);
 
   const whatsappLink = buildWhatsAppLink({
     providerName: provider.name,
@@ -1843,7 +1886,18 @@ export function ClientOrder({
                           Pedidos por confirmar, preparar o enviar.
                         </p>
                       </div>
-                      <Badge variant="outline">{pendingHistory.length}</Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">{pendingHistory.length}</Badge>
+                        {pendingProofUploads > 0 ? (
+                          <Badge
+                            variant="secondary"
+                            className="flex items-center gap-1 border-amber-400/60 bg-amber-50 text-amber-700 dark:border-amber-300/50 dark:bg-amber-500/10 dark:text-amber-200"
+                          >
+                            <FileUp className="h-3.5 w-3.5" />
+                            {pendingProofUploads} comprobantes pendientes
+                          </Badge>
+                        ) : null}
+                      </div>
                     </div>
                   </AccordionTrigger>
                   <AccordionContent className="px-2 sm:px-3">
@@ -1876,7 +1930,7 @@ export function ClientOrder({
                               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                 <div className="space-y-1">
                                   <p className="text-sm font-semibold">
-                                    Pedido #{order.id.slice(0, 8)} · {formatCurrency(order.total ?? 0)}
+                                    Pedido #{shortOrderId(order.id)} · {formatCurrency(order.total ?? 0)}
                                   </p>
                                   <p className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</p>
                                 </div>
@@ -1963,9 +2017,9 @@ export function ClientOrder({
                                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                   <Label
                                     htmlFor={`proof-${order.id}`}
-                                    className="flex cursor-pointer items-center gap-2 rounded-md border border-(--neutral-200) bg-white px-3 py-2 text-sm font-medium text-foreground hover:bg-card/90"
+                                    className="flex cursor-pointer items-center gap-2 rounded-md border border-amber-400/70 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 shadow-[0_4px_14px_rgba(251,191,36,0.15)] hover:bg-amber-100 dark:border-amber-300/50 dark:bg-amber-500/10 dark:text-amber-100"
                                   >
-                                    <FileUp className="h-4 w-4 text-primary" />
+                                    <FileUp className="h-4 w-4 text-amber-600 dark:text-amber-100" />
                                     Cargar comprobante
                                   </Label>
                                   <input
@@ -2032,7 +2086,7 @@ export function ClientOrder({
                               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                 <div className="space-y-1">
                                   <p className="text-sm font-semibold">
-                                    Pedido #{order.id.slice(0, 8)} · {formatCurrency(order.total ?? 0)}
+                                    Pedido #{shortOrderId(order.id)} · {formatCurrency(order.total ?? 0)}
                                   </p>
                                   <p className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</p>
                                 </div>
@@ -2205,32 +2259,161 @@ export function ClientOrder({
             ) : (
               drafts
                 .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
-                .map((draft) => (
-                  <div
-                    key={draft.id}
-                    className="flex items-center justify-between rounded-md border border-(--neutral-200) bg-(--surface) p-3"
-                  >
-                    <div className="space-y-1 text-sm">
-                      <p className="font-semibold">{draft.label}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {Object.keys(draft.data.quantities).length} producto(s) ·{" "}
-                        {draft.data.deliveryMethod === "envio"
-                          ? "Envío"
-                          : draft.data.deliveryMethod === "retiro"
-                            ? "Retiro"
-                            : "Sin entrega"}
-                      </p>
+                .map((draft) => {
+                  const draftItems = Object.entries(draft.data.quantities).map(([productId, quantity]) => {
+                    const product = productLookup.get(productId);
+                    const price = product?.price ?? 0;
+                    return {
+                      id: productId,
+                      name: product?.name ?? "Producto eliminado",
+                      unit: product?.unit,
+                      price,
+                      quantity,
+                      subtotal: price * quantity,
+                      missing: !product,
+                    };
+                  });
+                  const total = draftItems.reduce((sum, item) => sum + item.subtotal, 0);
+                  const isOpen = openDraftIds.includes(draft.id);
+                  return (
+                    <div
+                      key={draft.id}
+                      className="rounded-md border border-(--neutral-200) bg-(--surface) p-3 shadow-sm"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="space-y-1 text-sm">
+                          <p className="font-semibold">{draft.label}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {draftItems.length} producto(s) ·{" "}
+                            {draft.data.deliveryMethod === "envio"
+                              ? "Envío"
+                              : draft.data.deliveryMethod === "retiro"
+                                ? "Retiro"
+                                : "Sin entrega"}
+                          </p>
+                          <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                            <Badge variant="outline" className="rounded-full">
+                              {draft.data.paymentMethod === "transferencia"
+                                ? "Transferencia"
+                                : draft.data.paymentMethod === "efectivo"
+                                  ? "Efectivo"
+                                  : "Pago sin definir"}
+                            </Badge>
+                            {draft.data.contactName ? (
+                              <Badge variant="outline" className="rounded-full">
+                                {draft.data.contactName}
+                              </Badge>
+                            ) : null}
+                            {draft.data.contactPhone ? (
+                              <Badge variant="outline" className="rounded-full">
+                                {draft.data.contactPhone}
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => toggleDraftDetails(draft.id)}
+                            aria-label={isOpen ? "Ocultar resumen" : "Ver resumen"}
+                          >
+                            <ChevronDown
+                              className={`h-4 w-4 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                            />
+                          </Button>
+                          <Button size="sm" variant="secondary" onClick={() => handleLoadDraft(draft)}>
+                            Cargar
+                          </Button>
+                          <Button size="icon" variant="ghost" onClick={() => handleDeleteDraft(draft.id)} aria-label="Eliminar borrador">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      <AnimatePresence initial={false}>
+                        {isOpen ? (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            transition={{ duration: 0.18, ease: "easeOut" }}
+                            className="overflow-hidden"
+                          >
+                            <div className="mt-3 space-y-2 rounded-lg border border-dashed border-(--neutral-200) bg-white/70 p-3 text-sm shadow-inner dark:bg-muted/50">
+                              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                <span>{draftItems.length} ítem(s)</span>
+                                <span>{total > 0 ? `Total aprox. ${formatCurrency(total)}` : "Total no disponible"}</span>
+                              </div>
+                              <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
+                                {draftItems.map((item) => (
+                                  <div
+                                    key={`${draft.id}-${item.id}`}
+                                    className="flex items-start justify-between gap-2 rounded-md bg-(--surface) px-2 py-1.5"
+                                  >
+                                    <div className="space-y-0.5">
+                                      <p className="text-sm font-medium leading-tight">{item.name}</p>
+                                      <p className="text-xs text-muted-foreground">
+                                        {item.quantity} {item.unit ?? "unid."}
+                                        {item.missing ? " · Producto no disponible en catálogo" : ""}
+                                      </p>
+                                    </div>
+                                    <div className="text-right">
+                                      <p className="text-xs text-muted-foreground">
+                                        {item.price ? formatCurrency(item.price) : "Precio n/d"}
+                                      </p>
+                                      <p className="text-sm font-semibold">
+                                        {item.price ? formatCurrency(item.subtotal) : "--"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                              {draft.data.note ? (
+                                <p className="text-xs text-muted-foreground">
+                                  <span className="font-semibold text-foreground">Nota: </span>
+                                  {draft.data.note}
+                                </p>
+                              ) : null}
+                            </div>
+                          </motion.div>
+                        ) : null}
+                      </AnimatePresence>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Button size="sm" variant="secondary" onClick={() => handleLoadDraft(draft)}>
-                        Cargar
-                      </Button>
-                      <Button size="icon" variant="ghost" onClick={() => handleDeleteDraft(draft.id)} aria-label="Eliminar borrador">
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(proofSuccess)} onOpenChange={(open) => (!open ? setProofSuccess(null) : null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Hemos cargado tu comprobante con éxito</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Avísale a {provider.name} para que avance con tu pedido. Te dejamos un mensaje listo para enviar por WhatsApp.
+            </p>
+            <div className="rounded-lg border border-amber-200/80 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-300/50 dark:bg-amber-500/10 dark:text-amber-100">
+              Hola, ya he cargado el comprobante correspondiente al pedido #{proofShortId ?? proofSuccess?.orderId} de monto total{" "}
+              {formatCurrency(proofSuccess?.total ?? 0)}.
+            </div>
+            {proofWhatsAppLink ? (
+              <Button
+                asChild
+                className="w-full gap-2 bg-emerald-600 text-white hover:bg-emerald-700"
+                size="lg"
+              >
+                <a href={proofWhatsAppLink} target="_blank" rel="noreferrer">
+                  <MessageCircle className="h-4 w-4" />
+                  Notificar por WhatsApp
+                </a>
+              </Button>
+            ) : (
+              <p className="text-xs text-destructive">
+                Falta el teléfono del proveedor para abrir WhatsApp automáticamente.
+              </p>
             )}
           </div>
         </DialogContent>

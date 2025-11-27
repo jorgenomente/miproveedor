@@ -187,7 +187,8 @@ export async function listPendingProducts(providerSlug: string): Promise<Pending
         )
       `,
     )
-    .eq("provider_id", provider.id);
+    .eq("provider_id", provider.id)
+    .eq("is_archived", false);
 
   if (error) {
     return { success: false, errors: [`No se pudieron cargar artículos: ${error.message}`] };
@@ -353,6 +354,7 @@ export async function listOrders(providerSlug: string): Promise<ListOrdersResult
       "id, status, created_at, delivery_date, delivery_rule_id, payment_method, payment_proof_status, payment_proof_url, client:clients(name), order_items(quantity, unit_price)",
     )
     .eq("provider_id", provider.id)
+    .eq("is_archived", false)
     .order("created_at", { ascending: false });
 
   if (error) {

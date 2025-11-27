@@ -134,6 +134,8 @@ model Order {
   providerId    String      @map("provider_id")
   clientId      String      @map("client_id")
   status        OrderStatus @default(nuevo)
+  isArchived    Boolean     @default(false) @map("is_archived")
+  archivedAt    DateTime?   @map("archived_at")
   contactName   String      @map("contact_name")
   contactPhone  String      @map("contact_phone")
   deliveryMethod String?    @map("delivery_method")

@@ -10,6 +10,7 @@ import { getSupabaseAdmin } from "@/lib/supabase-admin";
 type PaymentStatus = "pending" | "approved" | "rejected";
 type PaymentMethod = "efectivo" | "transferencia";
 type OrderStatus = "nuevo" | "preparando" | "enviado" | "entregado" | "cancelado";
+type PaymentProofStatus = "no_aplica" | "pendiente" | "subido" | "verificado";
 type DemoClientPaymentRow = {
   id: string;
   provider_slug: string;
@@ -24,7 +25,17 @@ type DemoClientPaymentRow = {
   created_at?: string | null;
 };
 
-export type ProviderRow = { id: string; name: string; slug: string; is_active?: boolean | null };
+export type ProviderRow = {
+  id: string;
+  name: string;
+  slug: string;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  address?: string | null;
+  city?: string | null;
+  country?: string | null;
+  is_active?: boolean | null;
+};
 
 export type ClientSummary = {
   id: string;
@@ -41,7 +52,23 @@ export type AccountOrder = {
   total: number;
   status: OrderStatus;
   createdAt: string | null;
+  isArchived?: boolean;
+  archivedAt?: string | null;
   paymentMethod?: PaymentMethod | null;
+  paymentProofStatus?: PaymentProofStatus | null;
+  paymentProofUrl?: string | null;
+};
+
+export type ArchivedOrder = {
+  id: string;
+  client: ClientSummary;
+  total: number;
+  status: OrderStatus;
+  createdAt: string | null;
+  archivedAt: string | null;
+  paymentMethod?: PaymentMethod | null;
+  paymentProofStatus?: PaymentProofStatus | null;
+  paymentProofUrl?: string | null;
 };
 
 export type AccountPayment = {
@@ -76,6 +103,26 @@ export type AccountsResult =
 
 export type RecordPaymentResult =
   | { success: true; message: string }
+  | { success: false; errors: string[] };
+
+export type ProofStatusResult =
+  | { success: true }
+  | { success: false; errors: string[] };
+
+export type UpdateOrderStatusResult =
+  | { success: true }
+  | { success: false; errors: string[] };
+
+export type DeleteOrderResult =
+  | { success: true }
+  | { success: false; errors: string[] };
+
+export type ArchivedOrdersResult =
+  | { success: true; provider: ProviderRow; orders: ArchivedOrder[] }
+  | { success: false; errors: string[] };
+
+export type ProofStatusResult =
+  | { success: true }
   | { success: false; errors: string[] };
 
 const paymentSchema = z.object({
@@ -219,16 +266,31 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
 
   if (providerSlug === "demo") {
     const demo = getDemoData();
-    const storedOrders = await fetchRecentDemoOrders({ providerSlug: "demo" });
+    const storedOrders = await fetchRecentDemoOrders({ providerSlug: "demo", includeArchived: true });
     const mergedOrders = [...storedOrders, ...demo.orders].map((order: DemoOrderRecord | DemoOrder) => {
       const clientSlug = "client_slug" in order ? order.client_slug : order.clientSlug;
       const status = "status" in order ? order.status : "nuevo";
-      const total = "total" in order ? Number(order.total ?? 0) : 0;
+      const items =
+        "items" in order
+          ? order.items
+          : (order as { order_items?: { quantity?: number; unit_price?: number }[] }).order_items ?? [];
+      const itemsTotal = Array.isArray(items)
+        ? items.reduce((acc, item: any) => acc + Number(item.unitPrice ?? item.unit_price ?? 0) * Number(item.quantity ?? 0), 0)
+        : 0;
+      const rawTotal = "total" in order ? Number(order.total ?? 0) : 0;
+      const total = rawTotal > 0 ? rawTotal : itemsTotal;
       const createdAt = "created_at" in order ? order.created_at : (order as DemoOrder).createdAt ?? null;
       const paymentMethod =
         "payment_method" in order
-          ? (order.payment_method as PaymentMethod | null)
-          : (order as DemoOrder).paymentMethod ?? null;
+          ? ((order as { payment_method?: PaymentMethod | null }).payment_method ?? null)
+          : (order as DemoOrder).paymentMethod ?? "efectivo";
+      const rawProof = "payment_proof_status" in order ? (order as any).payment_proof_status : (order as DemoOrder).paymentProofStatus;
+      const paymentProofStatus =
+        rawProof === "subido" || rawProof === "pendiente" || rawProof === "no_aplica" ? rawProof : "pendiente";
+      const paymentProofUrl = "payment_proof_url" in order ? (order as any).payment_proof_url ?? null : (order as DemoOrder).paymentProofUrl ?? null;
+      const isArchived =
+        "is_archived" in order ? Boolean((order as { is_archived?: boolean | null }).is_archived) : Boolean((order as DemoOrder).isArchived);
+      const archivedAt = "archived_at" in order ? (order as { archived_at?: string | null }).archived_at ?? null : null;
 
       return {
         id: order.id,
@@ -237,6 +299,10 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
         total,
         createdAt,
         paymentMethod,
+        paymentProofStatus,
+        paymentProofUrl,
+        isArchived,
+        archivedAt,
       };
     });
 
@@ -256,12 +322,15 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
     mergedOrders.forEach((order) => {
       const client = clientMap.get(order.clientSlug);
       if (!client) return;
+      if (order.isArchived) return;
       const entry: AccountOrder = {
         id: order.id,
         total: Number(order.total ?? 0),
         status: order.status,
         createdAt: order.createdAt ?? null,
         paymentMethod: order.paymentMethod ?? null,
+        isArchived: order.isArchived ?? false,
+        archivedAt: order.archivedAt ?? null,
       };
       const existing = orderBuckets.get(client.id) ?? [];
       orderBuckets.set(client.id, [...existing, entry]);
@@ -325,7 +394,20 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
       };
     });
 
-    return { success: true, provider: { id: demo.provider.id, name: demo.provider.name, slug: demo.provider.slug }, accounts };
+    return {
+      success: true,
+      provider: {
+        id: demo.provider.id,
+        name: demo.provider.name,
+        slug: demo.provider.slug,
+        contactEmail: demo.provider.contact_email ?? null,
+        contactPhone: demo.provider.contact_phone ?? null,
+        address: null,
+        city: null,
+        country: null,
+      },
+      accounts,
+    };
   }
 
   const scopeResult = await getProviderScope();
@@ -336,7 +418,7 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
 
   const { data: provider, error: providerError } = await supabase
     .from("providers")
-    .select("id, name, slug, is_active")
+    .select("id, name, slug, contact_email, contact_phone, is_active")
     .eq("slug", providerSlug)
     .maybeSingle();
 
@@ -356,8 +438,11 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
       .order("name", { ascending: true }),
     supabase
       .from("orders")
-      .select("id, client_id, status, created_at, payment_method, order_items(quantity, unit_price)")
+      .select(
+        "id, client_id, status, created_at, archived_at, is_archived, payment_method, payment_proof_status, payment_proof_url, order_items(quantity, unit_price)",
+      )
       .eq("provider_id", provider.id)
+      .eq("is_archived", false)
       .order("created_at", { ascending: false }),
     supabase
       .from("client_payments")
@@ -373,12 +458,17 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
 
   const orderBuckets = new Map<string, AccountOrder[]>();
   (orders ?? []).forEach((order) => {
+    if ((order as { is_archived?: boolean }).is_archived) return;
     const entry: AccountOrder = {
       id: order.id,
       total: calculateOrderTotal(order.order_items),
       status: normalizeStatus(order.status as string),
       createdAt: (order as { created_at?: string | null }).created_at ?? null,
+      isArchived: Boolean((order as { is_archived?: boolean | null }).is_archived),
+      archivedAt: (order as { archived_at?: string | null }).archived_at ?? null,
       paymentMethod: (order as { payment_method?: PaymentMethod | null }).payment_method ?? null,
+      paymentProofStatus: (order as { payment_proof_status?: PaymentProofStatus | null }).payment_proof_status ?? null,
+      paymentProofUrl: (order as { payment_proof_url?: string | null }).payment_proof_url ?? null,
     };
     const existing = orderBuckets.get(order.client_id) ?? [];
     orderBuckets.set(order.client_id, [...existing, entry]);
@@ -442,7 +532,19 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
       };
     }) ?? [];
 
-  return { success: true, provider: provider as ProviderRow, accounts };
+  const providerRow: ProviderRow = {
+    id: provider.id,
+    name: provider.name,
+    slug: provider.slug,
+    contactEmail: (provider as { contact_email?: string | null }).contact_email ?? null,
+    contactPhone: (provider as { contact_phone?: string | null }).contact_phone ?? null,
+    address: null,
+    city: null,
+    country: null,
+    is_active: provider.is_active ?? null,
+  };
+
+  return { success: true, provider: providerRow, accounts };
 }
 
 export async function recordClientPayment(payload: z.infer<typeof paymentSchema>): Promise<RecordPaymentResult> {
@@ -541,4 +643,361 @@ export async function recordClientPayment(payload: z.infer<typeof paymentSchema>
   }
 
   return { success: true, message: "Pago registrado." };
+}
+
+export async function markOrderProofStatus({
+  providerSlug,
+  orderId,
+  status,
+}: {
+  providerSlug: string;
+  orderId: string;
+  status: PaymentProofStatus;
+}): Promise<ProofStatusResult> {
+  if (!orderId) return { success: false, errors: ["Falta el ID del pedido"] };
+  if (!["no_aplica", "pendiente", "subido", "verificado"].includes(status)) {
+    return { success: false, errors: ["Estado de comprobante inválido"] };
+  }
+  const targetStatus = status === "verificado" ? "subido" : status;
+
+  if (providerSlug === "demo") {
+    // No persistimos en demo, solo devolvemos éxito para mantener la UI fluida.
+    return { success: true };
+  }
+
+  const scopeResult = await getProviderScope();
+  if (scopeResult.error) return { success: false, errors: [scopeResult.error] };
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return { success: false, errors: ["Faltan credenciales de Supabase (SERVICE_ROLE / URL)."] };
+
+  const { data: provider, error: providerError } = await supabase
+    .from("providers")
+    .select("id, slug")
+    .eq("slug", providerSlug)
+    .maybeSingle();
+
+  if (providerError || !provider) {
+    return { success: false, errors: [`Proveedor no disponible: ${providerError?.message ?? "no encontrado"}`] };
+  }
+
+  if (scopeResult.scope?.role === "provider" && scopeResult.scope.provider.id !== provider.id) {
+    return { success: false, errors: ["No tienes acceso a este proveedor."] };
+  }
+
+  const { error: updateError } = await supabase
+    .from("orders")
+    .update({ payment_proof_status: targetStatus })
+    .eq("id", orderId)
+    .eq("provider_id", provider.id);
+
+  if (updateError) {
+    return { success: false, errors: [`No se pudo actualizar el comprobante: ${updateError.message}`] };
+  }
+
+  return { success: true };
+}
+
+export async function updateOrderStatus({
+  providerSlug,
+  orderId,
+  status,
+}: {
+  providerSlug: string;
+  orderId: string;
+  status: OrderStatus;
+}): Promise<UpdateOrderStatusResult> {
+  if (!orderId) return { success: false, errors: ["Falta el ID del pedido"] };
+  if (!["nuevo", "preparando", "enviado", "entregado", "cancelado"].includes(status)) {
+    return { success: false, errors: ["Estado de pedido inválido"] };
+  }
+
+  if (providerSlug === "demo") {
+    const supabase = getSupabaseAdmin();
+    if (!supabase) return { success: true };
+    const { error } = await supabase.from("demo_orders").update({ status }).eq("id", orderId);
+    if (error) return { success: false, errors: [`No se pudo actualizar el demo: ${error.message}`] };
+    return { success: true };
+  }
+
+  const scopeResult = await getProviderScope();
+  if (scopeResult.error) return { success: false, errors: [scopeResult.error] };
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return { success: false, errors: ["Faltan credenciales de Supabase (SERVICE_ROLE / URL)."] };
+
+  const { data: provider, error: providerError } = await supabase
+    .from("providers")
+    .select("id, slug")
+    .eq("slug", providerSlug)
+    .maybeSingle();
+
+  if (providerError || !provider) {
+    return { success: false, errors: [`Proveedor no disponible: ${providerError?.message ?? "no encontrado"}`] };
+  }
+
+  if (scopeResult.scope?.role === "provider" && scopeResult.scope.provider.id !== provider.id) {
+    return { success: false, errors: ["No tienes acceso a este proveedor."] };
+  }
+
+  const { error: updateError } = await supabase
+    .from("orders")
+    .update({ status })
+    .eq("id", orderId)
+    .eq("provider_id", provider.id);
+
+  if (updateError) {
+    return { success: false, errors: [`No se pudo actualizar el pedido: ${updateError.message}`] };
+  }
+
+  return { success: true };
+}
+
+export async function deleteOrder({
+  providerSlug,
+  orderId,
+}: {
+  providerSlug: string;
+  orderId: string;
+}): Promise<DeleteOrderResult> {
+  if (!orderId) return { success: false, errors: ["Falta el ID del pedido."] };
+
+  const archivedAt = new Date().toISOString();
+
+  if (providerSlug === "demo") {
+    const supabase = getSupabaseAdmin();
+    if (!supabase) return { success: true };
+    const { error } = await supabase
+      .from("demo_orders")
+      .update({ is_archived: true, archived_at: archivedAt })
+      .eq("id", orderId);
+    if (error) return { success: false, errors: [`No se pudo archivar el pedido demo: ${error.message}`] };
+    return { success: true };
+  }
+
+  const scopeResult = await getProviderScope();
+  if (scopeResult.error) return { success: false, errors: [scopeResult.error] };
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return { success: false, errors: ["Faltan credenciales de Supabase (SERVICE_ROLE / URL)."] };
+
+  const { data: provider, error: providerError } = await supabase
+    .from("providers")
+    .select("id, slug")
+    .eq("slug", providerSlug)
+    .maybeSingle();
+
+  if (providerError || !provider) {
+    return { success: false, errors: [`Proveedor no disponible: ${providerError?.message ?? "no encontrado"}`] };
+  }
+
+  if (scopeResult.scope?.role === "provider" && scopeResult.scope.provider.id !== provider.id) {
+    return { success: false, errors: ["No tienes acceso a este proveedor."] };
+  }
+
+  const { error: updateError } = await supabase
+    .from("orders")
+    .update({ is_archived: true, archived_at: archivedAt })
+    .eq("id", orderId)
+    .eq("provider_id", provider.id);
+
+  if (updateError) {
+    return { success: false, errors: [`No se pudo archivar el pedido: ${updateError.message}`] };
+  }
+
+  return { success: true };
+}
+
+export async function listArchivedOrders(providerSlug: string): Promise<ArchivedOrdersResult> {
+  if (!providerSlug) return { success: false, errors: ["Falta el proveedor."] };
+
+  if (providerSlug === "demo") {
+    const demo = getDemoData();
+    const storedOrders = await fetchRecentDemoOrders({ providerSlug: "demo" });
+    const archivedOrders = [...storedOrders, ...demo.orders]
+      .filter((order) => {
+        const archived = "is_archived" in order ? (order as any).is_archived : (order as DemoOrder).isArchived;
+        return Boolean(archived);
+      })
+      .map((order) => {
+        const clientSlug = "client_slug" in order ? order.client_slug : order.clientSlug;
+        const client = demo.clients.find((item) => item.slug === clientSlug);
+        return {
+          id: order.id,
+          client: client
+            ? {
+                id: client.id,
+                name: client.name,
+                slug: client.slug,
+                contactName: client.contact_name ?? null,
+                contactPhone: client.contact_phone ?? null,
+                isActive: client.is_active ?? true,
+              }
+            : {
+                id: "unknown",
+                name: clientSlug,
+                slug: clientSlug,
+                contactName: null,
+                contactPhone: null,
+                isActive: true,
+              },
+          total: "total" in order ? Number(order.total ?? 0) : 0,
+          status: normalizeStatus("status" in order ? order.status : "nuevo"),
+          createdAt: "created_at" in order ? order.created_at : null,
+          archivedAt: "archived_at" in order ? (order as any).archived_at ?? null : null,
+          paymentMethod:
+            "payment_method" in order
+              ? ((order as { payment_method?: PaymentMethod | null }).payment_method ?? null)
+              : (order as DemoOrder).paymentMethod ?? null,
+          paymentProofStatus:
+            "payment_proof_status" in order ? (order as any).payment_proof_status ?? null : (order as DemoOrder).paymentProofStatus ?? null,
+          paymentProofUrl: "payment_proof_url" in order ? (order as any).payment_proof_url ?? null : (order as DemoOrder).paymentProofUrl ?? null,
+        } satisfies ArchivedOrder;
+      });
+
+    return {
+      success: true,
+      provider: {
+        id: demo.provider.id,
+        name: demo.provider.name,
+        slug: demo.provider.slug,
+        contactEmail: demo.provider.contact_email ?? null,
+        contactPhone: demo.provider.contact_phone ?? null,
+        address: null,
+        city: null,
+        country: null,
+      },
+      orders: archivedOrders,
+    };
+  }
+
+  const scopeResult = await getProviderScope();
+  if (scopeResult.error) return { success: false, errors: [scopeResult.error] };
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return { success: false, errors: ["Faltan credenciales de Supabase (SERVICE_ROLE / URL)."] };
+
+  const { data: provider, error: providerError } = await supabase
+    .from("providers")
+    .select("id, name, slug, contact_email, contact_phone")
+    .eq("slug", providerSlug)
+    .maybeSingle();
+
+  if (providerError || !provider) {
+    return { success: false, errors: [`Proveedor no disponible: ${providerError?.message ?? "no encontrado"}`] };
+  }
+
+  if (scopeResult.scope?.role === "provider" && scopeResult.scope.provider.id !== provider.id) {
+    return { success: false, errors: ["No tienes acceso a este proveedor."] };
+  }
+
+  const { data: orders, error } = await supabase
+    .from("orders")
+    .select(
+      `
+        id,
+        status,
+        created_at,
+        archived_at,
+        payment_method,
+        payment_proof_status,
+        payment_proof_url,
+        is_archived,
+        client:clients(id, name, slug, contact_name, contact_phone, is_active),
+        order_items(quantity, unit_price)
+      `,
+    )
+    .eq("provider_id", provider.id)
+    .eq("is_archived", true)
+    .order("archived_at", { ascending: false });
+
+  if (error) {
+    return { success: false, errors: [`No se pudieron cargar pedidos archivados: ${error.message}`] };
+  }
+
+  const mapped: ArchivedOrder[] =
+    orders?.map((order) => ({
+      id: order.id,
+      status: normalizeStatus(order.status as string),
+      createdAt: (order as { created_at?: string | null }).created_at ?? null,
+      archivedAt: (order as { archived_at?: string | null }).archived_at ?? null,
+      paymentMethod: (order as { payment_method?: PaymentMethod | null }).payment_method ?? null,
+      paymentProofStatus: (order as { payment_proof_status?: PaymentProofStatus | null }).payment_proof_status ?? null,
+      paymentProofUrl: (order as { payment_proof_url?: string | null }).payment_proof_url ?? null,
+      total: calculateOrderTotal((order as { order_items?: { quantity?: number; unit_price?: number | string | null }[] }).order_items),
+      client: {
+        id: (order as any).client?.id ?? "unknown",
+        name: (order as any).client?.name ?? "Cliente",
+        slug: (order as any).client?.slug ?? "sin-slug",
+        contactName: (order as any).client?.contact_name ?? null,
+        contactPhone: (order as any).client?.contact_phone ?? null,
+        isActive: (order as any).client?.is_active ?? true,
+      },
+    })) ?? [];
+
+  const providerRow: ProviderRow = {
+    id: provider.id,
+    name: provider.name,
+    slug: provider.slug,
+    contactEmail: (provider as { contact_email?: string | null }).contact_email ?? null,
+    contactPhone: (provider as { contact_phone?: string | null }).contact_phone ?? null,
+    address: null,
+    city: null,
+    country: null,
+  };
+
+  return { success: true, provider: providerRow, orders: mapped };
+}
+
+export async function restoreOrder({
+  providerSlug,
+  orderId,
+}: {
+  providerSlug: string;
+  orderId: string;
+}): Promise<DeleteOrderResult> {
+  if (!orderId) return { success: false, errors: ["Falta el ID del pedido."] };
+
+  if (providerSlug === "demo") {
+    const supabase = getSupabaseAdmin();
+    if (!supabase) return { success: true };
+    const { error } = await supabase
+      .from("demo_orders")
+      .update({ is_archived: false, archived_at: null })
+      .eq("id", orderId);
+    if (error) return { success: false, errors: [`No se pudo restaurar el pedido demo: ${error.message}`] };
+    return { success: true };
+  }
+
+  const scopeResult = await getProviderScope();
+  if (scopeResult.error) return { success: false, errors: [scopeResult.error] };
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return { success: false, errors: ["Faltan credenciales de Supabase (SERVICE_ROLE / URL)."] };
+
+  const { data: provider, error: providerError } = await supabase
+    .from("providers")
+    .select("id, slug")
+    .eq("slug", providerSlug)
+    .maybeSingle();
+
+  if (providerError || !provider) {
+    return { success: false, errors: [`Proveedor no disponible: ${providerError?.message ?? "no encontrado"}`] };
+  }
+
+  if (scopeResult.scope?.role === "provider" && scopeResult.scope.provider.id !== provider.id) {
+    return { success: false, errors: ["No tienes acceso a este proveedor."] };
+  }
+
+  const { error: updateError } = await supabase
+    .from("orders")
+    .update({ is_archived: false, archived_at: null })
+    .eq("id", orderId)
+    .eq("provider_id", provider.id);
+
+  if (updateError) {
+    return { success: false, errors: [`No se pudo restaurar el pedido: ${updateError.message}`] };
+  }
+
+  return { success: true };
 }

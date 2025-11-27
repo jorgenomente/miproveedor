@@ -15,6 +15,7 @@ const demoOrderSchema = z.object({
   providerSlug: z.string().min(2),
   clientSlug: z.string().min(2),
   status: z.enum(["nuevo", "preparando", "enviado", "entregado", "cancelado"]).default("nuevo"),
+  isArchived: z.boolean().default(false),
   contactName: z.string().min(1),
   contactPhone: z.string().min(1),
   deliveryMethod: z.string().nullable().optional(),
@@ -37,6 +38,7 @@ export type DemoOrderRecord = {
   provider_slug: string;
   client_slug: string;
   status: "nuevo" | "preparando" | "enviado" | "entregado" | "cancelado";
+  is_archived?: boolean | null;
   contact_name: string | null;
   contact_phone: string | null;
   delivery_method: string | null;
@@ -51,6 +53,7 @@ export type DemoOrderRecord = {
   delivery_rule_id?: string | null;
   cutoff_date?: string | null;
   created_at: string;
+  archived_at?: string | null;
   items: DemoOrderItem[];
 };
 
@@ -64,6 +67,8 @@ const mapRecord = (row: any): DemoOrderRecord | null => {
     status: (row.status as DemoOrderRecord["status"]) ?? "nuevo",
     contact_name: row.contact_name ?? null,
     contact_phone: row.contact_phone ?? null,
+    is_archived: row.is_archived ?? false,
+    archived_at: row.archived_at ?? null,
     delivery_method: row.delivery_method ?? null,
     payment_method: row.payment_method ?? null,
     payment_proof_status: row.payment_proof_status ?? null,
@@ -108,6 +113,7 @@ export async function persistDemoOrder(input: z.infer<typeof demoOrderSchema>) {
       provider_slug: parsed.data.providerSlug,
       client_slug: parsed.data.clientSlug,
       status: parsed.data.status,
+      is_archived: parsed.data.isArchived ?? false,
       contact_name: parsed.data.contactName,
       contact_phone: parsed.data.contactPhone,
       delivery_method: parsed.data.deliveryMethod ?? null,
@@ -136,7 +142,7 @@ export async function persistDemoOrder(input: z.infer<typeof demoOrderSchema>) {
   return { id: data.id, createdAt: data.created_at ?? new Date().toISOString() };
 }
 
-export async function fetchRecentDemoOrders(options?: { providerSlug?: string; clientSlug?: string }) {
+export async function fetchRecentDemoOrders(options?: { providerSlug?: string; clientSlug?: string; includeArchived?: boolean }) {
   const supabase = getSupabaseAdmin();
   if (!supabase) return [];
 
@@ -150,6 +156,9 @@ export async function fetchRecentDemoOrders(options?: { providerSlug?: string; c
   }
   if (options?.clientSlug) {
     query = query.eq("client_slug", options.clientSlug);
+  }
+  if (!options?.includeArchived) {
+    query = query.eq("is_archived", false);
   }
 
   const { data, error } = await query;

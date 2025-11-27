@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowUpRight,
+  Archive,
   CheckCircle2,
   Clock,
   CreditCard,
@@ -187,6 +188,15 @@ export function SubscriptionClient({ providerSlug, provider, initialPayments }: 
             <CreditCard className="h-3.5 w-3.5" />
             Mi suscripción
           </Badge>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button asChild size="sm" variant="outline" className="gap-2">
+            <Link href={`/app/${providerSlug}/subscription/deleted-orders`}>
+              <Archive className="h-4 w-4" />
+              Pedidos eliminados
+            </Link>
+          </Button>
         </div>
 
         <div className="grid gap-5 lg:grid-cols-[1.15fr,0.85fr]">
