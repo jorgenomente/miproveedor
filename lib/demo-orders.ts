@@ -11,6 +11,11 @@ const demoOrderItemSchema = z.object({
   unitPrice: z.number(),
 });
 
+const demoDeliveredItemSchema = z.object({
+  productId: z.string(),
+  quantity: z.number().int().nonnegative(),
+});
+
 const demoOrderSchema = z.object({
   providerSlug: z.string().min(2),
   clientSlug: z.string().min(2),
@@ -29,6 +34,8 @@ const demoOrderSchema = z.object({
   deliveryDate: z.string().nullable().optional(),
   deliveryRuleId: z.string().nullable().optional(),
   cutoffDate: z.string().nullable().optional(),
+  receiptGeneratedAt: z.string().nullable().optional(),
+  deliveredItems: z.array(demoDeliveredItemSchema).optional(),
   items: z.array(demoOrderItemSchema),
 });
 
@@ -52,8 +59,10 @@ export type DemoOrderRecord = {
   delivery_date?: string | null;
   delivery_rule_id?: string | null;
   cutoff_date?: string | null;
+  receipt_generated_at?: string | null;
   created_at: string;
   archived_at?: string | null;
+  delivered_items?: { productId: string; quantity: number }[] | null;
   items: DemoOrderItem[];
 };
 
@@ -80,6 +89,7 @@ const mapRecord = (row: any): DemoOrderRecord | null => {
     delivery_date: row.delivery_date ?? null,
     delivery_rule_id: row.delivery_rule_id ?? null,
     cutoff_date: row.cutoff_date ?? null,
+    receipt_generated_at: row.receipt_generated_at ?? null,
     created_at: row.created_at ?? new Date().toISOString(),
     items: parsedItems.map((item: any) => ({
       productId: item.productId ?? "",
@@ -89,6 +99,12 @@ const mapRecord = (row: any): DemoOrderRecord | null => {
       unitPrice: Number(item.unitPrice ?? 0),
       subtotal: Number(item.subtotal ?? Number(item.unitPrice ?? 0) * Number(item.quantity ?? 0)),
     })),
+    delivered_items: Array.isArray(row.delivered_items)
+      ? row.delivered_items.map((item: any) => ({
+          productId: item.productId ?? item.product_id ?? "",
+          quantity: Number(item.quantity ?? 0),
+        }))
+      : null,
   };
 };
 
@@ -127,6 +143,13 @@ export async function persistDemoOrder(input: z.infer<typeof demoOrderSchema>) {
       delivery_date: parsed.data.deliveryDate ?? null,
       delivery_rule_id: parsed.data.deliveryRuleId ?? null,
       cutoff_date: parsed.data.cutoffDate ?? null,
+      receipt_generated_at: parsed.data.receiptGeneratedAt ?? null,
+      delivered_items: parsed.data.deliveredItems
+        ? parsed.data.deliveredItems.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+          }))
+        : null,
       items: parsed.data.items.map((item) => ({
         ...item,
         subtotal: item.unitPrice * item.quantity,

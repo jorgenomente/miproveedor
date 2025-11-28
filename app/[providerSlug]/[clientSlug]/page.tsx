@@ -14,6 +14,8 @@ type LoadedData =
       paymentSettings: PaymentSettings;
       history: PublicOrderHistory[];
       deliveryRules: DeliveryRule[];
+      deliveryMode: "windows" | "available_days";
+      deliveryAvailableByZone: Record<string, { days: number[]; cutoffTimeMinutes: number }>;
       deliveryZones: DeliveryZone[];
       drafts: DraftState[];
       error?: undefined;
@@ -25,12 +27,16 @@ type LoadedData =
       paymentSettings?: undefined;
       history?: undefined;
       deliveryRules?: undefined;
+      deliveryMode?: undefined;
+      deliveryAvailableByZone?: undefined;
       deliveryZones?: undefined;
       drafts?: undefined;
       error: string;
     };
 
 async function fetchData(params: { providerSlug: string; clientSlug: string }): Promise<LoadedData> {
+  const normalizedClientSlug = params.clientSlug.trim().toLowerCase();
+
   if (params.providerSlug === "demo") {
     const demo = getDemoData();
     const provider: Provider = {
@@ -39,7 +45,7 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
       slug: demo.provider.slug,
       contact_phone: demo.provider.contact_phone,
     };
-    const client = demo.clients.find((item) => item.slug === params.clientSlug);
+    const client = demo.clients.find((item) => item.slug === normalizedClientSlug);
     if (!client) {
       return { error: "Tienda demo no encontrada." };
     }
@@ -68,23 +74,35 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
 
     const storedOrders = await fetchRecentDemoOrders({
       providerSlug: demo.provider.slug,
-      clientSlug: params.clientSlug,
+      clientSlug: normalizedClientSlug,
     });
-    const storedHistory: PublicOrderHistory[] = storedOrders.map((order) => ({
-      id: order.id,
-      status: order.status,
-      paymentMethod: order.payment_method ?? "efectivo",
-      paymentProofStatus: order.payment_proof_status ?? "no_aplica",
-      total: order.total,
-      createdAt: order.created_at,
-      items: order.items.map((item) => ({
-        productName: item.name,
-        unit: item.unit ?? null,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        subtotal: item.subtotal ?? item.unitPrice * item.quantity,
-      })),
-    }));
+    const storedHistory: PublicOrderHistory[] = storedOrders.map((order) => {
+      const deliveredMap = new Map(
+        (order.delivered_items ?? []).map((item) => [item.productId, item.quantity ?? null]),
+      );
+      return {
+        id: order.id,
+        status: order.status,
+        paymentMethod: order.payment_method ?? "efectivo",
+        paymentProofStatus: order.payment_proof_status ?? "no_aplica",
+        total: order.total,
+        createdAt: order.created_at,
+        receiptGeneratedAt: order.receipt_generated_at ?? order.created_at ?? null,
+        items: order.items.map((item) => {
+          const deliveredQuantity = deliveredMap.get(item.productId) ?? null;
+          const unitPrice = item.unitPrice;
+          const subtotal = (deliveredQuantity ?? item.quantity) * unitPrice;
+          return {
+            productName: item.name,
+            unit: item.unit ?? null,
+            quantity: item.quantity,
+            deliveredQuantity,
+            unitPrice,
+            subtotal,
+          };
+        }),
+      };
+    });
 
     const seededHistory: PublicOrderHistory[] = demo.orders
       .filter((order) => order.clientSlug === params.clientSlug)
@@ -95,6 +113,7 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
         paymentProofStatus: order.paymentProofStatus ?? "no_aplica",
         total: order.total,
         createdAt: order.createdAt,
+        receiptGeneratedAt: order.createdAt ?? new Date().toISOString(),
         items:
           order.displayItems ??
           order.items.map((item) => {
@@ -106,6 +125,7 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
               productName: name,
               unit,
               quantity: item.quantity,
+              deliveredQuantity: item.quantity,
               unitPrice,
               subtotal: unitPrice * item.quantity,
             };
@@ -129,21 +149,23 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
         address: client.address ?? undefined,
       },
       deliveryRules: demoDeliveryRules,
+      deliveryMode: "windows",
+      deliveryAvailableByZone: {},
       deliveryZones: demoDeliveryZones,
       drafts: [],
-    products: demo.products.map((product) => {
-      const basePrice = Number(product.price ?? 0);
-      const discount = Number(product.discount_percent ?? 0);
-      const finalPrice = Number((basePrice * (1 - Math.max(0, Math.min(100, discount)) / 100)).toFixed(2));
-      return {
-        id: product.id,
-        name: product.name,
-        brand: (product as { brand?: string | null }).brand ?? null,
-        description: product.description,
-        price: finalPrice,
-        basePrice,
-        discountPercent: discount,
-        unit: product.unit,
+      products: demo.products.map((product) => {
+        const basePrice = Number(product.price ?? 0);
+        const discount = Number(product.discount_percent ?? 0);
+        const finalPrice = Number((basePrice * (1 - Math.max(0, Math.min(100, discount)) / 100)).toFixed(2));
+        return {
+          id: product.id,
+          name: product.name,
+          brand: (product as { brand?: string | null }).brand ?? null,
+          description: product.description,
+          price: finalPrice,
+          basePrice,
+          discountPercent: discount,
+          unit: product.unit,
           image_url: product.image_url ?? undefined,
           category: product.category ?? undefined,
           tags: product.tags ?? [],
@@ -190,7 +212,7 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
     .from("clients")
     .select("id, name, slug, contact_name, contact_phone, address, is_active")
     .eq("provider_id", provider.id)
-    .eq("slug", params.clientSlug)
+    .eq("slug", normalizedClientSlug)
     .maybeSingle();
 
   if (clientError || !client || client.is_active === false) {
@@ -251,15 +273,36 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
       })) ?? [],
   };
 
-  const { data: deliveryRows, error: deliveryError } = await supabase
-    .from("delivery_windows")
-    .select("id, cutoff_weekday, cutoff_time_minutes, delivery_weekday, delivery_time_minutes")
-    .eq("provider_id", provider.id)
-    .order("cutoff_weekday", { ascending: true })
-    .order("cutoff_time_minutes", { ascending: true });
+  const [
+    { data: deliveryRows, error: deliveryError },
+    { data: deliverySettingsRow, error: deliverySettingsError },
+    { data: availableRows, error: availableError },
+  ] = await Promise.all([
+    supabase
+      .from("delivery_windows")
+      .select("id, cutoff_weekday, cutoff_time_minutes, delivery_weekday, delivery_time_minutes")
+      .eq("provider_id", provider.id)
+      .order("cutoff_weekday", { ascending: true })
+      .order("cutoff_time_minutes", { ascending: true }),
+    supabase
+      .from("provider_delivery_settings")
+      .select("mode")
+      .eq("provider_id", provider.id)
+      .maybeSingle(),
+    supabase
+      .from("delivery_zone_available_days")
+      .select("zone_id, delivery_weekday, cutoff_time_minutes")
+      .eq("provider_id", provider.id),
+  ]);
 
   if (deliveryError) {
     return { error: `No pudimos cargar las reglas de entrega: ${deliveryError.message}` };
+  }
+  if (deliverySettingsError) {
+    return { error: `No pudimos cargar el modo de entrega: ${deliverySettingsError.message}` };
+  }
+  if (availableError) {
+    return { error: `No pudimos cargar los días disponibles: ${availableError.message}` };
   }
 
   const deliveryRules: DeliveryRule[] =
@@ -270,6 +313,21 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
       deliveryWeekday: row.delivery_weekday ?? 0,
       deliveryTimeMinutes: row.delivery_time_minutes ?? 10 * 60,
     })) ?? [];
+
+  const deliveryMode: "windows" | "available_days" =
+    deliverySettingsRow?.mode === "available_days" ? "available_days" : "windows";
+
+  const deliveryAvailableByZone: Record<
+    string,
+    { days: number[]; cutoffTimeMinutes: number }
+  > = {};
+  (availableRows ?? []).forEach((row) => {
+    const entry = deliveryAvailableByZone[row.zone_id] ?? { days: [], cutoffTimeMinutes: row.cutoff_time_minutes ?? 1200 };
+    if (!entry.days.includes(row.delivery_weekday ?? 0)) entry.days.push(row.delivery_weekday ?? 0);
+    entry.cutoffTimeMinutes = row.cutoff_time_minutes ?? entry.cutoffTimeMinutes;
+    deliveryAvailableByZone[row.zone_id] = entry;
+  });
+  Object.values(deliveryAvailableByZone).forEach((entry) => entry.days.sort());
 
   const { data: deliveryZonesRows, error: deliveryZonesError } = await supabase
     .from("delivery_zones")
@@ -332,8 +390,11 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
         payment_proof_url,
         delivery_date,
         delivery_rule_id,
+        receipt_generated_at,
+        delivery_zone:delivery_zones(name),
         created_at,
         order_items(
+          delivered_quantity,
           quantity,
           unit_price,
           product:products(name, unit)
@@ -352,12 +413,18 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
           const productEntry =
             Array.isArray(item.product) && item.product.length > 0 ? item.product[0] : (item as any).product;
           const unitPrice = Number(item.unit_price ?? 0);
+          const deliveredQuantity =
+            typeof (item as { delivered_quantity?: number | null }).delivered_quantity === "number"
+              ? (item as { delivered_quantity?: number | null }).delivered_quantity
+              : null;
+          const effectiveQuantity = deliveredQuantity ?? item.quantity;
           return {
             productName: productEntry?.name ?? "Producto",
             unit: productEntry?.unit ?? null,
             quantity: item.quantity,
+            deliveredQuantity,
             unitPrice,
-            subtotal: unitPrice * item.quantity,
+            subtotal: unitPrice * effectiveQuantity,
           };
         }) ?? [];
 
@@ -391,6 +458,11 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
         createdAt: order.created_at,
         deliveryDate: (order as { delivery_date?: string | null }).delivery_date ?? null,
         deliveryRuleId: (order as { delivery_rule_id?: string | null }).delivery_rule_id ?? null,
+        receiptGeneratedAt: (order as { receipt_generated_at?: string | null }).receipt_generated_at ?? null,
+        deliveryZoneName:
+          Array.isArray((order as any).delivery_zone) && (order as any).delivery_zone.length > 0
+            ? (order as any).delivery_zone[0]?.name ?? null
+            : ((order as any).delivery_zone as { name?: string } | null | undefined)?.name ?? null,
         items,
       };
     }) ?? [];
@@ -425,12 +497,14 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
         is_out_of_stock: Boolean(product.is_out_of_stock),
       };
     }),
-      paymentSettings,
-      deliveryRules,
-      deliveryZones,
-      drafts,
-      history,
-    };
+    paymentSettings,
+    deliveryRules,
+    deliveryMode,
+    deliveryAvailableByZone,
+    deliveryZones,
+    drafts,
+    history,
+  };
 }
 
 export default async function ClientOrderPage({
@@ -459,6 +533,8 @@ export default async function ClientOrderPage({
       products={data.products as Product[]}
       paymentSettings={data.paymentSettings as PaymentSettings}
       deliveryRules={data.deliveryRules as DeliveryRule[]}
+      deliveryMode={data.deliveryMode}
+      deliveryAvailableByZone={data.deliveryAvailableByZone}
       deliveryZones={data.deliveryZones as DeliveryZone[]}
       drafts={data.drafts as DraftState[]}
       history={data.history as PublicOrderHistory[]}

@@ -198,6 +198,7 @@ export async function createOrder(
       providerSlug: parsed.data.providerSlug,
       clientSlug: parsed.data.clientSlug,
       status: "nuevo",
+      isArchived: false,
       contactName: parsed.data.contactName,
       contactPhone: parsed.data.contactPhone,
       deliveryMethod: parsed.data.deliveryMethod ?? null,
@@ -286,11 +287,23 @@ export async function createOrder(
 
   const productIds = parsed.data.items.map((item) => item.productId);
 
-  const { data: products, error: productsError } = await supabase
-    .from("products")
-    .select("id, name, unit, price, discount_percent, is_out_of_stock")
-    .eq("provider_id", provider.id)
-    .in("id", productIds);
+  const [{ data: products, error: productsError }, { data: settingsRow }, { data: availableRows, error: availableError }] =
+    await Promise.all([
+      supabase
+        .from("products")
+        .select("id, name, unit, price, discount_percent, is_out_of_stock")
+        .eq("provider_id", provider.id)
+        .in("id", productIds),
+      supabase
+        .from("provider_delivery_settings")
+        .select("mode")
+        .eq("provider_id", provider.id)
+        .maybeSingle(),
+      supabase
+        .from("delivery_zone_available_days")
+        .select("zone_id, delivery_weekday, cutoff_time_minutes")
+        .eq("provider_id", provider.id),
+    ]);
 
   if (productsError) {
     return {
@@ -298,6 +311,12 @@ export async function createOrder(
       errors: [`No se pudieron validar los productos: ${productsError.message}`],
     };
   }
+  if (availableError) {
+    return { success: false, errors: [`No se pudieron cargar los días disponibles: ${availableError.message}`] };
+  }
+
+  const deliveryMode: "windows" | "available_days" =
+    settingsRow?.mode === "available_days" ? "available_days" : "windows";
 
   const productMap = new Map(
     (products ?? []).map((product) => {
@@ -436,9 +455,54 @@ export async function createOrder(
       deliveryTimeMinutes: row.delivery_time_minutes ?? 10 * 60,
     })) ?? [];
 
-  const slot = resolveNextDelivery(deliveryRules);
+  const availableByZone: Map<string, { days: number[]; cutoffTimeMinutes: number }> = new Map();
+  (availableRows ?? []).forEach((row) => {
+    const entry = availableByZone.get(row.zone_id) ?? { days: [], cutoffTimeMinutes: row.cutoff_time_minutes ?? 20 * 60 };
+    entry.cutoffTimeMinutes = row.cutoff_time_minutes ?? entry.cutoffTimeMinutes;
+    if (!entry.days.includes(row.delivery_weekday ?? 0)) entry.days.push(row.delivery_weekday ?? 0);
+    availableByZone.set(row.zone_id, entry);
+  });
+  availableByZone.forEach((value) => value.days.sort());
+
+  if (deliveryMode === "available_days" && parsed.data.deliveryMethod === "envio") {
+    if (!deliveryZoneId) {
+      return { success: false, errors: ["Selecciona una zona para calcular la entrega."] };
+    }
+    const cfg = deliveryZoneId ? availableByZone.get(deliveryZoneId) : null;
+    if (!cfg || !cfg.days.length) {
+      return { success: false, errors: ["Esta zona no tiene días de entrega configurados."] };
+    }
+  }
+
+  const computeAvailableSlot = (zoneId: string) => {
+    const now = new Date();
+    const config = availableByZone.get(zoneId);
+    if (!config || !config.days.length) return null;
+    const cutoffMinutes = config.cutoffTimeMinutes ?? 20 * 60;
+    const days = Array.from(new Set(config.days)).sort();
+    for (let i = 0; i < 14; i += 1) {
+      const candidate = new Date(now);
+      candidate.setDate(now.getDate() + i);
+      const weekday = candidate.getDay();
+      if (!days.includes(weekday)) continue;
+      const cutoffDate = new Date(candidate);
+      cutoffDate.setDate(candidate.getDate() - 1);
+      cutoffDate.setHours(Math.floor(cutoffMinutes / 60), cutoffMinutes % 60, 0, 0);
+      if (now <= cutoffDate) {
+        candidate.setHours(10, 0, 0, 0);
+        return { deliveryDate: candidate.toISOString(), cutoffDate: cutoffDate.toISOString(), ruleId: null };
+      }
+    }
+    return null;
+  };
+
+  const slot =
+    deliveryMode === "available_days" && parsed.data.deliveryMethod === "envio" && deliveryZoneId
+      ? computeAvailableSlot(deliveryZoneId)
+      : resolveNextDelivery(deliveryRules);
+
   if (!slot) {
-    return { success: false, errors: ["El proveedor no configuró las ventanas de entrega."] };
+    return { success: false, errors: ["El proveedor no configuró las reglas de entrega."] };
   }
 
   const { data: order, error: orderError } = await supabase

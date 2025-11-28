@@ -9,6 +9,10 @@ function escapePdfText(text: string) {
   return text.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 }
 
+function shortOrderId(id: string) {
+  return id?.length > 8 ? id.slice(0, 8) : id;
+}
+
 type OrderForPdf = {
   id: string;
   status: string;
@@ -17,6 +21,7 @@ type OrderForPdf = {
   deliveryMethod: string | null;
   note: string | null;
   createdAt: string | null;
+  receiptGeneratedAt?: string | null;
   total: number;
   provider: {
     name: string;
@@ -32,23 +37,36 @@ type OrderForPdf = {
     productName: string;
     unit?: string | null;
     quantity: number;
+    deliveredQuantity?: number | null;
     unitPrice: number;
     subtotal: number;
   }[];
 };
 
 function buildPdf(order: OrderForPdf) {
+  const truncate = (value: string, max = 54) => {
+    if (value.length <= max) return value;
+    return `${value.slice(0, max - 3)}...`;
+  };
+
   const lines: string[] = [];
   lines.push("BT");
   lines.push("/F1 18 Tf");
-  lines.push("50 780 Td");
+  // Header
+  lines.push("1 0 0 1 50 780 Tm");
   lines.push(`(${escapePdfText("Remito de entrega")}) Tj`);
   lines.push("/F1 12 Tf");
-  lines.push("0 -24 Td");
+  lines.push("1 0 0 1 430 782 Tm");
+  lines.push(`(${escapePdfText(`Pedido #${shortOrderId(order.id)}`)}) Tj`);
+
+  // Provider / client info
+  lines.push("1 0 0 1 50 754 Tm");
   lines.push(`(${escapePdfText(`Proveedor: ${order.provider.name}`)}) Tj`);
-  lines.push("0 -14 Td");
   const providerContact = [order.provider.contact_email, order.provider.contact_phone].filter(Boolean).join(" · ");
-  if (providerContact) lines.push(`(${escapePdfText(providerContact)}) Tj`);
+  if (providerContact) {
+    lines.push("0 -14 Td");
+    lines.push(`(${escapePdfText(providerContact)}) Tj`);
+  }
   lines.push("0 -18 Td");
   lines.push(`(${escapePdfText(`Cliente: ${order.client.name}`)}) Tj`);
   if (order.client.address) {
@@ -59,31 +77,66 @@ function buildPdf(order: OrderForPdf) {
     lines.push("0 -14 Td");
     lines.push(`(${escapePdfText(`Tel: ${order.client.contact_phone}`)}) Tj`);
   }
-  lines.push("0 -20 Td");
+  lines.push("0 -18 Td");
   lines.push(`(${escapePdfText(`Estado: ${order.status}`)}) Tj`);
   lines.push("0 -14 Td");
   lines.push(
-    `(${escapePdfText(
-      `Entrega: ${order.deliveryMethod ? order.deliveryMethod : "No especificada"}`,
-    )}) Tj`,
+    `(${escapePdfText(`Entrega: ${order.deliveryMethod ? order.deliveryMethod : "No especificada"}`)}) Tj`,
   );
   if (order.note) {
     lines.push("0 -18 Td");
-    lines.push(`(${escapePdfText(`Nota: ${order.note}`)}) Tj`);
+    lines.push(`(${escapePdfText(`Nota: ${truncate(order.note, 80)}`)}) Tj`);
   }
-  lines.push("0 -24 Td");
-  lines.push(`(${escapePdfText("Detalle")}) Tj`);
-  lines.push("/F1 11 Tf");
-  order.items.forEach((item) => {
-    lines.push("0 -14 Td");
-    lines.push(
-      `(${escapePdfText(
-        `${item.quantity} x ${item.productName}${item.unit ? ` (${item.unit})` : ""} - ${formatCurrency(item.subtotal)}`,
-      )}) Tj`,
-    );
-  });
-  lines.push("0 -20 Td");
+
+  // Table headers (Fecha y Pedido removidos para dar espacio al subtotal)
+  const columns = {
+    product: 50,
+    quantity: 320,
+    unit: 380,
+    subtotal: 470,
+  };
+  let currentY = 640;
+
   lines.push("/F1 12 Tf");
+  lines.push(`1 0 0 1 ${columns.product} ${currentY} Tm`);
+  lines.push(`(${escapePdfText("Detalle")}) Tj`);
+
+  currentY -= 18;
+  lines.push("/F1 11 Tf");
+  lines.push(`1 0 0 1 ${columns.product} ${currentY} Tm`);
+  lines.push(`(${escapePdfText("Producto")}) Tj`);
+  lines.push(`1 0 0 1 ${columns.quantity} ${currentY} Tm`);
+  lines.push(`(${escapePdfText("Cant.")}) Tj`);
+  lines.push(`1 0 0 1 ${columns.unit} ${currentY} Tm`);
+  lines.push(`(${escapePdfText("Unitario")}) Tj`);
+  lines.push(`1 0 0 1 ${columns.subtotal} ${currentY} Tm`);
+  lines.push(`(${escapePdfText("Subtotal")}) Tj`);
+
+  currentY -= 14;
+  lines.push("/F1 10 Tf");
+  order.items.forEach((item) => {
+    const qty = typeof item.deliveredQuantity === "number" ? item.deliveredQuantity : item.quantity;
+    lines.push(`1 0 0 1 ${columns.product} ${currentY} Tm`);
+    const name = truncate(`${item.productName}${item.unit ? ` (${item.unit})` : ""}`, 60);
+    lines.push(`(${escapePdfText(name)}) Tj`);
+
+    lines.push(`1 0 0 1 ${columns.quantity} ${currentY} Tm`);
+    lines.push(`(${escapePdfText(String(qty))}) Tj`);
+
+    lines.push(`1 0 0 1 ${columns.unit} ${currentY} Tm`);
+    lines.push(`(${escapePdfText(formatCurrency(item.unitPrice))}) Tj`);
+
+    lines.push(`1 0 0 1 ${columns.subtotal} ${currentY} Tm`);
+    const subtotal = item.subtotal ?? item.unitPrice * qty;
+    lines.push(`(${escapePdfText(formatCurrency(subtotal))}) Tj`);
+
+    currentY -= 14;
+  });
+
+  // Totals
+  currentY -= 10;
+  lines.push("/F1 12 Tf");
+  lines.push(`1 0 0 1 ${columns.subtotal} ${currentY} Tm`);
   lines.push(`(${escapePdfText(`Total: ${formatCurrency(order.total)}`)}) Tj`);
   lines.push("ET");
 
@@ -147,6 +200,7 @@ async function fetchOrder({
           productName: name,
           unit,
           quantity: item.quantity,
+          deliveredQuantity: item.quantity,
           unitPrice,
           subtotal: unitPrice * item.quantity,
         };
@@ -160,6 +214,7 @@ async function fetchOrder({
       deliveryMethod: order.deliveryMethod ?? null,
       note: order.note ?? null,
       createdAt: order.createdAt ?? null,
+      receiptGeneratedAt: order.createdAt ?? new Date().toISOString(),
       total: order.total,
       provider: {
         name: demo.provider.name,
@@ -204,7 +259,9 @@ async function fetchOrder({
         delivery_method,
         note,
         created_at,
+        receipt_generated_at,
         order_items(
+          delivered_quantity,
           quantity,
           unit_price,
           product:products(name, unit)
@@ -222,16 +279,25 @@ async function fetchOrder({
     order.order_items?.map((item) => {
       const productEntry = Array.isArray(item.product) && item.product.length > 0 ? item.product[0] : (item as any).product;
       const unitPrice = Number(item.unit_price ?? 0);
+      const deliveredQuantity =
+        typeof (item as { delivered_quantity?: number | null }).delivered_quantity === "number"
+          ? (item as { delivered_quantity?: number | null }).delivered_quantity
+          : null;
+      const effectiveQuantity = deliveredQuantity ?? item.quantity;
       return {
         productName: productEntry?.name ?? "Producto",
         unit: productEntry?.unit ?? null,
         quantity: item.quantity,
+        deliveredQuantity,
         unitPrice,
-        subtotal: unitPrice * item.quantity,
+        subtotal: unitPrice * effectiveQuantity,
       };
     }) ?? [];
 
-  const total = items.reduce((acc, item) => acc + item.subtotal, 0);
+  const total = items.reduce(
+    (acc, item) => acc + (item.subtotal ?? item.unitPrice * (item.deliveredQuantity ?? item.quantity ?? 0)),
+    0,
+  );
 
   return {
     id: order.id,
@@ -241,6 +307,7 @@ async function fetchOrder({
     deliveryMethod: (order as { delivery_method?: string | null }).delivery_method ?? null,
     note: (order as { note?: string | null }).note ?? null,
     createdAt: order.created_at ?? null,
+    receiptGeneratedAt: (order as { receipt_generated_at?: string | null }).receipt_generated_at ?? null,
     total,
     provider: {
       name: provider.name,
@@ -266,6 +333,10 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ pr
 
   if (!order) {
     return NextResponse.json({ error: "Pedido no encontrado." }, { status: 404 });
+  }
+
+  if (!order.receiptGeneratedAt) {
+    return NextResponse.json({ error: "El remito aún no está disponible." }, { status: 404 });
   }
 
   const pdf = buildPdf(order);

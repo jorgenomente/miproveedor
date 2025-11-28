@@ -8,8 +8,6 @@ import {
   Banknote,
   CheckCircle2,
   Clock3,
-  DollarSign,
-  FileStack,
   Eye,
   FileUp,
   Download,
@@ -20,6 +18,9 @@ import {
   ChevronDown,
   Trash2,
   FileText,
+  LayoutGrid,
+  Table as TableIcon,
+  Search,
 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -27,6 +28,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -54,6 +57,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatCurrency } from "@/lib/whatsapp";
 import { listProviders, type ProviderRow } from "../orders/actions";
 import {
@@ -69,12 +74,6 @@ import {
 
 export type AccountsPageProps = { initialProviderSlug?: string };
 
-const statusLabel: Record<string, string> = {
-  pending: "Pendiente",
-  approved: "Aprobado",
-  rejected: "Rechazado",
-};
-
 const orderStatusTone: Record<string, string> = {
   nuevo: "bg-blue-100 text-blue-700",
   preparando: "bg-amber-100 text-amber-800",
@@ -82,21 +81,6 @@ const orderStatusTone: Record<string, string> = {
   entregado: "bg-emerald-100 text-emerald-700",
   cancelado: "bg-rose-100 text-rose-700",
 };
-
-function PaymentBadge({ payment }: { payment: AccountPayment }) {
-  const tone =
-    payment.status === "approved"
-      ? "bg-emerald-100 text-emerald-700"
-      : payment.status === "pending"
-        ? "bg-amber-100 text-amber-800"
-        : "bg-rose-100 text-rose-700";
-  return (
-    <Badge variant="secondary" className={`gap-1 ${tone}`}>
-      <Wallet className="h-3.5 w-3.5" />
-      {statusLabel[payment.status] ?? payment.status}
-    </Badge>
-  );
-}
 
 const shortId = (id: string) => (id?.length > 8 ? id.slice(0, 8) : id);
 
@@ -274,25 +258,6 @@ function OrderRow({
   );
 }
 
-function PaymentRow({ payment }: { payment: AccountPayment }) {
-  return (
-    <div className="flex items-center justify-between rounded-lg border border-muted/40 bg-gradient-to-r from-white via-white to-slate-50 px-3 py-2">
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <span>Pago #{payment.id.slice(0, 6)}</span>
-          <PaymentBadge payment={payment} />
-        </div>
-        <p className="text-xs text-muted-foreground">{payment.paidAt ? new Date(payment.paidAt).toLocaleString() : "Sin fecha"}</p>
-        {payment.reference ? <p className="text-xs text-muted-foreground">Ref: {payment.reference}</p> : null}
-      </div>
-      <div className="text-right">
-        <div className="text-sm font-semibold">{formatCurrency(payment.amount)}</div>
-        {payment.method ? <p className="text-xs text-muted-foreground capitalize">{payment.method}</p> : null}
-      </div>
-    </div>
-  );
-}
-
 export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
   const searchParams = useSearchParams();
   const providerQuery = searchParams?.get("provider") ?? null;
@@ -300,6 +265,7 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
   const [providerSlug, setProviderSlug] = useState(initialProviderSlug ?? providerQuery ?? "");
   const [providers, setProviders] = useState<ProviderRow[]>([]);
   const [accounts, setAccounts] = useState<ClientAccount[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, startSaving] = useTransition();
@@ -308,11 +274,17 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
   const [detailsOpen, setDetailsOpen] = useState(true);
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
   const [archivingOrderId, setArchivingOrderId] = useState<string | null>(null);
+  const [accountsPanelOpen, setAccountsPanelOpen] = useState(true);
+  const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
   const [summaryAccount, setSummaryAccount] = useState<ClientAccount | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [downloadingSummary, setDownloadingSummary] = useState(false);
 
-  const filteredAccounts = useMemo(() => accounts, [accounts]);
+  const filteredAccounts = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return accounts;
+    return accounts.filter((account) => account.client.name.toLowerCase().includes(term));
+  }, [accounts, searchTerm]);
 
   const selectedAccount = useMemo(() => {
     if (!filteredAccounts.length) return null;
@@ -332,15 +304,6 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
     );
     return totals;
   }, [filteredAccounts]);
-  const pendingPayments = useMemo(
-    () => (selectedAccount ? selectedAccount.payments.filter((payment) => payment.status === "pending") : []),
-    [selectedAccount],
-  );
-  const approvedPayments = useMemo(
-    () => (selectedAccount ? selectedAccount.payments.filter((payment) => payment.status === "approved") : []),
-    [selectedAccount],
-  );
-
   const isOrderConfirmed = useCallback(
     (order: AccountOrder, payments: AccountPayment[]) => {
       const hasApprovedCash = payments.some(
@@ -386,7 +349,7 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
   );
 
   const handleCardKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLDivElement>, clientId: string) => {
+    (event: KeyboardEvent<HTMLElement>, clientId: string) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
         setSelectedClientId(clientId);
@@ -625,99 +588,253 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
       </div>
 
       <Card className="border-[color:var(--neutral-200)] bg-white/80 shadow-sm">
-        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="space-y-1">
-            <CardTitle className="text-lg">Cuentas por cobrar</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Controla pedidos, pagos recibidos y saldos pendientes por cada cliente.
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">
-              <CheckCircle2 className="h-4 w-4" />
-              {formatCurrency(summary.paid)}
-            </div>
-            <div className="flex items-center gap-2 rounded-full bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
-              <Clock3 className="h-4 w-4" />
-              Pendiente {formatCurrency(summary.pending)}
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {error ? (
-            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {error}
-            </div>
-          ) : null}
-          {loading ? (
-            <div className="grid gap-3 md:grid-cols-2">
-              {Array.from({ length: 4 }).map((_, index) => (
-                <Skeleton key={index} className="h-28 w-full rounded-xl" />
-              ))}
-            </div>
-          ) : (
-            <AnimatePresence>
-              <div className="grid gap-3 md:grid-cols-2">
-                {filteredAccounts.map((account, index) => {
-                  const isActive = selectedAccount?.client.id === account.client.id;
-                  const highlight = account.totals.pending > 0 ? "border-amber-300 shadow-[0_10px_40px_-24px_rgba(251,191,36,0.8)]" : "border-slate-200";
-                  return (
-                    <motion.div
-                      key={account.client.id}
-                      layout
-                      onClick={() => setSelectedClientId(account.client.id)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(event) => handleCardKeyDown(event, account.client.id)}
-                      className={`flex flex-col items-start rounded-xl border ${highlight} bg-white p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2`}
-                      initial={{ opacity: 0, y: 12 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 8 }}
-                      whileHover={{ y: -2 }}
-                      transition={{ delay: index * 0.03 }}
+        <Collapsible open={accountsPanelOpen} onOpenChange={setAccountsPanelOpen}>
+          <CardHeader className="flex flex-col gap-4">
+            <CollapsibleTrigger asChild>
+              <motion.button
+                type="button"
+                aria-expanded={accountsPanelOpen}
+                className="group flex w-full flex-col gap-3 rounded-xl border border-transparent px-3 py-3 text-left transition hover:border-muted/60 hover:bg-muted/40 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 md:flex-row md:items-center md:justify-between"
+                whileTap={{ scale: 0.99 }}
+              >
+                <div className="space-y-1">
+                  <CardTitle className="text-lg">Cuentas por cobrar</CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Controla pedidos, pagos recibidos y saldos pendientes por cada cliente.
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 shadow-sm">
+                    <CheckCircle2 className="h-4 w-4" />
+                    {formatCurrency(summary.paid)}
+                  </div>
+                  <div className="flex items-center gap-2 rounded-full bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 shadow-sm">
+                    <Clock3 className="h-4 w-4" />
+                    Pendiente {formatCurrency(summary.pending)}
+                  </div>
+                  <motion.span
+                    aria-hidden
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-700 transition group-hover:bg-slate-200"
+                    animate={{ rotate: accountsPanelOpen ? 0 : -90 }}
+                    transition={{ type: "spring", stiffness: 200, damping: 16 }}
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </motion.span>
+                </div>
+              </motion.button>
+            </CollapsibleTrigger>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    value={searchTerm}
+                    onChange={(event) => setSearchTerm(event.target.value)}
+                    placeholder="Buscar tienda"
+                    className="w-[220px] pl-9"
+                    aria-label="Buscar tienda"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs uppercase tracking-wide text-muted-foreground">Vista</span>
+                  <div className="flex items-center gap-1 rounded-full border border-muted/40 bg-white/80 p-1 shadow-inner">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={viewMode === "cards" ? "secondary" : "ghost"}
+                      className={`h-8 gap-2 ${viewMode === "cards" ? "shadow-sm" : ""}`}
+                      onClick={() => setViewMode("cards")}
                     >
-                      <div className="flex w-full items-start justify-between gap-3">
-                        <div className="space-y-1">
-                          <p className="text-sm text-muted-foreground">Cliente</p>
-                          <h3 className="text-base font-semibold leading-tight">{account.client.name}</h3>
-                          <p className="text-xs text-muted-foreground">{account.client.contactName ?? "Sin contacto"}</p>
-                        </div>
-                        <Badge variant="secondary" className={isActive ? "bg-primary/10 text-primary" : ""}>
-                          {account.totals.ordersCount} pedido(s)
-                        </Badge>
-                      </div>
-                      <div className="mt-3 grid w-full grid-cols-2 gap-3">
-                        <div className="rounded-lg bg-slate-50 px-3 py-2">
-                          <p className="text-[11px] uppercase tracking-wide text-slate-500">Pendiente</p>
-                          <p className="text-sm font-semibold text-slate-900">{formatCurrency(account.totals.pending)}</p>
-                        </div>
-                        <div className="rounded-lg bg-emerald-50 px-3 py-2">
-                          <p className="text-[11px] uppercase tracking-wide text-emerald-600">Pagado</p>
-                          <p className="text-sm font-semibold text-emerald-800">{formatCurrency(account.totals.paid)}</p>
-                        </div>
-                      </div>
-                      <div className="mt-3 flex w-full items-center justify-between gap-2">
-                        <div className="text-xs text-muted-foreground">Actualizado automáticamente con cada pedido.</div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 gap-2"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openSummaryForAccount(account);
-                          }}
-                        >
-                          <FileText className="h-4 w-4" />
-                          Obtener resumen
-                        </Button>
+                      <LayoutGrid className="h-4 w-4" />
+                      Tarjetas
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={viewMode === "table" ? "secondary" : "ghost"}
+                      className={`h-8 gap-2 ${viewMode === "table" ? "shadow-sm" : ""}`}
+                      onClick={() => setViewMode("table")}
+                    >
+                      <TableIcon className="h-4 w-4" />
+                      Tabla
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardHeader>
+          <CollapsibleContent asChild>
+            <CardContent className="space-y-4">
+              {error ? (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  {error}
+                </div>
+              ) : null}
+              {loading ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <Skeleton key={index} className="h-28 w-full rounded-xl" />
+                  ))}
+                </div>
+              ) : (
+                <AnimatePresence mode="wait">
+                  {viewMode === "cards" ? (
+                    <motion.div
+                      key="cards-view"
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.16 }}
+                      className="grid gap-3 md:grid-cols-2"
+                    >
+                      {filteredAccounts.map((account, index) => {
+                        const isActive = selectedAccount?.client.id === account.client.id;
+                        const highlight = account.totals.pending > 0 ? "border-amber-300 shadow-[0_10px_40px_-24px_rgba(251,191,36,0.8)]" : "border-slate-200";
+                        return (
+                          <motion.div
+                            key={account.client.id}
+                            layout
+                            onClick={() => setSelectedClientId(account.client.id)}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(event) => handleCardKeyDown(event, account.client.id)}
+                            className={`flex flex-col items-start rounded-xl border ${highlight} bg-white p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2`}
+                            initial={{ opacity: 0, y: 12 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 8 }}
+                            whileHover={{ y: -2 }}
+                            transition={{ delay: index * 0.03 }}
+                          >
+                            <div className="flex w-full items-start justify-between gap-3">
+                              <div className="space-y-1">
+                                <p className="text-sm text-muted-foreground">Cliente</p>
+                                <h3 className="text-base font-semibold leading-tight">{account.client.name}</h3>
+                                <p className="text-xs text-muted-foreground">{account.client.contactName ?? "Sin contacto"}</p>
+                              </div>
+                              <Badge variant="secondary" className={isActive ? "bg-primary/10 text-primary" : ""}>
+                                {account.totals.ordersCount} pedido(s)
+                              </Badge>
+                            </div>
+                            <div className="mt-3 grid w-full grid-cols-2 gap-3">
+                              <div className="rounded-lg bg-slate-50 px-3 py-2">
+                                <p className="text-[11px] uppercase tracking-wide text-slate-500">Pendiente</p>
+                                <p className="text-sm font-semibold text-slate-900">{formatCurrency(account.totals.pending)}</p>
+                              </div>
+                              <div className="rounded-lg bg-emerald-50 px-3 py-2">
+                                <p className="text-[11px] uppercase tracking-wide text-emerald-600">Pagado</p>
+                                <p className="text-sm font-semibold text-emerald-800">{formatCurrency(account.totals.paid)}</p>
+                              </div>
+                            </div>
+                            <div className="mt-3 flex w-full items-center justify-between gap-2">
+                              <div className="text-xs text-muted-foreground">Actualizado automáticamente con cada pedido.</div>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 gap-2"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openSummaryForAccount(account);
+                                }}
+                              >
+                                <FileText className="h-4 w-4" />
+                                Obtener resumen
+                              </Button>
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="table-view"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.18 }}
+                      className="overflow-hidden rounded-xl border border-muted/50 bg-white"
+                    >
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Cliente</TableHead>
+                              <TableHead className="text-center">Pedidos</TableHead>
+                              <TableHead className="text-right">Pendiente</TableHead>
+                              <TableHead className="text-right">Pagado</TableHead>
+                              <TableHead className="text-right">Acciones</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {filteredAccounts.map((account) => {
+                              const isActive = selectedAccount?.client.id === account.client.id;
+                              return (
+                                <TableRow
+                                  key={account.client.id}
+                                  className={`cursor-pointer transition hover:bg-muted/60 ${isActive ? "bg-primary/5" : ""}`}
+                                  onClick={() => setSelectedClientId(account.client.id)}
+                                  tabIndex={0}
+                                  onKeyDown={(event) => handleCardKeyDown(event, account.client.id)}
+                                >
+                                  <TableCell>
+                                    <div className="flex flex-col">
+                                      <span className="text-sm font-semibold leading-tight">{account.client.name}</span>
+                                      <span className="text-xs text-muted-foreground">
+                                        {account.client.contactName ?? "Sin contacto"}
+                                      </span>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="text-center text-sm">
+                                    <Badge variant="secondary" className="bg-slate-100 text-foreground">
+                                      {account.totals.ordersCount}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell className="text-right text-sm font-semibold text-amber-800">
+                                    {formatCurrency(account.totals.pending)}
+                                  </TableCell>
+                                  <TableCell className="text-right text-sm font-semibold text-emerald-700">
+                                    {formatCurrency(account.totals.paid)}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <div className="flex justify-end gap-2">
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-8 gap-1"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setSelectedClientId(account.client.id);
+                                        }}
+                                      >
+                                        <Eye className="h-4 w-4" />
+                                        Ver
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-8 gap-2"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          openSummaryForAccount(account);
+                                        }}
+                                      >
+                                        <FileText className="h-4 w-4" />
+                                        Resumen
+                                      </Button>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
                       </div>
                     </motion.div>
-                  );
-                })}
-              </div>
-            </AnimatePresence>
-          )}
-        </CardContent>
+                  )}
+                </AnimatePresence>
+              )}
+            </CardContent>
+          </CollapsibleContent>
+        </Collapsible>
       </Card>
 
       {selectedAccount ? (
@@ -796,7 +913,7 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
                           <div className="flex w-full items-center justify-between gap-2">
                             <div className="flex items-center gap-2 text-sm font-semibold">
                               <Clock3 className="h-4 w-4 text-amber-700" />
-                              Pedidos por confirmar
+                              Cobros por confirmar
                             </div>
                             <Badge variant="outline">{pendingOrders.length}</Badge>
                           </div>
@@ -804,7 +921,7 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
                         <AccordionContent className="px-4 pb-4">
                           {pendingOrders.length === 0 ? (
                             <div className="rounded-lg border border-dashed border-muted/60 px-4 py-6 text-center text-sm text-muted-foreground">
-                              Sin pedidos por confirmar.
+                              Sin cobros por confirmar.
                             </div>
                           ) : (
                             <div className="space-y-2">
@@ -867,70 +984,6 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
                     </Accordion>
                   </div>
 
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-sm font-semibold">
-                        <DollarSign className="h-4 w-4 text-[color:var(--brand-primary-dark)]" />
-                        Pagos ({selectedAccount.payments.length})
-                      </div>
-                      <Badge variant="outline" className="bg-amber-50 text-amber-800">
-                        Pendientes {formatCurrency(selectedAccount.totals.pendingPayments)}
-                      </Badge>
-                    </div>
-                    <Accordion type="multiple" defaultValue={["pending-payments"]} className="space-y-3">
-                      <AccordionItem value="pending-payments" className="overflow-hidden rounded-xl border border-(--neutral-200) bg-white">
-                        <AccordionTrigger className="px-4 py-3 hover:no-underline">
-                          <div className="flex w-full items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 text-sm font-semibold">
-                              <FileStack className="h-4 w-4 text-amber-600" />
-                              Pagos pendientes por confirmar
-                            </div>
-                            <Badge variant="outline">{pendingPayments.length}</Badge>
-                          </div>
-                        </AccordionTrigger>
-                        <AccordionContent className="px-4 pb-4">
-                          {pendingPayments.length === 0 ? (
-                            <div className="rounded-lg border border-dashed border-muted/60 px-4 py-6 text-center text-sm text-muted-foreground">
-                              Sin pagos pendientes.
-                            </div>
-                          ) : (
-                            <div className="space-y-2">
-                              {pendingPayments.map((payment) => (
-                                <PaymentRow key={payment.id} payment={payment} />
-                              ))}
-                            </div>
-                          )}
-                        </AccordionContent>
-                      </AccordionItem>
-
-                      <AccordionItem value="approved-payments" className="overflow-hidden rounded-xl border border-(--neutral-200) bg-white">
-                        <AccordionTrigger className="px-4 py-3 hover:no-underline">
-                          <div className="flex w-full items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 text-sm font-semibold">
-                              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                              Pagos confirmados
-                            </div>
-                            <Badge variant="outline" className="bg-emerald-50 text-emerald-800">
-                              {approvedPayments.length}
-                            </Badge>
-                          </div>
-                        </AccordionTrigger>
-                        <AccordionContent className="px-4 pb-4">
-                          {approvedPayments.length === 0 ? (
-                            <div className="rounded-lg border border-dashed border-muted/60 px-4 py-6 text-center text-sm text-muted-foreground">
-                              No hay pagos confirmados todavía.
-                            </div>
-                          ) : (
-                            <div className="space-y-2">
-                              {approvedPayments.map((payment) => (
-                                <PaymentRow key={payment.id} payment={payment} />
-                              ))}
-                            </div>
-                          )}
-                        </AccordionContent>
-                      </AccordionItem>
-                    </Accordion>
-                  </div>
                 </div>
                 <Separator />
                 <div className="grid gap-3 border-t border-[color:var(--neutral-100)] p-4 md:grid-cols-3 md:p-6">
@@ -991,95 +1044,97 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
               {downloadingSummary ? "Generando..." : "Descargar resumen PDF"}
             </Button>
           </div>
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ type: "spring", stiffness: 140, damping: 16 }}
-            className="space-y-4"
-          >
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-xl bg-gradient-to-br from-emerald-50 via-white to-emerald-100/60 p-3 shadow-sm">
-                <p className="text-xs uppercase tracking-wide text-emerald-700">Completados</p>
-                <p className="text-lg font-semibold text-emerald-900">{formatCurrency(summaryTotals.completed)}</p>
-                <p className="text-xs text-emerald-800/80">{summaryCompletedOrders.length} pedido(s)</p>
+          <ScrollArea className="max-h-[70vh] pr-3">
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ type: "spring", stiffness: 140, damping: 16 }}
+              className="space-y-4 pr-1"
+            >
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-xl bg-gradient-to-br from-emerald-50 via-white to-emerald-100/60 p-3 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-emerald-700">Completados</p>
+                  <p className="text-lg font-semibold text-emerald-900">{formatCurrency(summaryTotals.completed)}</p>
+                  <p className="text-xs text-emerald-800/80">{summaryCompletedOrders.length} pedido(s)</p>
+                </div>
+                <div className="rounded-xl bg-gradient-to-br from-amber-50 via-white to-amber-100/70 p-3 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-amber-700">Pendientes por cobrar</p>
+                  <p className="text-lg font-semibold text-amber-900">{formatCurrency(summaryTotals.pending)}</p>
+                  <p className="text-xs text-amber-800/80">{summaryPendingOrders.length} pedido(s)</p>
+                </div>
               </div>
-              <div className="rounded-xl bg-gradient-to-br from-amber-50 via-white to-amber-100/70 p-3 shadow-sm">
-                <p className="text-xs uppercase tracking-wide text-amber-700">Pendientes por cobrar</p>
-                <p className="text-lg font-semibold text-amber-900">{formatCurrency(summaryTotals.pending)}</p>
-                <p className="text-xs text-amber-800/80">{summaryPendingOrders.length} pedido(s)</p>
-              </div>
-            </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold">Pedidos completados</p>
-                <Badge variant="outline" className="bg-emerald-50 text-emerald-800">
-                  {summaryCompletedOrders.length}
-                </Badge>
-              </div>
-              {summaryCompletedOrders.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-muted/60 px-3 py-4 text-sm text-muted-foreground">
-                  Todavía no hay pedidos completados.
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold">Pedidos completados</p>
+                  <Badge variant="outline" className="bg-emerald-50 text-emerald-800">
+                    {summaryCompletedOrders.length}
+                  </Badge>
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  {summaryCompletedOrders.map((order, index) => (
-                    <motion.div
-                      key={order.id}
-                      initial={{ opacity: 0, x: -8 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: index * 0.04 }}
-                      className="flex items-center justify-between rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-2"
-                    >
-                      <div className="flex flex-col">
-                        <span className="text-xs text-muted-foreground">Pedido #{shortId(order.id)}</span>
-                        <span className="text-sm font-semibold text-emerald-900">{formatCurrency(order.total)}</span>
-                      </div>
-                      <Badge variant="secondary" className="bg-emerald-100 text-emerald-800">
-                        {order.status}
-                      </Badge>
-                    </motion.div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold">Pedidos pendientes por cobrar</p>
-                <Badge variant="outline">{summaryPendingOrders.length}</Badge>
-              </div>
-              {summaryPendingOrders.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-muted/60 px-3 py-4 text-sm text-muted-foreground">
-                  No hay pedidos pendientes ahora mismo.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {summaryPendingOrders.map((order, index) => (
-                    <motion.div
-                      key={order.id}
-                      initial={{ opacity: 0, x: 8 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: index * 0.04 }}
-                      className="flex items-center justify-between rounded-lg border border-slate-200 bg-white/80 px-3 py-2"
-                    >
-                      <div className="flex flex-col">
-                        <span className="text-xs text-muted-foreground">Pedido #{shortId(order.id)}</span>
-                        <span className="text-sm font-semibold text-slate-900">{formatCurrency(order.total)}</span>
-                      </div>
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${
-                          orderStatusTone[order.status] ?? "bg-slate-100 text-slate-700"
-                        }`}
+                {summaryCompletedOrders.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-muted/60 px-3 py-4 text-sm text-muted-foreground">
+                    Todavía no hay pedidos completados.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {summaryCompletedOrders.map((order, index) => (
+                      <motion.div
+                        key={order.id}
+                        initial={{ opacity: 0, x: -8 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: index * 0.04 }}
+                        className="flex items-center justify-between rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-2"
                       >
-                        {order.status}
-                      </span>
-                    </motion.div>
-                  ))}
+                        <div className="flex flex-col">
+                          <span className="text-xs text-muted-foreground">Pedido #{shortId(order.id)}</span>
+                          <span className="text-sm font-semibold text-emerald-900">{formatCurrency(order.total)}</span>
+                        </div>
+                        <Badge variant="secondary" className="bg-emerald-100 text-emerald-800">
+                          {order.status}
+                        </Badge>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2 pb-1">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold">Pedidos pendientes por cobrar</p>
+                  <Badge variant="outline">{summaryPendingOrders.length}</Badge>
                 </div>
-              )}
-            </div>
-          </motion.div>
+                {summaryPendingOrders.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-muted/60 px-3 py-4 text-sm text-muted-foreground">
+                    No hay pedidos pendientes ahora mismo.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {summaryPendingOrders.map((order, index) => (
+                      <motion.div
+                        key={order.id}
+                        initial={{ opacity: 0, x: 8 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: index * 0.04 }}
+                        className="flex items-center justify-between rounded-lg border border-slate-200 bg-white/80 px-3 py-2"
+                      >
+                        <div className="flex flex-col">
+                          <span className="text-xs text-muted-foreground">Pedido #{shortId(order.id)}</span>
+                          <span className="text-sm font-semibold text-slate-900">{formatCurrency(order.total)}</span>
+                        </div>
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${
+                            orderStatusTone[order.status] ?? "bg-slate-100 text-slate-700"
+                          }`}
+                        >
+                          {order.status}
+                        </span>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </ScrollArea>
         </DialogContent>
       </Dialog>
     </div>

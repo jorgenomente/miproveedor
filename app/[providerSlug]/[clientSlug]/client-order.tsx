@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ChevronDown,
@@ -8,6 +8,7 @@ import {
   EyeOff,
   FileUp,
   LayoutGrid,
+  History,
   MessageCircle,
   Rows,
   Search,
@@ -101,11 +102,14 @@ export type PublicOrderHistory = {
   createdAt?: string | null;
   deliveryDate?: string | null;
   deliveryRuleId?: string | null;
+  deliveryZoneName?: string | null;
   cutoffDate?: string | null;
+  receiptGeneratedAt?: string | null;
   items?: {
     productName: string;
     unit?: string | null;
     quantity: number;
+    deliveredQuantity?: number | null;
     unitPrice: number;
     subtotal: number;
   }[];
@@ -140,6 +144,8 @@ type Props = {
   products: Product[];
   paymentSettings: PaymentSettings;
   deliveryRules: DeliveryRule[];
+  deliveryMode: "windows" | "available_days";
+  deliveryAvailableByZone: Record<string, { days: number[]; cutoffTimeMinutes: number }>;
   deliveryZones: DeliveryZone[];
   history: PublicOrderHistory[];
   drafts: DraftState[];
@@ -154,6 +160,8 @@ export function ClientOrder({
   paymentSettings,
   history,
   deliveryRules,
+  deliveryMode,
+  deliveryAvailableByZone,
   deliveryZones,
   drafts: initialDrafts,
 }: Props) {
@@ -208,6 +216,8 @@ export function ClientOrder({
   const [draftMessage, setDraftMessage] = useState<string | null>(null);
   const [openDraftIds, setOpenDraftIds] = useState<string[]>([]);
   const [proofSuccess, setProofSuccess] = useState<{ orderId: string; total: number | null } | null>(null);
+  const historySectionRef = useRef<HTMLDivElement | null>(null);
+  const pendingProofRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const draftsKey = useMemo(
     () => `miproveedor:drafts:${provider.slug}:${client.slug}`,
     [client.slug, provider.slug],
@@ -402,9 +412,33 @@ export function ClientOrder({
   };
 
   const deliverySlot = useMemo(() => {
+    const now = new Date();
+    if (deliveryMode === "available_days" && deliveryMethod === "envio" && selectedDeliveryZoneId) {
+      const config = deliveryAvailableByZone[selectedDeliveryZoneId];
+      if (!config || !config.days?.length) return null;
+      const cutoffMinutes = config.cutoffTimeMinutes ?? 20 * 60;
+      const days = Array.from(new Set(config.days)).sort();
+      const getNext = () => {
+        for (let i = 0; i < 14; i += 1) {
+          const candidate = new Date(now);
+          candidate.setDate(now.getDate() + i);
+          const weekday = candidate.getDay(); // 0 = domingo
+          if (!days.includes(weekday)) continue;
+          const cutoffDate = new Date(candidate);
+          cutoffDate.setDate(candidate.getDate() - 1);
+          cutoffDate.setHours(Math.floor(cutoffMinutes / 60), cutoffMinutes % 60, 0, 0);
+          if (now <= cutoffDate) {
+            candidate.setHours(10, 0, 0, 0);
+            return { deliveryDate: candidate, cutoffDate };
+          }
+        }
+        return null;
+      };
+      return getNext();
+    }
     if (!deliveryRules.length) return null;
-    return pickNextDelivery(deliveryRules, new Date(), "America/Argentina/Buenos_Aires");
-  }, [deliveryRules]);
+    return pickNextDelivery(deliveryRules, now, "America/Argentina/Buenos_Aires");
+  }, [deliveryAvailableByZone, deliveryMode, deliveryMethod, deliveryRules, selectedDeliveryZoneId]);
 
   const formatDayLabel = useCallback((value?: string | null | Date) => {
     if (!value) return null;
@@ -445,6 +479,13 @@ export function ClientOrder({
       pendingHistory.filter(
         (item) => item.paymentMethod === "transferencia" && item.paymentProofStatus !== "subido",
       ).length,
+    [pendingHistory],
+  );
+  const nextPendingProof = useMemo(
+    () =>
+      pendingHistory.find(
+        (item) => item.paymentMethod === "transferencia" && item.paymentProofStatus !== "subido",
+      ) ?? null,
     [pendingHistory],
   );
   const completedHistory = useMemo(
@@ -665,6 +706,32 @@ export function ClientOrder({
       quantity: item.quantity,
     }));
 
+  const summaryDetails = useMemo(
+    () =>
+      summaryItems.map((item) => {
+        const product = productLookup.get(item.id);
+        const basePrice = product?.basePrice ?? item.price;
+        const hasDiscount = product ? (product.discountPercent ?? 0) > 0 && basePrice > item.price : basePrice > item.price;
+        const originalSubtotal = basePrice * item.quantity;
+        const discountedSubtotal = item.price * item.quantity;
+        const savings = hasDiscount ? Math.max(0, originalSubtotal - discountedSubtotal) : 0;
+        return {
+          ...item,
+          basePrice,
+          hasDiscount,
+          originalSubtotal,
+          discountedSubtotal,
+          savings,
+        };
+      }),
+    [productLookup, summaryItems],
+  );
+
+  const totalSavings = useMemo(
+    () => summaryDetails.reduce((acc, item) => acc + item.savings, 0),
+    [summaryDetails],
+  );
+
   const selectedDeliveryZone = useMemo(
     () => deliveryZones.find((zone) => zone.id === selectedDeliveryZoneId) ?? null,
     [deliveryZones, selectedDeliveryZoneId],
@@ -672,7 +739,7 @@ export function ClientOrder({
 
   const shippingCost = deliveryMethod === "envio" ? Number(selectedDeliveryZone?.price ?? 0) : 0;
 
-  const totalBase = serverTotal ?? summaryItems.reduce((acc, item) => acc + item.price * item.quantity, 0);
+  const totalBase = serverTotal ?? summaryDetails.reduce((acc, item) => acc + item.discountedSubtotal, 0);
   const total = totalBase + (serverTotal ? 0 : shippingCost);
 
   const handleSaveDraft = useCallback(() => {
@@ -816,6 +883,45 @@ export function ClientOrder({
     ],
   })?.href;
 
+  const handleJumpToPendingProof = useCallback(() => {
+    const section = historySectionRef.current;
+    if (section) {
+      section.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    const targetId = nextPendingProof?.id;
+    if (targetId) {
+      const target = pendingProofRefs.current.get(targetId);
+      if (target) {
+        const highlightClasses = [
+          "ring-2",
+          "ring-primary/60",
+          "shadow-[0_0_0_6px_rgba(59,130,246,0.12)]",
+          "bg-primary/5",
+        ];
+        setTimeout(() => {
+          target.scrollIntoView({ behavior: "smooth", block: "center" });
+          target.classList.add(...highlightClasses);
+          setTimeout(() => target.classList.remove(...highlightClasses), 1400);
+        }, 160);
+      }
+    }
+  }, [nextPendingProof]);
+
+  const registerPendingProofRef = useCallback((orderId: string, node: HTMLDivElement | null) => {
+    if (!node) {
+      pendingProofRefs.current.delete(orderId);
+      return;
+    }
+    pendingProofRefs.current.set(orderId, node);
+  }, []);
+
+  const handleJumpToHistory = useCallback(() => {
+    const section = historySectionRef.current;
+    if (section) {
+      section.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, []);
+
   return (
     <div className="w-full bg-(--surface)">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -857,6 +963,21 @@ export function ClientOrder({
             </Button>
             <Button size="sm" variant="outline" onClick={() => setShowDraftsModal(true)}>
               Ver borradores
+            </Button>
+            <Button size="sm" variant="outline" onClick={handleJumpToHistory} className="gap-2">
+              <History className="h-4 w-4" />
+              Historial de pedidos
+            </Button>
+            <Button
+              size="sm"
+              variant={pendingProofUploads > 0 ? "default" : "outline"}
+              onClick={handleJumpToPendingProof}
+              disabled={pendingProofUploads === 0}
+              className="gap-2"
+            >
+              <FileUp className="h-4 w-4" />
+              Cargar comprobante
+              {pendingProofUploads > 0 ? <Badge className="ml-1" variant="secondary">{pendingProofUploads}</Badge> : null}
             </Button>
             {draftMessage ? <span className="text-xs text-muted-foreground">{draftMessage}</span> : null}
           </div>
@@ -1398,7 +1519,7 @@ export function ClientOrder({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <h2 className="text-lg font-semibold">Resumen</h2>
-                    <Badge>{summaryItems.length} items</Badge>
+                    <Badge>{summaryDetails.length} items</Badge>
                   </div>
                   <Button
                     type="button"
@@ -1428,10 +1549,10 @@ export function ClientOrder({
                   ) : null}
                 </div>
                 <div className="space-y-3">
-                  {summaryItems.length === 0 ? (
+                  {summaryDetails.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Agrega productos para ver el resumen.</p>
                   ) : (
-                    summaryItems.map((item) => (
+                    summaryDetails.map((item) => (
                       <div
                         key={item.id}
                         className="flex items-start justify-between gap-3 rounded-lg border border-(--neutral-200) bg-(--surface) p-3"
@@ -1476,7 +1597,19 @@ export function ClientOrder({
                             </Button>
                           </div>
                         </div>
-                        <p className="text-sm font-semibold">{formatCurrency(item.price * item.quantity)}</p>
+                        <div className="space-y-1 text-right">
+                          {item.hasDiscount ? (
+                            <p className="text-xs text-muted-foreground line-through">
+                              {formatCurrency(item.originalSubtotal)}
+                            </p>
+                          ) : null}
+                          <p className="text-sm font-semibold">{formatCurrency(item.discountedSubtotal)}</p>
+                          {item.hasDiscount ? (
+                            <p className="text-[11px] font-semibold text-emerald-600">
+                              Ahorro {formatCurrency(item.savings)}
+                            </p>
+                          ) : null}
+                        </div>
                       </div>
                     ))
                   )}
@@ -1490,6 +1623,12 @@ export function ClientOrder({
                       </div>
                       <p className="text-sm font-semibold">{formatCurrency(shippingCost)}</p>
                     </div>
+                  </div>
+                ) : null}
+                {totalSavings > 0 ? (
+                  <div className="flex items-center justify-between rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200">
+                    <span className="font-semibold">Ahorro en descuentos</span>
+                    <span className="font-semibold">-{formatCurrency(totalSavings)}</span>
                   </div>
                 ) : null}
                 <Separator />
@@ -1548,11 +1687,14 @@ export function ClientOrder({
                             total: response.total,
                             deliveryDate: response.deliveryDate ?? null,
                             deliveryRuleId: response.deliveryRuleId ?? null,
+                            deliveryZoneName: response.deliveryZoneName ?? null,
                             cutoffDate: response.cutoffDate ?? null,
+                            receiptGeneratedAt: null,
                             items: response.items.map((item) => ({
                               productName: item.name,
                               unit: item.unit,
                               quantity: item.quantity,
+                              deliveredQuantity: null,
                               unitPrice: item.unitPrice,
                               subtotal: item.unitPrice * item.quantity,
                             })),
@@ -1728,7 +1870,7 @@ export function ClientOrder({
                             </div>
                           ) : (
                             <p className="text-xs text-muted-foreground">
-                              Puedes subir la captura ahora o enviarla luego por WhatsApp.
+                              Puedes subir la captura ahora o cargarla después en el historial de pedidos.
                             </p>
                           )}
                           {paymentProofError ? (
@@ -1855,6 +1997,8 @@ export function ClientOrder({
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, ease: "easeOut", delay: 0.1 }}
           className="space-y-4 rounded-2xl border border-(--neutral-200) bg-white p-4 shadow-sm backdrop-blur"
+          ref={historySectionRef}
+          id="historial-pedidos"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -1926,13 +2070,26 @@ export function ClientOrder({
                               animate={{ opacity: 1, y: 0 }}
                               transition={{ delay: index * 0.03 }}
                               className="space-y-2 rounded-xl border border-(--neutral-200) bg-(--surface) px-3 py-3"
+                              ref={(node) => registerPendingProofRef(order.id, node)}
                             >
                               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                 <div className="space-y-1">
                                   <p className="text-sm font-semibold">
                                     Pedido #{shortOrderId(order.id)} · {formatCurrency(order.total ?? 0)}
                                   </p>
-                                  <p className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</p>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</p>
+                                    {order.deliveryDate ? (
+                                      <Badge variant="outline" className="text-[11px]">
+                                        Entrega {new Date(order.deliveryDate).toLocaleDateString("es-AR", { weekday: "short" })}
+                                      </Badge>
+                                    ) : null}
+                                    {order.deliveryZoneName ? (
+                                      <Badge variant="secondary" className="text-[11px]">
+                                        Zona {order.deliveryZoneName}
+                                      </Badge>
+                                    ) : null}
+                                  </div>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-2">
                                   <span
@@ -1973,15 +2130,21 @@ export function ClientOrder({
                                       </a>
                                     </Button>
                                   ) : null}
-                                  <Button asChild size="sm" variant="outline" className="text-xs">
-                                    <a
-                                      href={`/${provider.slug}/${client.slug}/orders/${order.id}/receipt`}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                    >
-                                      Imprimir remito
-                                    </a>
-                                  </Button>
+                                  {order.receiptGeneratedAt ? (
+                                    <Button asChild size="sm" variant="outline" className="text-xs">
+                                      <a
+                                        href={`/${provider.slug}/${client.slug}/orders/${order.id}/receipt`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                      >
+                                        Imprimir remito
+                                      </a>
+                                    </Button>
+                                  ) : (
+                                    <Badge variant="outline" className="text-xs text-muted-foreground">
+                                      Remito no disponible
+                                    </Badge>
+                                  )}
                                 </div>
                               </div>
                               {order.items?.length ? (
@@ -2004,7 +2167,14 @@ export function ClientOrder({
                                         <p className="font-medium">{item.productName}</p>
                                         <p className="text-xs text-muted-foreground">{item.unit ?? "Unidad"}</p>
                                       </div>
-                                      <p className="text-right">{item.quantity}</p>
+                                      <div className="text-right">
+                                        <p>{item.deliveredQuantity ?? item.quantity}</p>
+                                        {item.deliveredQuantity != null && item.deliveredQuantity !== item.quantity ? (
+                                          <p className="text-[11px] text-amber-600">
+                                            Pedidos: {item.quantity}
+                                          </p>
+                                        ) : null}
+                                      </div>
                                       <p className="text-right">{formatCurrency(item.unitPrice)}</p>
                                       <p className="text-right font-semibold">{formatCurrency(item.subtotal)}</p>
                                     </motion.div>
@@ -2085,14 +2255,26 @@ export function ClientOrder({
                             >
                               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                 <div className="space-y-1">
-                                  <p className="text-sm font-semibold">
-                                    Pedido #{shortOrderId(order.id)} · {formatCurrency(order.total ?? 0)}
-                                  </p>
-                                  <p className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</p>
-                                </div>
+                                <p className="text-sm font-semibold">
+                                  Pedido #{shortOrderId(order.id)} · {formatCurrency(order.total ?? 0)}
+                                </p>
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <span
-                                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadge[order.status] ?? "bg-border text-foreground"}`}
+                                  <p className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</p>
+                                  {order.deliveryDate ? (
+                                    <Badge variant="outline" className="text-[11px]">
+                                      Entrega {new Date(order.deliveryDate).toLocaleDateString("es-AR", { weekday: "short" })}
+                                    </Badge>
+                                  ) : null}
+                                  {order.deliveryZoneName ? (
+                                    <Badge variant="secondary" className="text-[11px]">
+                                      Zona {order.deliveryZoneName}
+                                    </Badge>
+                                  ) : null}
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span
+                                  className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadge[order.status] ?? "bg-border text-foreground"}`}
                                   >
                                     {statusText}
                                   </span>
@@ -2129,15 +2311,21 @@ export function ClientOrder({
                                       </a>
                                     </Button>
                                   ) : null}
-                                  <Button asChild size="sm" variant="outline" className="text-xs">
-                                    <a
-                                      href={`/${provider.slug}/${client.slug}/orders/${order.id}/receipt`}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                    >
-                                      Imprimir remito
-                                    </a>
-                                  </Button>
+                                  {order.receiptGeneratedAt ? (
+                                    <Button asChild size="sm" variant="outline" className="text-xs">
+                                      <a
+                                        href={`/${provider.slug}/${client.slug}/orders/${order.id}/receipt`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                      >
+                                        Imprimir remito
+                                      </a>
+                                    </Button>
+                                  ) : (
+                                    <Badge variant="outline" className="text-xs text-muted-foreground">
+                                      Remito no disponible
+                                    </Badge>
+                                  )}
                                 </div>
                               </div>
                               {order.items?.length ? (
@@ -2160,7 +2348,14 @@ export function ClientOrder({
                                         <p className="font-medium">{item.productName}</p>
                                         <p className="text-xs text-muted-foreground">{item.unit ?? "Unidad"}</p>
                                       </div>
-                                      <p className="text-right">{item.quantity}</p>
+                                      <div className="text-right">
+                                        <p>{item.deliveredQuantity ?? item.quantity}</p>
+                                        {item.deliveredQuantity != null && item.deliveredQuantity !== item.quantity ? (
+                                          <p className="text-[11px] text-amber-600">
+                                            Pedidos: {item.quantity}
+                                          </p>
+                                        ) : null}
+                                      </div>
                                       <p className="text-right">{formatCurrency(item.unitPrice)}</p>
                                       <p className="text-right font-semibold">{formatCurrency(item.subtotal)}</p>
                                     </motion.div>

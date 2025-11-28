@@ -39,8 +39,11 @@ export type OrderSummary = {
   status: string;
   total: number;
   createdAt?: string | null;
+  deliveryDate?: string | null;
+  deliveryZoneName?: string | null;
   paymentMethod?: "efectivo" | "transferencia" | null;
   contactPhone?: string | null;
+  paymentProofStatus?: "no_aplica" | "pendiente" | "subido" | null;
 };
 
 const statusBadge: Record<string, string> = {
@@ -121,6 +124,22 @@ export function DashboardClient({
   const ordersHref =
     ordersHrefOverride ??
     (providerSlug ? `${basePath}/orders?provider=${providerSlug}` : `${basePath}/orders`);
+
+  const paymentStateFor = useCallback(
+    (order: OrderSummary) => {
+      if (order.paymentMethod === "transferencia") {
+        if (order.paymentProofStatus === "subido") return { label: "Comprobante cargado", tone: "success" as const };
+        if (order.paymentProofStatus === "pendiente") return { label: "Comprobante pendiente", tone: "warn" as const };
+        return { label: "Comprobante no aplica", tone: "muted" as const };
+      }
+      if (order.paymentMethod === "efectivo") {
+        if (order.status === "entregado") return { label: "Efectivo recibido", tone: "success" as const };
+        return { label: "Pendiente por cobrar", tone: "warn" as const };
+      }
+      return { label: "Pago no especificado", tone: "muted" as const };
+    },
+    [],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -427,7 +446,7 @@ export function DashboardClient({
                   </p>
                 ) : (
                   recentOrders.map((order) => (
-                    <div
+                      <div
                       key={order.id}
                       className="grid gap-2 border-b border-border/70 px-4 py-3 last:border-b-0 sm:grid-cols-[1.2fr_auto]"
                     >
@@ -444,7 +463,50 @@ export function DashboardClient({
                               {order.paymentMethod === "transferencia" ? <CreditCard className="h-3.5 w-3.5" /> : <Wallet className="h-3.5 w-3.5" />}
                               {order.paymentMethod === "transferencia" ? "Transferencia" : "Efectivo"}
                             </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[11px]">
+                              Pago no especificado
+                            </Badge>
+                          )}
+                          {(() => {
+                            const state = paymentStateFor(order);
+                            const tone =
+                              state.tone === "success"
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200"
+                                : state.tone === "warn"
+                                  ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200"
+                                  : "border-muted-foreground/20 bg-muted text-muted-foreground";
+                            return (
+                              <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${tone}`}>
+                                {state.label}
+                              </span>
+                            );
+                          })()}
+                          {order.deliveryDate ? (
+                            <Badge variant="outline" className="text-[11px]">
+                              Entrega {new Date(order.deliveryDate).toLocaleDateString("es-AR", { weekday: "short" })}
+                            </Badge>
                           ) : null}
+                          {order.deliveryZoneName ? (
+                            <Badge variant="secondary" className="text-[11px]">
+                              Zona {order.deliveryZoneName}
+                            </Badge>
+                          ) : null}
+                          {order.contactPhone ? (
+                            <a
+                              href={`https://wa.me/${order.contactPhone.replace(/\D/g, "")}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary hover:bg-primary/15"
+                            >
+                              <Phone className="h-3.5 w-3.5" />
+                              {order.contactPhone}
+                            </a>
+                          ) : (
+                            <Badge variant="outline" className="text-[11px]">
+                              Sin WhatsApp
+                            </Badge>
+                          )}
                         </div>
                         <p className="text-xs text-muted-foreground">
                           {order.createdAt
@@ -454,26 +516,6 @@ export function DashboardClient({
                               })
                             : "Fecha no disponible"}
                         </p>
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                          {order.contactPhone ? (
-                            <a
-                              href={`https://wa.me/${order.contactPhone.replace(/\D/g, "")}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-primary hover:bg-primary/15"
-                            >
-                              <Phone className="h-3.5 w-3.5" />
-                              {order.contactPhone}
-                            </a>
-                          ) : (
-                            <span className="rounded-full bg-muted px-2 py-0.5">Sin WhatsApp</span>
-                          )}
-                          {!order.paymentMethod ? (
-                            <Badge variant="outline" className="text-[11px]">
-                              Pago no especificado
-                            </Badge>
-                          ) : null}
-                        </div>
                       </div>
                       <div className="flex items-center justify-end gap-3">
                         <div className="text-right">

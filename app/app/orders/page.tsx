@@ -30,6 +30,7 @@ import {
   listPendingProducts,
   listProviders,
   updateOrderStatus,
+  updateDeliveryDate,
   type ListOrdersResult,
   type OrderListItem,
   type ProviderRow,
@@ -64,6 +65,10 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
   const [itemsError, setItemsError] = useState<string | null>(null);
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [openPaymentPopover, setOpenPaymentPopover] = useState<string | null>(null);
+  const [editingDeliveryId, setEditingDeliveryId] = useState<string | null>(null);
+  const [editingDeliveryValue, setEditingDeliveryValue] = useState<string>("");
+  const [updatingDeliveryId, setUpdatingDeliveryId] = useState<string | null>(null);
+  const [openDeliveryPopover, setOpenDeliveryPopover] = useState<string | null>(null);
   const [searchClient, setSearchClient] = useState("");
   const paymentStatusLabel = useCallback(
     (method?: "efectivo" | "transferencia" | null, status?: "no_aplica" | "pendiente" | "subido" | null) => {
@@ -136,6 +141,31 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
       setItemsError(response.errors.join("\n"));
     }
     setLoadingItems(false);
+  }, []);
+
+  const handleDeliverySave = useCallback(
+    async (orderId: string) => {
+      if (!providerSlug) return;
+      setOrdersError(null);
+      setUpdatingDeliveryId(orderId);
+      const payloadDate = editingDeliveryValue ? new Date(editingDeliveryValue).toISOString() : null;
+      const response = await updateDeliveryDate({ providerSlug, orderId, deliveryDate: payloadDate });
+      if (response.success) {
+        setOrders((prev) =>
+          prev.map((order) => (order.id === orderId ? { ...order, deliveryDate: response.deliveryDate ?? null } : order)),
+        );
+        setEditingDeliveryId(null);
+      } else {
+        setOrdersError(response.errors.join("\n"));
+      }
+      setUpdatingDeliveryId(null);
+    },
+    [providerSlug, editingDeliveryValue],
+  );
+
+  const startEditingDelivery = useCallback((order: OrderListItem) => {
+    setEditingDeliveryId(order.id);
+    setEditingDeliveryValue(order.deliveryDate ? new Date(order.deliveryDate).toISOString().slice(0, 10) : "");
   }, []);
 
   const handleStatusChange = useCallback(
@@ -349,16 +379,22 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                                       })
                                     : "Fecha no disponible"}
                                 </p>
-                                {order.deliveryDate ? (
-                                  <p className="text-xs text-muted-foreground">
-                                    Entrega:{" "}
-                                    {new Date(order.deliveryDate).toLocaleDateString("es-AR", {
-                                      weekday: "short",
-                                      month: "short",
-                                      day: "numeric",
-                                    })}
-                                  </p>
-                                ) : null}
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {order.deliveryDate ? (
+                                    <Badge variant="outline" className="text-[11px]">
+                                      Entrega {new Date(order.deliveryDate).toLocaleDateString("es-AR", { weekday: "short" })}
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="text-[11px]">
+                                      Sin fecha
+                                    </Badge>
+                                  )}
+                                  {order.deliveryZoneName ? (
+                                    <Badge variant="secondary" className="text-[11px]">
+                                      Zona {order.deliveryZoneName}
+                                    </Badge>
+                                  ) : null}
+                                </div>
                               </div>
                               <div className="flex flex-wrap items-center gap-2">
                                 <DropdownMenu>
@@ -390,6 +426,34 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                                     ))}
                                   </DropdownMenuContent>
                                 </DropdownMenu>
+                                {editingDeliveryId === order.id ? (
+                                  <>
+                                    <Input
+                                      type="date"
+                                      value={editingDeliveryValue}
+                                      onChange={(event) => setEditingDeliveryValue(event.target.value)}
+                                      className="h-9 w-40"
+                                    />
+                                    <Button
+                                      size="sm"
+                                      onClick={() => void handleDeliverySave(order.id)}
+                                      disabled={updatingDeliveryId === order.id}
+                                    >
+                                      {updatingDeliveryId === order.id ? "Guardando..." : "Guardar entrega"}
+                                    </Button>
+                                    <Button size="sm" variant="ghost" onClick={() => setEditingDeliveryId(null)}>
+                                      Cancelar
+                                    </Button>
+                                  </>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => startEditingDelivery(order)}
+                                  >
+                                    Reprogramar entrega
+                                  </Button>
+                                )}
                                 <Popover
                                   open={openPaymentPopover === order.id}
                                   onOpenChange={(open) => setOpenPaymentPopover(open ? order.id : null)}

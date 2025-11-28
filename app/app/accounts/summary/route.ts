@@ -314,7 +314,7 @@ async function createPdfBuffer({
 
   const doc = new PDFDocument({ size: "A4", margin: PAGE_MARGIN });
   const chunks: Buffer[] = [];
-  doc.on("data", (chunk) => chunks.push(chunk as Buffer));
+  doc.on("data", (chunk: Buffer) => chunks.push(chunk));
   const bufferPromise = new Promise<Buffer>((resolve) => {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
   });
@@ -366,7 +366,9 @@ export async function GET(request: NextRequest) {
       summary,
     });
 
-    return new NextResponse(pdf, {
+    const pdfBody = new Uint8Array(pdf);
+
+    return new NextResponse(pdfBody, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",

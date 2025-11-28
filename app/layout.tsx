@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import Image from "next/image";
 import "./globals.css";
 import { getProviderScope, type ProviderScope } from "@/lib/provider-scope";
 import LogoutButton from "@/components/logout-button";
@@ -7,6 +8,11 @@ import LogoutButton from "@/components/logout-button";
 export const metadata: Metadata = {
   title: "MiProveedor · Panel B2B simple",
   description: "Gestiona proveedores, tiendas y pedidos en un panel simple, mobile-first.",
+  icons: {
+    icon: "/icon.png",
+    shortcut: "/icon.png",
+    apple: "/icon.png",
+  },
 };
 
 function renderUserChip(scope?: ProviderScope) {
@@ -68,8 +74,15 @@ export default async function RootLayout({
         <header className="sticky top-0 z-30 border-b border-border/70 bg-background/80 backdrop-blur">
           <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 md:px-6">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-border/70 bg-secondary/50 text-sm font-semibold text-muted-foreground">
-                Logo
+              <div className="relative h-10 w-10 overflow-hidden rounded-lg border border-border/70 bg-secondary/50">
+                <Image
+                  src="/MiProveedor.png"
+                  alt="Logo de MiProveedor"
+                  fill
+                  className="object-contain p-1.5"
+                  sizes="40px"
+                  priority
+                />
               </div>
               <div className="leading-tight">
                 <p className="text-sm font-semibold">MiProveedor</p>

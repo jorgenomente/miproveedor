@@ -91,6 +91,7 @@ async function fetchData(preferredProvider?: string) {
         createdAt: order.created_at,
         paymentMethod: order.payment_method,
         contactPhone: order.contact_phone,
+        paymentProofStatus: order.payment_proof_status ?? null,
       })),
       ...demo.orders.map((order) => ({
         id: order.id,
@@ -100,6 +101,7 @@ async function fetchData(preferredProvider?: string) {
         createdAt: order.createdAt,
         paymentMethod: order.paymentMethod ?? null,
         contactPhone: order.contactPhone ?? null,
+        paymentProofStatus: order.paymentProofStatus ?? null,
       })),
     ].sort((a, b) => {
       const aDate = new Date(a.createdAt ?? "").getTime();
@@ -145,7 +147,9 @@ async function fetchData(preferredProvider?: string) {
 
     const { data: orders, error: ordersError } = await supabase
       .from("orders")
-      .select("id, status, created_at, client:clients(name), order_items(quantity, unit_price)")
+      .select(
+        "id, status, created_at, contact_phone, payment_method, payment_proof_status, shipping_cost, client:clients(name), order_items(quantity, unit_price)",
+      )
       .eq("provider_id", provider.id)
       .order("created_at", { ascending: false })
       .limit(25);
@@ -157,11 +161,12 @@ async function fetchData(preferredProvider?: string) {
 
     const parsedOrders: OrderSummary[] =
       orders?.map((order) => {
+        const shippingCost = Number((order as { shipping_cost?: number | null }).shipping_cost ?? 0);
         const total =
-          order.order_items?.reduce(
+          (order.order_items?.reduce(
             (acc, item) => acc + Number(item.unit_price ?? 0) * item.quantity,
             0,
-          ) ?? 0;
+          ) ?? 0) + shippingCost;
         const clientName =
           Array.isArray(order.client) && order.client.length > 0
             ? order.client[0]?.name ?? "Cliente"
@@ -173,6 +178,9 @@ async function fetchData(preferredProvider?: string) {
           clientName,
           total,
           createdAt: order.created_at,
+          paymentMethod: (order as { payment_method?: "efectivo" | "transferencia" | null }).payment_method ?? null,
+          contactPhone: (order as { contact_phone?: string | null }).contact_phone ?? null,
+          paymentProofStatus: (order as { payment_proof_status?: "no_aplica" | "pendiente" | "subido" | null }).payment_proof_status ?? null,
         };
       }) ?? [];
 
@@ -227,7 +235,7 @@ async function fetchData(preferredProvider?: string) {
   const { data: orders, error: ordersError } = await supabase
     .from("orders")
     .select(
-      "id, status, created_at, contact_phone, payment_method, shipping_cost, client:clients(name), order_items(quantity, unit_price)",
+      "id, status, created_at, delivery_date, delivery_zone:delivery_zones(name), contact_phone, payment_method, payment_proof_status, shipping_cost, client:clients(name), order_items(quantity, unit_price)",
     )
     .eq("provider_id", provider.id)
     .order("created_at", { ascending: false })
@@ -238,29 +246,35 @@ async function fetchData(preferredProvider?: string) {
     return { providers: providerSummaries, provider: providerSummary, orders: [], debug };
   }
 
-  const parsedOrders: OrderSummary[] =
-    orders?.map((order) => {
-      const shippingCost = Number((order as { shipping_cost?: number | null }).shipping_cost ?? 0);
-      const total =
-        (order.order_items?.reduce(
-          (acc, item) => acc + Number(item.unit_price ?? 0) * item.quantity,
-          0,
-        ) ?? 0) + shippingCost;
-      const clientName =
-        Array.isArray(order.client) && order.client.length > 0
-          ? order.client[0]?.name ?? "Cliente"
-          : (order as { client?: { name?: string } }).client?.name ?? "Cliente";
+    const parsedOrders: OrderSummary[] =
+      orders?.map((order) => {
+        const shippingCost = Number((order as { shipping_cost?: number | null }).shipping_cost ?? 0);
+        const total =
+          (order.order_items?.reduce(
+            (acc, item) => acc + Number(item.unit_price ?? 0) * item.quantity,
+            0,
+          ) ?? 0) + shippingCost;
+        const clientName =
+          Array.isArray(order.client) && order.client.length > 0
+            ? order.client[0]?.name ?? "Cliente"
+            : (order as { client?: { name?: string } }).client?.name ?? "Cliente";
 
-      return {
-        id: order.id,
-        status: order.status,
-        clientName,
-        total,
-        createdAt: order.created_at,
-        paymentMethod: (order as { payment_method?: "efectivo" | "transferencia" | null }).payment_method ?? null,
-        contactPhone: (order as { contact_phone?: string | null }).contact_phone ?? null,
-      };
-    }) ?? [];
+        return {
+          id: order.id,
+          status: order.status,
+          clientName,
+          total,
+          createdAt: order.created_at,
+          deliveryDate: (order as { delivery_date?: string | null }).delivery_date ?? null,
+          deliveryZoneName:
+            Array.isArray((order as any).delivery_zone) && (order as any).delivery_zone.length > 0
+              ? (order as any).delivery_zone[0]?.name ?? null
+              : ((order as any).delivery_zone as { name?: string } | null | undefined)?.name ?? null,
+          paymentMethod: (order as { payment_method?: "efectivo" | "transferencia" | null }).payment_method ?? null,
+          contactPhone: (order as { contact_phone?: string | null }).contact_phone ?? null,
+          paymentProofStatus: (order as { payment_proof_status?: "no_aplica" | "pendiente" | "subido" | null }).payment_proof_status ?? null,
+        };
+      }) ?? [];
 
   debug.ordersLoaded = parsedOrders.length;
 

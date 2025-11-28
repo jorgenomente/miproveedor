@@ -13,14 +13,34 @@ const updateSchema = z.object({
   status: z.enum(ORDER_STATUS),
 });
 
+const updateDeliveryDateSchema = z.object({
+  providerSlug: z.string().min(2),
+  orderId: z.string().uuid(),
+  deliveryDate: z.string().nullable(),
+});
+
 const updateOrderSchema = z.object({
   orderId: z.string().uuid(),
   status: z.enum(ORDER_STATUS).optional(),
   contactName: z.string().trim().max(120).optional(),
   contactPhone: z.string().trim().max(60).optional(),
   deliveryMethod: z.enum(["retiro", "envio"]).nullable().optional(),
+  paymentMethod: z.enum(["efectivo", "transferencia"]).optional(),
   paymentProofStatus: z.enum(["no_aplica", "pendiente", "subido"]).optional(),
   note: z.string().trim().max(500).optional(),
+});
+
+const generateReceiptSchema = z.object({
+  orderId: z.string().min(3),
+  items: z
+    .array(
+      z.object({
+        orderItemId: z.string().min(1),
+        productId: z.string().min(1),
+        quantity: z.number().int().min(0),
+      }),
+    )
+    .nonempty("Debes confirmar al menos un producto."),
 });
 
 export type ProviderRow = {
@@ -37,18 +57,22 @@ export type OrderListItem = {
   total: number;
   createdAt: string | null;
   deliveryDate?: string | null;
+  deliveryZoneName?: string | null;
   paymentMethod?: "efectivo" | "transferencia" | null;
   paymentProofStatus?: "no_aplica" | "pendiente" | "subido" | null;
   paymentProofUrl?: string | null;
 };
 
 export type OrderItemDetail = {
+  orderItemId: string;
   productId: string;
   productName: string;
   unit: string | null;
   quantity: number;
   unitPrice: number;
   subtotal: number;
+  deliveredQuantity?: number | null;
+  deliveredSubtotal?: number;
 };
 
 export type OrderDetail = {
@@ -60,11 +84,13 @@ export type OrderDetail = {
   note: string | null;
   createdAt: string | null;
   total: number;
+  receiptGeneratedAt?: string | null;
   paymentMethod?: "efectivo" | "transferencia" | null;
   paymentProofStatus?: "no_aplica" | "pendiente" | "subido" | null;
   paymentProofUrl?: string | null;
   deliveryDate?: string | null;
   deliveryRuleId?: string | null;
+  deliveryZoneName?: string | null;
   provider: {
     id: string;
     name: string;
@@ -91,8 +117,16 @@ export type UpdateOrderResult =
   | { success: true; message: string }
   | { success: false; errors: string[] };
 
+export type UpdateDeliveryDateResult =
+  | { success: true; message: string; deliveryDate: string | null }
+  | { success: false; errors: string[] };
+
 export type OrderDetailResult =
   | { success: true; order: OrderDetail }
+  | { success: false; errors: string[] };
+
+export type GenerateReceiptResult =
+  | { success: true; message: string; receiptGeneratedAt: string }
   | { success: false; errors: string[] };
 
 export type PendingProductRow = {
@@ -351,7 +385,7 @@ export async function listOrders(providerSlug: string): Promise<ListOrdersResult
   const { data, error } = await supabase
     .from("orders")
     .select(
-      "id, status, created_at, delivery_date, delivery_rule_id, payment_method, payment_proof_status, payment_proof_url, client:clients(name), order_items(quantity, unit_price)",
+      "id, status, created_at, delivery_date, delivery_rule_id, delivery_zone:delivery_zones(name), payment_method, payment_proof_status, payment_proof_url, client:clients(name), order_items(quantity, unit_price)",
     )
     .eq("provider_id", provider.id)
     .eq("is_archived", false)
@@ -380,6 +414,10 @@ export async function listOrders(providerSlug: string): Promise<ListOrdersResult
         total,
         createdAt: order.created_at,
         deliveryDate: (order as { delivery_date?: string | null }).delivery_date ?? null,
+        deliveryZoneName:
+          Array.isArray((order as any).delivery_zone) && (order as any).delivery_zone.length > 0
+            ? (order as any).delivery_zone[0]?.name ?? null
+            : ((order as any).delivery_zone as { name?: string } | null | undefined)?.name ?? null,
         paymentMethod: (order as { payment_method?: "efectivo" | "transferencia" }).payment_method ?? null,
         paymentProofStatus: (order as { payment_proof_status?: "no_aplica" | "pendiente" | "subido" }).payment_proof_status ?? null,
         paymentProofUrl: (order as { payment_proof_url?: string | null }).payment_proof_url ?? null,
@@ -394,6 +432,9 @@ export async function getOrderDetail(orderId: string): Promise<OrderDetailResult
   if (storedDemo?.provider_slug === "demo") {
     const demo = getDemoData();
     const client = demo.clients.find((c) => c.slug === storedDemo.client_slug);
+    const deliveredMap = new Map(
+      (storedDemo.delivered_items ?? []).map((item) => [item.productId, item.quantity ?? null]),
+    );
 
     return {
       success: true,
@@ -403,9 +444,11 @@ export async function getOrderDetail(orderId: string): Promise<OrderDetailResult
         contactName: storedDemo.contact_name ?? null,
         contactPhone: storedDemo.contact_phone ?? null,
         deliveryMethod: storedDemo.delivery_method ?? null,
+        deliveryZoneName: null,
         note: storedDemo.note ?? null,
         createdAt: storedDemo.created_at ?? null,
         total: storedDemo.total,
+        receiptGeneratedAt: storedDemo.receipt_generated_at ?? storedDemo.created_at ?? null,
         deliveryDate: storedDemo.delivery_date ?? null,
         deliveryRuleId: storedDemo.delivery_rule_id ?? null,
         paymentMethod: storedDemo.payment_method ?? null,
@@ -426,14 +469,22 @@ export async function getOrderDetail(orderId: string): Promise<OrderDetailResult
           contact_phone: client?.contact_phone ?? null,
           address: client?.address ?? null,
         },
-        items: storedDemo.items.map((item) => ({
-          productId: item.productId,
-          productName: item.name,
-          unit: item.unit ?? null,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          subtotal: item.subtotal ?? item.unitPrice * item.quantity,
-        })),
+        items: storedDemo.items.map((item, index) => {
+          const deliveredQuantity = deliveredMap.get(item.productId) ?? null;
+          const unitPrice = item.unitPrice;
+          const effectiveQuantity = deliveredQuantity ?? item.quantity;
+          return {
+            orderItemId: item.productId ?? `demo-item-${index}`,
+            productId: item.productId,
+            productName: item.name,
+            unit: item.unit ?? null,
+            quantity: item.quantity,
+            unitPrice,
+            subtotal: item.subtotal ?? unitPrice * effectiveQuantity,
+            deliveredQuantity,
+            deliveredSubtotal: unitPrice * effectiveQuantity,
+          };
+        }),
       },
     };
   }
@@ -458,8 +509,10 @@ export async function getOrderDetail(orderId: string): Promise<OrderDetailResult
             : order.deliveryMethod?.toLowerCase().includes("ret")
               ? "retiro"
               : order.deliveryMethod ?? null,
+        deliveryZoneName: null,
         note: order.note ?? null,
         createdAt: order.createdAt,
+        receiptGeneratedAt: order.createdAt ?? new Date().toISOString(),
         deliveryDate: (order as { deliveryDate?: string | null }).deliveryDate ?? null,
         deliveryRuleId: (order as { deliveryRuleId?: string | null }).deliveryRuleId ?? null,
         total: order.total,
@@ -481,15 +534,18 @@ export async function getOrderDetail(orderId: string): Promise<OrderDetailResult
           contact_phone: client.contact_phone ?? null,
           address: client.address ?? null,
         },
-        items: order.items.map((item) => {
+        items: order.items.map((item, index) => {
           const unitPrice = "unitPrice" in item ? Number((item as { unitPrice?: number }).unitPrice ?? 0) : 0;
           return {
+            orderItemId: (item as { productId?: string }).productId ?? `demo-seed-${index}`,
             productId: (item as { productId?: string }).productId ?? "",
             productName: (item as { name?: string }).name ?? "Producto demo",
             unit: (item as { unit?: string | null }).unit ?? null,
             quantity: item.quantity,
             unitPrice,
             subtotal: unitPrice * item.quantity,
+            deliveredQuantity: item.quantity,
+            deliveredSubtotal: unitPrice * item.quantity,
           };
         }),
       },
@@ -511,6 +567,7 @@ export async function getOrderDetail(orderId: string): Promise<OrderDetailResult
         contact_name,
         contact_phone,
         delivery_method,
+        delivery_zone:delivery_zones(name),
         delivery_date,
         delivery_rule_id,
         payment_method,
@@ -518,10 +575,13 @@ export async function getOrderDetail(orderId: string): Promise<OrderDetailResult
         payment_proof_url,
         note,
         created_at,
+        receipt_generated_at,
         provider:providers(id, name, slug, contact_email, contact_phone),
         client:clients(id, name, slug, contact_name, contact_phone, address),
         order_items(
+          id,
           quantity,
+          delivered_quantity,
           unit_price,
           product:products(id, name, unit)
         )
@@ -562,13 +622,21 @@ export async function getOrderDetail(orderId: string): Promise<OrderDetailResult
     data.order_items?.map((item) => {
       const productEntry = Array.isArray(item.product) && item.product.length > 0 ? item.product[0] : (item as any).product;
       const unitPrice = Number(item.unit_price ?? 0);
+      const deliveredQuantity =
+        typeof (item as { delivered_quantity?: number | null }).delivered_quantity === "number"
+          ? (item as { delivered_quantity?: number | null }).delivered_quantity
+          : null;
+      const effectiveQuantity = deliveredQuantity ?? item.quantity;
       return {
+        orderItemId: (item as { id?: string }).id ?? productEntry?.id ?? "",
         productId: productEntry?.id ?? "",
         productName: productEntry?.name ?? "Producto",
         unit: productEntry?.unit ?? null,
         quantity: item.quantity,
         unitPrice,
-        subtotal: unitPrice * item.quantity,
+        subtotal: unitPrice * effectiveQuantity,
+        deliveredQuantity,
+        deliveredSubtotal: unitPrice * effectiveQuantity,
       };
     }) ?? [];
 
@@ -589,10 +657,15 @@ export async function getOrderDetail(orderId: string): Promise<OrderDetailResult
               ? "retiro"
               : data.delivery_method
           : null,
+      deliveryZoneName:
+        Array.isArray((data as any).delivery_zone) && (data as any).delivery_zone.length > 0
+          ? (data as any).delivery_zone[0]?.name ?? null
+          : ((data as any).delivery_zone as { name?: string } | null | undefined)?.name ?? null,
       deliveryDate: (data as { delivery_date?: string | null }).delivery_date ?? null,
       deliveryRuleId: (data as { delivery_rule_id?: string | null }).delivery_rule_id ?? null,
       note: data.note ?? null,
       createdAt: data.created_at ?? null,
+      receiptGeneratedAt: (data as { receipt_generated_at?: string | null }).receipt_generated_at ?? null,
       total,
       paymentMethod: (data as { payment_method?: "efectivo" | "transferencia" }).payment_method ?? null,
       paymentProofStatus: (data as { payment_proof_status?: "no_aplica" | "pendiente" | "subido" }).payment_proof_status ?? null,
@@ -719,6 +792,7 @@ export async function updateOrder(
       if (typeof parsed.data.contactName === "string") updates.contact_name = parsed.data.contactName || null;
       if (typeof parsed.data.contactPhone === "string") updates.contact_phone = parsed.data.contactPhone || null;
       if ("deliveryMethod" in parsed.data) updates.delivery_method = parsed.data.deliveryMethod || null;
+      if (parsed.data.paymentMethod) updates.payment_method = parsed.data.paymentMethod;
       if (parsed.data.paymentProofStatus) updates.payment_proof_status = parsed.data.paymentProofStatus;
       if (typeof parsed.data.note === "string") updates.note = parsed.data.note || null;
       if (Object.keys(updates).length > 0) {
@@ -757,6 +831,7 @@ export async function updateOrder(
   if (typeof parsed.data.contactName === "string") updates.contact_name = parsed.data.contactName || null;
   if (typeof parsed.data.contactPhone === "string") updates.contact_phone = parsed.data.contactPhone || null;
   if ("deliveryMethod" in parsed.data) updates.delivery_method = parsed.data.deliveryMethod || null;
+  if (parsed.data.paymentMethod) updates.payment_method = parsed.data.paymentMethod;
   if (parsed.data.paymentProofStatus) updates.payment_proof_status = parsed.data.paymentProofStatus;
   if (typeof parsed.data.note === "string") updates.note = parsed.data.note || null;
 
@@ -767,4 +842,141 @@ export async function updateOrder(
   if (error) return { success: false, errors: [`No se pudo actualizar el pedido: ${error.message}`] };
 
   return { success: true, message: "Pedido actualizado." };
+}
+
+export async function generateReceipt(payload: z.infer<typeof generateReceiptSchema>): Promise<GenerateReceiptResult> {
+  const parsed = generateReceiptSchema.safeParse(payload);
+  if (!parsed.success) {
+    return { success: false, errors: parsed.error.issues.map((issue) => issue.message) };
+  }
+
+  // Modo demo persistido (tabla demo_orders)
+  const storedDemo = await fetchDemoOrderById(parsed.data.orderId);
+  if (storedDemo?.provider_slug === "demo") {
+    const now = new Date().toISOString();
+    const supabase = getSupabaseAdmin();
+    if (supabase) {
+      await supabase
+        .from("demo_orders")
+        .update({
+          delivered_items: parsed.data.items.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+          })),
+          receipt_generated_at: now,
+        })
+        .eq("id", storedDemo.id);
+    }
+
+    return { success: true, message: "Remito generado en modo demo.", receiptGeneratedAt: now };
+  }
+
+  // Modo demo estático (ids no UUID) — no toca base real pero deja feedback.
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidPattern.test(parsed.data.orderId)) {
+    const now = new Date().toISOString();
+    return { success: true, message: "Remito generado en modo demo.", receiptGeneratedAt: now };
+  }
+
+  const scopeResult = await getProviderScope();
+  if (scopeResult.error) return { success: false, errors: [scopeResult.error] };
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return { success: false, errors: ["Faltan credenciales de Supabase."] };
+
+  const { data: order, error: orderError } = await supabase
+    .from("orders")
+    .select("id, provider_id, receipt_generated_at, order_items(id, product_id, quantity)")
+    .eq("id", parsed.data.orderId)
+    .maybeSingle();
+
+  if (orderError || !order) {
+    return { success: false, errors: [`Pedido no encontrado: ${orderError?.message ?? "sin detalle"}`] };
+  }
+
+  if (scopeResult.scope?.role === "provider" && scopeResult.scope.provider.id !== (order as { provider_id?: string }).provider_id) {
+    return { success: false, errors: ["No tienes acceso a este pedido."] };
+  }
+
+  const orderItems = (order.order_items ?? []) as { id: string; product_id?: string | null; quantity: number }[];
+
+  const missing = parsed.data.items.filter((entry) => !orderItems.some((row) => row.id === entry.orderItemId));
+  if (missing.length > 0) {
+    return { success: false, errors: ["Algún producto no pertenece al pedido."] };
+  }
+
+  const exceeding = parsed.data.items.find((entry) => {
+    const row = orderItems.find((item) => item.id === entry.orderItemId);
+    return row ? entry.quantity > row.quantity : false;
+  });
+  if (exceeding) {
+    return { success: false, errors: ["No puedes enviar más cantidad de la que se pidió. Ajusta los valores."] };
+  }
+
+  for (const item of parsed.data.items) {
+    const { error } = await supabase
+      .from("order_items")
+      .update({ delivered_quantity: item.quantity })
+      .eq("id", item.orderItemId);
+
+    if (error) {
+      return { success: false, errors: [`No se pudo guardar la cantidad de ${item.productId}: ${error.message}`] };
+    }
+  }
+
+  const now = new Date().toISOString();
+  const { error: updateError } = await supabase
+    .from("orders")
+    .update({ receipt_generated_at: now })
+    .eq("id", parsed.data.orderId);
+
+  if (updateError) {
+    return { success: false, errors: [`No se pudo marcar el remito como generado: ${updateError.message}`] };
+  }
+
+  return { success: true, message: "Remito generado.", receiptGeneratedAt: now };
+}
+
+export async function updateDeliveryDate(
+  payload: z.infer<typeof updateDeliveryDateSchema>,
+): Promise<UpdateDeliveryDateResult> {
+  const parsed = updateDeliveryDateSchema.safeParse(payload);
+  if (!parsed.success) {
+    return { success: false, errors: parsed.error.issues.map((issue) => issue.message) };
+  }
+
+  if (parsed.data.orderId.startsWith("00000000-0000-4000-8000-00000000o") || parsed.data.orderId === "demo") {
+    return { success: true, message: "Pedido demo actualizado (no se guardan cambios).", deliveryDate: parsed.data.deliveryDate };
+  }
+
+  const scopeResult = await getProviderScope();
+  if (scopeResult.error) return { success: false, errors: [scopeResult.error] };
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return { success: false, errors: ["Faltan credenciales de Supabase."] };
+
+  const { data: order, error: orderError } = await supabase
+    .from("orders")
+    .select("id, provider_id")
+    .eq("id", parsed.data.orderId)
+    .maybeSingle();
+
+  if (orderError || !order) {
+    return { success: false, errors: [`Pedido no encontrado: ${orderError?.message ?? "sin detalle"}`] };
+  }
+
+  if (scopeResult.scope?.role === "provider" && scopeResult.scope.provider.id !== order.provider_id) {
+    return { success: false, errors: ["No tienes acceso a este pedido."] };
+  }
+
+  const { error } = await supabase
+    .from("orders")
+    .update({ delivery_date: parsed.data.deliveryDate })
+    .eq("id", parsed.data.orderId);
+
+  if (error) {
+    return { success: false, errors: [`No se pudo actualizar la entrega: ${error.message}`] };
+  }
+
+  return { success: true, message: "Fecha de entrega reprogramada.", deliveryDate: parsed.data.deliveryDate };
 }

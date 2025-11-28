@@ -121,10 +121,6 @@ export type ArchivedOrdersResult =
   | { success: true; provider: ProviderRow; orders: ArchivedOrder[] }
   | { success: false; errors: string[] };
 
-export type ProofStatusResult =
-  | { success: true }
-  | { success: false; errors: string[] };
-
 const paymentSchema = z.object({
   providerSlug: z.string().min(2),
   clientId: z.string().uuid(),
@@ -270,13 +266,15 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
     const mergedOrders = [...storedOrders, ...demo.orders].map((order: DemoOrderRecord | DemoOrder) => {
       const clientSlug = "client_slug" in order ? order.client_slug : order.clientSlug;
       const status = "status" in order ? order.status : "nuevo";
-      const items =
+      const itemsRaw =
         "items" in order
           ? order.items
           : (order as { order_items?: { quantity?: number; unit_price?: number }[] }).order_items ?? [];
-      const itemsTotal = Array.isArray(items)
-        ? items.reduce((acc, item: any) => acc + Number(item.unitPrice ?? item.unit_price ?? 0) * Number(item.quantity ?? 0), 0)
-        : 0;
+      const items = Array.isArray(itemsRaw) ? (itemsRaw as any[]) : [];
+      const itemsTotal = items.reduce(
+        (acc, item: any) => acc + Number(item.unitPrice ?? item.unit_price ?? 0) * Number(item.quantity ?? 0),
+        0,
+      );
       const rawTotal = "total" in order ? Number(order.total ?? 0) : 0;
       const total = rawTotal > 0 ? rawTotal : itemsTotal;
       const createdAt = "created_at" in order ? order.created_at : (order as DemoOrder).createdAt ?? null;
@@ -287,9 +285,18 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
       const rawProof = "payment_proof_status" in order ? (order as any).payment_proof_status : (order as DemoOrder).paymentProofStatus;
       const paymentProofStatus =
         rawProof === "subido" || rawProof === "pendiente" || rawProof === "no_aplica" ? rawProof : "pendiente";
-      const paymentProofUrl = "payment_proof_url" in order ? (order as any).payment_proof_url ?? null : (order as DemoOrder).paymentProofUrl ?? null;
+      const paymentProofUrl =
+        "payment_proof_url" in order
+          ? (order as { payment_proof_url?: string | null }).payment_proof_url ?? null
+          : "paymentProofUrl" in order
+            ? (order as { paymentProofUrl?: string | null }).paymentProofUrl ?? null
+            : null;
       const isArchived =
-        "is_archived" in order ? Boolean((order as { is_archived?: boolean | null }).is_archived) : Boolean((order as DemoOrder).isArchived);
+        "is_archived" in order
+          ? Boolean((order as { is_archived?: boolean | null }).is_archived)
+          : "isArchived" in order
+            ? Boolean((order as { isArchived?: boolean | null }).isArchived)
+            : false;
       const archivedAt = "archived_at" in order ? (order as { archived_at?: string | null }).archived_at ?? null : null;
 
       return {
@@ -816,7 +823,12 @@ export async function listArchivedOrders(providerSlug: string): Promise<Archived
     const storedOrders = await fetchRecentDemoOrders({ providerSlug: "demo" });
     const archivedOrders = [...storedOrders, ...demo.orders]
       .filter((order) => {
-        const archived = "is_archived" in order ? (order as any).is_archived : (order as DemoOrder).isArchived;
+        const archived =
+          "is_archived" in order
+            ? (order as { is_archived?: boolean | null }).is_archived
+            : "isArchived" in order
+              ? (order as { isArchived?: boolean | null }).isArchived
+              : false;
         return Boolean(archived);
       })
       .map((order) => {
@@ -851,7 +863,12 @@ export async function listArchivedOrders(providerSlug: string): Promise<Archived
               : (order as DemoOrder).paymentMethod ?? null,
           paymentProofStatus:
             "payment_proof_status" in order ? (order as any).payment_proof_status ?? null : (order as DemoOrder).paymentProofStatus ?? null,
-          paymentProofUrl: "payment_proof_url" in order ? (order as any).payment_proof_url ?? null : (order as DemoOrder).paymentProofUrl ?? null,
+          paymentProofUrl:
+            "payment_proof_url" in order
+              ? (order as { payment_proof_url?: string | null }).payment_proof_url ?? null
+              : "paymentProofUrl" in order
+                ? (order as { paymentProofUrl?: string | null }).paymentProofUrl ?? null
+                : null,
         } satisfies ArchivedOrder;
       });
 

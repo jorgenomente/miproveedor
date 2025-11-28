@@ -1,9 +1,21 @@
 "use client";
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { FormEvent, useCallback, useEffect, useState, useTransition } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, Building2, Copy, Link as LinkIcon, Plus, RefreshCcw, Store } from "lucide-react";
+import {
+  ArrowLeft,
+  Building2,
+  Copy,
+  ExternalLink,
+  MessageCircle,
+  Pencil,
+  Plus,
+  RefreshCcw,
+  ShieldPlus,
+  Store,
+  Link as LinkIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,10 +24,18 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -25,6 +45,8 @@ import {
   listClients,
   type ClientRow,
   type CreateClientResult,
+  updateClient,
+  type UpdateClientResult,
 } from "./actions";
 
 type CopyState = { link: string; copied: boolean };
@@ -44,6 +66,20 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
   const [slugError, setSlugError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingClient, setEditingClient] = useState<ClientRow | null>(null);
+  const [editValues, setEditValues] = useState({
+    name: "",
+    slug: "",
+    contactName: "",
+    contactPhone: "",
+    contactEmail: "",
+    address: "",
+  });
+  const [editSlugValue, setEditSlugValue] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editResult, setEditResult] = useState<UpdateClientResult | null>(null);
+  const [pendingEdit, startEdit] = useTransition();
 
   useEffect(() => {
     setOrigin(window.location.origin);
@@ -78,6 +114,23 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
     }
   }, [createDialogOpen]);
 
+  useEffect(() => {
+    if (!editDialogOpen) {
+      setEditingClient(null);
+      setEditError(null);
+      setEditResult(null);
+      setEditValues({
+        name: "",
+        slug: "",
+        contactName: "",
+        contactPhone: "",
+        contactEmail: "",
+        address: "",
+      });
+      setEditSlugValue("");
+    }
+  }, [editDialogOpen]);
+
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSlugError(null);
@@ -111,10 +164,97 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
     });
   };
 
+  const handleEditSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!editingClient) return;
+    setEditError(null);
+    setEditResult(null);
+    startEdit(async () => {
+      const response = await updateClient({
+        id: editingClient.id,
+        providerSlug,
+        name: editValues.name.trim(),
+        slug: editValues.slug.trim(),
+        contactName: editValues.contactName.trim(),
+        contactPhone: editValues.contactPhone.trim(),
+        contactEmail: editValues.contactEmail.trim(),
+        address: editValues.address.trim(),
+      });
+      setEditResult(response);
+      if (response.success) {
+        await loadClients(providerSlug);
+        setEditDialogOpen(false);
+      } else {
+        setEditError(response.errors[0] ?? "No se pudo actualizar.");
+      }
+    });
+  };
+
   const buildOrderLink = (client: ClientRow) => {
     const base = origin || "https://miproveedor.app";
     return `${base}/${providerSlug}/${client.slug}`;
   };
+
+  const handleCopyLink = (client: ClientRow) => {
+    const link = buildOrderLink(client);
+    setCopyState({ link, copied: true });
+    navigator.clipboard.writeText(link).catch(() => {
+      setCopyState({ link, copied: false });
+    });
+    setTimeout(() => setCopyState(null), 1600);
+  };
+
+  const buildWhatsappLink = (client: ClientRow) => {
+    const phone = (client.contact_phone || "").replace(/[^\d]/g, "");
+    if (!phone) return null;
+    const link = buildOrderLink(client);
+    const message =
+      "Hola! Te dejo tu link de acceso " +
+      link +
+      " lo puedes usar cada vez que necesites hacer un pedido. Quedamos disponibles ante cualquier duda. gracias!";
+    return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+  };
+
+  const sanitizeSlugInput = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "");
+
+  const reinforceSlug = () => {
+    setEditValues((prev) => {
+      const base = sanitizeSlugInput(prev.slug || "");
+      const cleanBase = base.length > 0 ? base : "tienda";
+      const suffix = Math.random().toString(36).slice(2, 6);
+      const next = cleanBase.endsWith("-") ? `${cleanBase}${suffix}` : `${cleanBase}-${suffix}`;
+      setEditSlugValue(next);
+      return { ...prev, slug: next };
+    });
+  };
+
+  const slugStrength = useMemo(() => {
+    const slug = (editValues.slug || "").trim();
+    if (!slug) {
+      return {
+        label: "Link débil",
+        tone: "border-amber-200 bg-amber-50 text-amber-700",
+        glow: true,
+      };
+    }
+    const hasRandomSuffix = /-[a-z0-9]{4,}$/.test(slug);
+    const hasDigits = /\d/.test(slug);
+    const longEnough = slug.length >= 12;
+    const mixed = hasDigits && /[a-z]/.test(slug);
+    if (hasRandomSuffix && mixed && longEnough) {
+      return { label: "Clave fuerte", tone: "border-emerald-200 bg-emerald-50 text-emerald-700", glow: false };
+    }
+    if (hasRandomSuffix || (mixed && slug.length >= 8)) {
+      return { label: "Link mejorado", tone: "border-blue-200 bg-blue-50 text-blue-700", glow: false };
+    }
+    return { label: "Link débil", tone: "border-amber-200 bg-amber-50 text-amber-700", glow: true };
+  }, [editValues.slug]);
 
   if (!providerSlug) {
     return (
@@ -377,22 +517,71 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
                           </div>
                         </div>
                       </div>
-                      <div className="flex flex-col gap-2 sm:w-60">
+                      <div className="flex flex-col gap-2 sm:w-full sm:max-w-xl sm:flex-row sm:flex-wrap sm:justify-end">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm" className="justify-center">
+                              <LinkIcon className="mr-2 h-4 w-4" />
+                              Link de cliente
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-56">
+                            <DropdownMenuLabel className="text-xs text-muted-foreground">
+                              {buildOrderLink(client)}
+                            </DropdownMenuLabel>
+                            <DropdownMenuItem
+                              className="gap-2 text-sm"
+                              onClick={() => handleCopyLink(client)}
+                            >
+                              <Copy className="h-4 w-4" />
+                              Copiar link
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="gap-2 text-sm" asChild>
+                              <a href={buildOrderLink(client)} target="_blank" rel="noreferrer">
+                                <ExternalLink className="h-4 w-4" />
+                                Abrir link
+                              </a>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="gap-2 text-sm"
+                              disabled={!buildWhatsappLink(client)}
+                              asChild={Boolean(buildWhatsappLink(client))}
+                            >
+                              {buildWhatsappLink(client) ? (
+                                <a href={buildWhatsappLink(client) ?? "#"} target="_blank" rel="noreferrer">
+                                  <MessageCircle className="h-4 w-4" />
+                                  Enviar por WhatsApp
+                                </a>
+                              ) : (
+                                <div className="flex items-center gap-2 opacity-60">
+                                  <MessageCircle className="h-4 w-4" />
+                                  Enviar por WhatsApp
+                                </div>
+                              )}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                         <Button
-                          variant="outline"
+                          variant="secondary"
                           size="sm"
                           className="justify-center"
+                          aria-label="Editar cliente"
                           onClick={() => {
-                            const link = buildOrderLink(client);
-                            setCopyState({ link, copied: true });
-                            navigator.clipboard.writeText(link).catch(() => {
-                              setCopyState({ link, copied: false });
+                            setEditingClient(client);
+                            setEditValues({
+                              name: client.name ?? "",
+                              slug: client.slug ?? "",
+                              contactName: client.contact_name ?? "",
+                              contactPhone: client.contact_phone ?? "",
+                              contactEmail: client.contact_email ?? "",
+                              address: client.address ?? "",
                             });
-                            setTimeout(() => setCopyState(null), 1600);
+                            setEditSlugValue(client.slug ?? "");
+                            setEditDialogOpen(true);
                           }}
                         >
-                          <LinkIcon className="mr-2 h-4 w-4" />
-                          Copiar link de pedidos
+                          <Pencil className="mr-2 h-4 w-4" />
+                          Editar
                         </Button>
                       </div>
                     </div>
@@ -402,6 +591,132 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
             )}
           </CardContent>
         </Card>
+
+        <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+          <DialogContent className="sm:max-w-xl">
+            <DialogHeader>
+              <DialogTitle>Editar tienda</DialogTitle>
+              <DialogDescription>Actualiza los datos y el link único de pedidos.</DialogDescription>
+            </DialogHeader>
+            {editError ? (
+              <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {editError}
+              </div>
+            ) : null}
+            <form className="space-y-4" onSubmit={handleEditSubmit}>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-name">Nombre</Label>
+                  <Input
+                    id="edit-name"
+                    name="edit-name"
+                    value={editValues.name}
+                    onChange={(event) => setEditValues((prev) => ({ ...prev, name: event.target.value }))}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-contactName">Contacto</Label>
+                  <Input
+                    id="edit-contactName"
+                    name="edit-contactName"
+                    value={editValues.contactName}
+                    onChange={(event) =>
+                      setEditValues((prev) => ({ ...prev, contactName: event.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-contactPhone">WhatsApp / Teléfono</Label>
+                  <Input
+                    id="edit-contactPhone"
+                    name="edit-contactPhone"
+                    type="tel"
+                    value={editValues.contactPhone}
+                    onChange={(event) =>
+                      setEditValues((prev) => ({ ...prev, contactPhone: event.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-contactEmail">Email</Label>
+                  <Input
+                    id="edit-contactEmail"
+                    name="edit-contactEmail"
+                    type="email"
+                    value={editValues.contactEmail}
+                    onChange={(event) =>
+                      setEditValues((prev) => ({ ...prev, contactEmail: event.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-address">Dirección</Label>
+                <Input
+                  id="edit-address"
+                  name="edit-address"
+                  value={editValues.address}
+                  onChange={(event) => setEditValues((prev) => ({ ...prev, address: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="edit-slug" className="flex items-center gap-2">
+                    <span>Link</span>
+                  </Label>
+                  <span className="text-right text-[11px] font-normal text-muted-foreground">
+                    {(origin || "https://miproveedor.app") +
+                      `/${providerSlug || "[proveedor]"}/${editSlugValue || "[tienda]"}`}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <Input
+                    id="edit-slug"
+                    name="edit-slug"
+                    value={editValues.slug}
+                    onChange={(event) => {
+                      const sanitized = sanitizeSlugInput(event.target.value);
+                      setEditValues((prev) => ({ ...prev, slug: sanitized }));
+                      setEditSlugValue(sanitized);
+                    }}
+                    pattern="^[a-z0-9-]+$"
+                    title="Solo minúsculas, números y guiones"
+                    required
+                  />
+                  <div className="flex items-center gap-2">
+                    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-semibold ${slugStrength.tone}`}>
+                      {slugStrength.label}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={reinforceSlug}
+                      className={`sm:w-auto ${slugStrength.glow ? "ring-2 ring-amber-300 ring-offset-2 animate-pulse" : ""}`}
+                    >
+                      <ShieldPlus className="mr-1.5 h-4 w-4" />
+                      Reforzar
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              <DialogFooter className="flex w-full items-center justify-end gap-2">
+                <Button type="button" variant="ghost" onClick={() => setEditDialogOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button type="submit" disabled={pendingEdit || !editingClient}>
+                  {pendingEdit ? "Guardando..." : "Guardar cambios"}
+                </Button>
+              </DialogFooter>
+            </form>
+            {editResult && editResult.success ? (
+              <p className="text-sm text-emerald-700">Cambios guardados.</p>
+            ) : null}
+          </DialogContent>
+        </Dialog>
 
         {copyState ? (
           <p className="text-xs text-muted-foreground">

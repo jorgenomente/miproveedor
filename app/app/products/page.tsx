@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   CalendarClock,
   Clock4,
+  ChevronDown,
   CheckCircle2,
   Download,
   LayoutGrid,
@@ -40,6 +41,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -260,6 +262,11 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
   const [applyingBulk, startApplyingBulk] = useTransition();
   const [showDeliveryRulesModal, setShowDeliveryRulesModal] = useState(false);
   const [deliveryRules, setDeliveryRules] = useState<DeliveryRuleInput[]>([]);
+  const [deliveryRulesEnabled, setDeliveryRulesEnabled] = useState(true);
+  const [deliveryRulesCollapsed, setDeliveryRulesCollapsed] = useState(false);
+  const [deliveryAvailableEnabled, setDeliveryAvailableEnabled] = useState(false);
+  const [deliveryAvailableCollapsed, setDeliveryAvailableCollapsed] = useState(true);
+  const [deliveryAvailableConfig, setDeliveryAvailableConfig] = useState<Record<string, { days: number[]; cutoffTime: string }>>({});
   const [loadingRules, setLoadingRules] = useState(false);
   const [rulesError, setRulesError] = useState<string | null>(null);
   const [rulesMessage, setRulesMessage] = useState<string | null>(null);
@@ -298,6 +305,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
         { id: makeTempId(), cutoffWeekday: 2, cutoffTime: "20:00", deliveryWeekday: 5 },
         { id: makeTempId(), cutoffWeekday: 6, cutoffTime: "20:00", deliveryWeekday: 2 },
       ]);
+      setDeliveryRulesEnabled(false);
       return;
     }
 
@@ -319,6 +327,18 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
       const response = await listDeliveryRules(slug);
       if (response.success) {
         hydrateRules(response.rules);
+        setDeliveryRulesEnabled(response.mode === "windows");
+        setDeliveryRulesCollapsed(response.mode !== "windows");
+        setDeliveryAvailableEnabled(response.mode === "available_days");
+        setDeliveryAvailableCollapsed(response.mode !== "available_days");
+        const availableMap: Record<string, { days: number[]; cutoffTime: string }> = {};
+        response.availableRules.forEach((rule) => {
+          availableMap[rule.zoneId] = {
+            days: rule.deliveryWeekdays ?? [],
+            cutoffTime: minutesToTimeString(rule.cutoffTimeMinutes ?? 0),
+          };
+        });
+        setDeliveryAvailableConfig(availableMap);
         setRulesMessage(null);
       } else {
         setRulesError(response.errors.join("\n"));
@@ -348,11 +368,46 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
     void loadDeliveryZones(providerSlug);
   }, [loadDeliveryZones, providerSlug]);
 
+  const ensureAvailableConfig = useCallback(
+    (zones: DeliveryZone[]) => {
+      setDeliveryAvailableConfig((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        zones.forEach((zone) => {
+          if (zone.isActive === false) return;
+          const existing = next[zone.id];
+          if (!existing || !existing.cutoffTime) {
+            next[zone.id] = {
+              days: existing?.days ?? [],
+              cutoffTime: existing?.cutoffTime ?? "20:00",
+            };
+            changed = true;
+          }
+        });
+        Object.keys(next).forEach((zoneId) => {
+          if (!zones.find((z) => z.id === zoneId && z.isActive !== false)) {
+            delete next[zoneId];
+            changed = true;
+          }
+        });
+        return changed ? next : prev;
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    ensureAvailableConfig(deliveryZones);
+  }, [deliveryZones, ensureAvailableConfig]);
+
   useEffect(() => {
     if (showDeliveryRulesModal) {
       void loadDeliveryRulesModal(providerSlug);
+      setDeliveryRulesCollapsed(false);
+      setDeliveryAvailableCollapsed(true);
+      ensureAvailableConfig(deliveryZones);
     }
-  }, [showDeliveryRulesModal, loadDeliveryRulesModal, providerSlug]);
+  }, [showDeliveryRulesModal, loadDeliveryRulesModal, providerSlug, ensureAvailableConfig, deliveryZones]);
 
   const addDeliveryRule = useCallback(() => {
     setRulesError(null);
@@ -411,16 +466,16 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
     if (hasEmptyWindow) {
       errors.push("Hay ventanas sin cobertura. Ajusta los cortes para cubrir los 7 días.");
     }
-    if (!normalized.length) {
+    if (!normalized.length && deliveryRulesEnabled) {
       errors.push("Agrega al menos una regla de entrega.");
     }
 
     return { normalized, errors, sorted };
-  }, [deliveryRules]);
+  }, [deliveryRules, deliveryRulesEnabled]);
 
   const deliveryWindowsPreview = useMemo(() => {
     if (!deliveryRulesValidation.sorted.length) return [];
-    return deliveryRulesValidation.sorted.map((entry, index, arr) => {
+    return deliveryRulesValidation.sorted.map((entry, index) => {
       return {
         id: entry.rule.id ?? `preview-${index}`,
         deliveryWeekday: entry.rule.deliveryWeekday,
@@ -430,10 +485,56 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
     });
   }, [deliveryRulesValidation.sorted]);
 
+  const activeDeliveryZones = useMemo(() => deliveryZones.filter((zone) => zone.isActive !== false), [deliveryZones]);
+
+  const deliveryAvailableComplete = useMemo(() => {
+    if (!deliveryAvailableEnabled) return false;
+    if (!activeDeliveryZones.length) return false;
+    return activeDeliveryZones.every((zone) => {
+      const config = deliveryAvailableConfig[zone.id];
+      return config && config.days.length >= 1 && config.cutoffTime.trim().length >= 4;
+    });
+  }, [activeDeliveryZones, deliveryAvailableConfig, deliveryAvailableEnabled]);
+
+  const missingAvailableZones = useMemo(() => {
+    if (!deliveryAvailableEnabled) return [];
+    return activeDeliveryZones
+      .filter((zone) => {
+        const config = deliveryAvailableConfig[zone.id];
+        return !config || config.days.length === 0 || config.cutoffTime.trim().length < 4;
+      })
+      .map((zone) => zone.name);
+  }, [activeDeliveryZones, deliveryAvailableConfig, deliveryAvailableEnabled]);
+
   const handleSaveDeliveryRules = useCallback(() => {
     startSavingRules(async () => {
-      if (deliveryRulesValidation.errors.length) {
+      const mode: "windows" | "available_days" = deliveryAvailableEnabled ? "available_days" : "windows";
+      const availablePayload =
+        mode === "available_days"
+          ? activeDeliveryZones.map((zone) => ({
+              zoneId: zone.id,
+              cutoffTime: deliveryAvailableConfig[zone.id]?.cutoffTime ?? "20:00",
+              deliveryWeekdays: deliveryAvailableConfig[zone.id]?.days ?? [],
+            }))
+          : [];
+      const missingFromPayload =
+        mode === "available_days"
+          ? availablePayload
+              .filter((entry) => entry.deliveryWeekdays.length < 1 || entry.cutoffTime.trim().length < 4)
+              .map((entry) => activeDeliveryZones.find((z) => z.id === entry.zoneId)?.name ?? "Zona")
+          : [];
+      if (mode === "windows" && deliveryRulesValidation.errors.length) {
         setRulesError(deliveryRulesValidation.errors.join("\n"));
+        return;
+      }
+      if (mode === "available_days" && !deliveryAvailableComplete) {
+        const missing =
+          missingFromPayload.length > 0
+            ? ` Faltan: ${missingFromPayload.join(", ")}.`
+            : missingAvailableZones.length
+              ? ` Faltan: ${missingAvailableZones.join(", ")}.`
+              : "";
+        setRulesError(`Configura días (checkboxes) y hora límite para todas las zonas activas.${missing}`);
         return;
       }
       if (!providerSlug) {
@@ -442,17 +543,40 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
       }
       const response = await saveDeliveryRules({
         providerSlug,
-        rules: deliveryRules,
+        mode,
+        rules: mode === "windows" ? deliveryRules : [],
+        availableRules: mode === "available_days" ? availablePayload : [],
       });
       if (response.success) {
         setRulesMessage(response.message);
         setRulesError(null);
+        if (mode === "available_days") {
+          const map: Record<string, { days: number[]; cutoffTime: string }> = {};
+          availablePayload.forEach((entry) => {
+            map[entry.zoneId] = { days: entry.deliveryWeekdays, cutoffTime: entry.cutoffTime };
+          });
+          setDeliveryAvailableConfig(map);
+          setDeliveryAvailableEnabled(true);
+          setDeliveryRulesEnabled(false);
+          setDeliveryRulesCollapsed(true);
+          setDeliveryAvailableCollapsed(false);
+        }
         await loadDeliveryRulesModal(providerSlug);
       } else {
         setRulesError(response.errors.join("\n"));
       }
     });
-  }, [deliveryRulesValidation.errors, deliveryRules, providerSlug, loadDeliveryRulesModal, startSavingRules]);
+  }, [
+    deliveryRulesEnabled,
+    deliveryRulesValidation.errors,
+    deliveryRules,
+    providerSlug,
+    loadDeliveryRulesModal,
+    startSavingRules,
+    activeDeliveryZones,
+    deliveryAvailableConfig,
+    deliveryAvailableEnabled,
+  ]);
 
   const handleCreateZone = useCallback(
     async (event?: FormEvent<HTMLFormElement>) => {
@@ -1542,166 +1666,349 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3 text-sm text-muted-foreground">
-              <div className="flex items-start gap-2">
-                <Clock4 className="mt-0.5 h-4 w-4 text-primary" />
-                <div className="space-y-1">
-                  <p className="text-sm font-semibold text-foreground">Ejemplo rápido</p>
-                  <p>
-                    Hasta martes 20:00 se entrega viernes. Hasta sábado 20:00 se entrega martes. Si llega después del corte, pasa automáticamente a la siguiente fecha.
-                  </p>
+            <div className="space-y-3 rounded-xl border border-[color:var(--neutral-200)] bg-white p-3 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-base font-semibold">Entrega según dias de reparto</p>
+                  <p className="text-xs text-muted-foreground">Define ventanas de corte y entrega (modo actual).</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <label htmlFor="delivery-toggle" className="text-sm font-medium text-muted-foreground">
+                    Activar
+                  </label>
+                  <Switch
+                    id="delivery-toggle"
+                    checked={deliveryRulesEnabled}
+                    onCheckedChange={(value) => {
+                      setDeliveryRulesEnabled(value);
+                      if (value) setDeliveryAvailableEnabled(false);
+                      setRulesError(null);
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    aria-label={deliveryRulesCollapsed ? "Expandir reglas" : "Contraer reglas"}
+                    onClick={() => setDeliveryRulesCollapsed((prev) => !prev)}
+                  >
+                    <ChevronDown className={`h-4 w-4 transition-transform ${deliveryRulesCollapsed ? "rotate-180" : ""}`} />
+                  </Button>
                 </div>
               </div>
-            </div>
 
-            {rulesError ? (
-              <div className="rounded-md border border-destructive/60 bg-destructive/10 p-3 text-sm text-destructive">
-                {rulesError}
-              </div>
-            ) : null}
-            {rulesMessage ? (
-              <div className="rounded-md border border-emerald-600/50 bg-emerald-500/10 p-3 text-sm text-emerald-600 dark:text-emerald-300">
-                {rulesMessage}
-              </div>
-            ) : null}
-
-            <div className="space-y-3">
-              {loadingRules ? (
-                <div className="space-y-2">
-                  {[0, 1].map((index) => (
-                    <div key={index} className="rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
-                      <Skeleton className="h-4 w-32" />
-                      <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                        <Skeleton className="h-10" />
-                        <Skeleton className="h-10" />
-                        <Skeleton className="h-10" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
+              {!deliveryRulesCollapsed ? (
                 <div className="space-y-3">
-                  {deliveryRules.map((rule, index) => (
-                    <div
-                      key={rule.id ?? `${rule.cutoffWeekday}-${rule.cutoffTime}-${rule.deliveryWeekday}-${index}`}
-                      className="rounded-lg border border-[color:var(--neutral-200)] bg-white p-3 shadow-sm"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px] uppercase">
-                          Ventana {index + 1}
-                        </Badge>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          disabled={deliveryRules.length <= 1}
-                          onClick={() => removeDeliveryRule(index)}
-                          aria-label="Eliminar ventana"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                  <div className="rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3 text-sm text-muted-foreground">
+                    <div className="flex items-start gap-2">
+                      <Clock4 className="mt-0.5 h-4 w-4 text-primary" />
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-foreground">Ejemplo rápido</p>
+                        <p>
+                          Hasta martes 20:00 se entrega viernes. Hasta sábado 20:00 se entrega martes. Si llega después del corte, pasa automáticamente a la siguiente fecha.
+                        </p>
                       </div>
-                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                        <div className="space-y-1">
-                          <Label>Pedidos hasta</Label>
-                          <Select
-                            value={String(rule.cutoffWeekday)}
-                            onValueChange={(value) => updateDeliveryRule(index, { cutoffWeekday: Number(value) })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Día de corte" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {WEEKDAYS.map((day, weekday) => (
-                                <SelectItem key={`cutoff-${day}`} value={String(weekday)}>
-                                  {day}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-1">
-                          <Label>Hora límite</Label>
-                          <Input
-                            type="time"
-                            value={rule.cutoffTime}
-                            onChange={(event) => updateDeliveryRule(index, { cutoffTime: event.target.value })}
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label>Se entrega</Label>
-                          <Select
-                            value={String(rule.deliveryWeekday)}
-                            onValueChange={(value) => updateDeliveryRule(index, { deliveryWeekday: Number(value) })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Día de entrega" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {WEEKDAYS.map((day, weekday) => (
-                                <SelectItem key={`delivery-${day}`} value={String(weekday)}>
-                                  {day}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        Pedidos hasta <span className="font-semibold">{WEEKDAYS[rule.cutoffWeekday]}</span>{" "}
-                        {rule.cutoffTime} se entregan el{" "}
-                        <span className="font-semibold">{WEEKDAYS[rule.deliveryWeekday]}</span>.
-                      </p>
                     </div>
-                  ))}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button type="button" variant="secondary" size="sm" onClick={addDeliveryRule}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Añadir ventana
-                    </Button>
-                    <Badge variant="outline" className="text-[11px]">
-                      Cubre toda la semana sin huecos
-                    </Badge>
+                  </div>
+
+                  {rulesError ? (
+                    <div className="rounded-md border border-destructive/60 bg-destructive/10 p-3 text-sm text-destructive">
+                      {rulesError}
+                    </div>
+                  ) : null}
+                  {rulesMessage ? (
+                    <div className="rounded-md border border-emerald-600/50 bg-emerald-500/10 p-3 text-sm text-emerald-600 dark:text-emerald-300">
+                      {rulesMessage}
+                    </div>
+                  ) : null}
+
+                  {loadingRules ? (
+                    <div className="space-y-2">
+                      {[0, 1].map((index) => (
+                        <div key={index} className="rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
+                          <Skeleton className="h-4 w-32" />
+                          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                            <Skeleton className="h-10" />
+                            <Skeleton className="h-10" />
+                            <Skeleton className="h-10" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {deliveryRules.map((rule, index) => (
+                        <div
+                          key={rule.id ?? `${rule.cutoffWeekday}-${rule.cutoffTime}-${rule.deliveryWeekday}-${index}`}
+                          className={`rounded-lg border border-[color:var(--neutral-200)] bg-white p-3 shadow-sm ${!deliveryRulesEnabled ? "opacity-60" : ""}`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px] uppercase">
+                              Ventana {index + 1}
+                            </Badge>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              disabled={deliveryRules.length <= 1 || !deliveryRulesEnabled}
+                              onClick={() => removeDeliveryRule(index)}
+                              aria-label="Eliminar ventana"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                            <div className="space-y-1">
+                              <Label>Pedidos hasta</Label>
+                              <Select
+                                value={String(rule.cutoffWeekday)}
+                                onValueChange={(value) => updateDeliveryRule(index, { cutoffWeekday: Number(value) })}
+                                disabled={!deliveryRulesEnabled}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Día de corte" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {WEEKDAYS.map((day, weekday) => (
+                                    <SelectItem key={`cutoff-${day}`} value={String(weekday)}>
+                                      {day}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Hora límite</Label>
+                              <Input
+                                type="time"
+                                value={rule.cutoffTime}
+                                onChange={(event) => updateDeliveryRule(index, { cutoffTime: event.target.value })}
+                                disabled={!deliveryRulesEnabled}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Se entrega</Label>
+                              <Select
+                                value={String(rule.deliveryWeekday)}
+                                onValueChange={(value) => updateDeliveryRule(index, { deliveryWeekday: Number(value) })}
+                                disabled={!deliveryRulesEnabled}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Día de entrega" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {WEEKDAYS.map((day, weekday) => (
+                                    <SelectItem key={`delivery-${day}`} value={String(weekday)}>
+                                      {day}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            Pedidos hasta <span className="font-semibold">{WEEKDAYS[rule.cutoffWeekday]}</span>{" "}
+                            {rule.cutoffTime} se entregan el{" "}
+                            <span className="font-semibold">{WEEKDAYS[rule.deliveryWeekday]}</span>.
+                          </p>
+                        </div>
+                      ))}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button type="button" variant="secondary" size="sm" onClick={addDeliveryRule} disabled={!deliveryRulesEnabled}>
+                          <Plus className="mr-2 h-4 w-4" />
+                          Añadir ventana
+                        </Button>
+                        <Badge variant="outline" className="text-[11px]">
+                          Cubre toda la semana sin huecos
+                        </Badge>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-2 rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
+                    <p className="text-xs font-semibold uppercase text-muted-foreground">Cobertura semanal</p>
+                    {!deliveryRulesEnabled ? (
+                      <p className="text-xs text-muted-foreground">Activa las reglas para ver la cobertura semanal.</p>
+                    ) : deliveryWindowsPreview.length ? (
+                      <div className="space-y-2 text-sm">
+                        {deliveryWindowsPreview.map((window) => {
+                          const span = describeWindow(window.start, window.end);
+                          return (
+                            <div
+                              key={window.id}
+                              className="flex flex-col gap-1 rounded-md border border-[color:var(--neutral-200)] bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                            >
+                              <div>
+                                <p className="font-semibold">
+                                  {WEEKDAYS[span.startDay]} {span.startTime} → {WEEKDAYS[span.endDay]} {span.endTime}
+                                </p>
+                                <p className="text-xs text-muted-foreground">Pedidos en esta franja se entregan el {WEEKDAYS[window.deliveryWeekday]}.</p>
+                              </div>
+                              <Badge variant="secondary" className="w-fit">
+                                Entrega {WEEKDAYS[window.deliveryWeekday]}
+                              </Badge>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Completa al menos una regla para ver el calendario semanal.
+                      </p>
+                    )}
                   </div>
                 </div>
-              )}
+              ) : null}
             </div>
 
-            <div className="space-y-2 rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
-              <p className="text-xs font-semibold uppercase text-muted-foreground">Cobertura semanal</p>
-              {deliveryWindowsPreview.length ? (
-                <div className="space-y-2 text-sm">
-                  {deliveryWindowsPreview.map((window) => {
-                    const span = describeWindow(window.start, window.end);
-                    return (
-                      <div
-                        key={window.id}
-                        className="flex flex-col gap-1 rounded-md border border-[color:var(--neutral-200)] bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
-                      >
-                        <div>
-                          <p className="font-semibold">
-                            {WEEKDAYS[span.startDay]} {span.startTime} → {WEEKDAYS[span.endDay]} {span.endTime}
-                          </p>
-                          <p className="text-xs text-muted-foreground">Pedidos en esta franja se entregan el {WEEKDAYS[window.deliveryWeekday]}.</p>
-                        </div>
-                        <Badge variant="secondary" className="w-fit">
-                          Entrega {WEEKDAYS[window.deliveryWeekday]}
-                        </Badge>
-                      </div>
-                    );
-                  })}
+            <div className="space-y-3 rounded-xl border border-[color:var(--neutral-200)] bg-white p-3 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-base font-semibold">Entrega según zonas</p>
+                  <p className="text-xs text-muted-foreground">
+                    Selecciona zona, días de entrega y hora límite. Solo un modo puede estar activo a la vez.
+                  </p>
                 </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Completa al menos una regla para ver el calendario semanal.
-                </p>
-              )}
+                <div className="flex items-center gap-3">
+                  <label htmlFor="delivery-available-toggle" className="text-sm font-medium text-muted-foreground">
+                    Activar
+                  </label>
+                  <Switch
+                    id="delivery-available-toggle"
+                    checked={deliveryAvailableEnabled}
+                    onCheckedChange={(value) => {
+                      setDeliveryAvailableEnabled(value);
+                      setDeliveryAvailableCollapsed(false);
+                      if (value) setDeliveryRulesEnabled(false);
+                      setRulesError(null);
+                      ensureAvailableConfig(activeDeliveryZones);
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    aria-label={deliveryAvailableCollapsed ? "Expandir reglas por días disponibles" : "Contraer reglas por días disponibles"}
+                    onClick={() => setDeliveryAvailableCollapsed((prev) => !prev)}
+                  >
+                    <ChevronDown className={`h-4 w-4 transition-transform ${deliveryAvailableCollapsed ? "rotate-180" : ""}`} />
+                  </Button>
+                </div>
+                </div>
+
+              {!deliveryAvailableCollapsed ? (
+                <div className={`space-y-3 ${!deliveryAvailableEnabled ? "opacity-60" : ""}`}>
+                  {missingAvailableZones.length ? (
+                    <div className="rounded-md border border-amber-400/60 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-300/40 dark:bg-amber-500/10 dark:text-amber-100">
+                      Faltan días y hora límite para: {missingAvailableZones.join(", ")}.
+                    </div>
+                  ) : null}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setShowDeliveryZonesModal(true)}
+                      disabled={!deliveryAvailableEnabled}
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Agregar zona
+                    </Button>
+                    <Badge variant="outline" className="text-[11px]">
+                      {activeDeliveryZones.length} zonas activas
+                    </Badge>
+                  </div>
+
+                  {!deliveryZones.length ? (
+                    <p className="text-sm text-muted-foreground">
+                      Primero crea zonas de envío para asignar días.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {activeDeliveryZones.map((zone) => {
+                        const config = deliveryAvailableConfig[zone.id] ?? { days: [], cutoffTime: "20:00" };
+                        return (
+                          <div
+                            key={zone.id}
+                            className="space-y-2 rounded-lg border border-[color:var(--neutral-200)] bg-white p-3 shadow-sm"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div>
+                                <p className="text-sm font-semibold">{zone.name}</p>
+                                <p className="text-xs text-muted-foreground">{formatCurrency(zone.price)}</p>
+                              </div>
+                            <div className="flex items-center gap-2">
+                              <Label className="text-xs text-muted-foreground">Hora límite</Label>
+                              <Input
+                                type="time"
+                                value={config.cutoffTime}
+                                onChange={(event) =>
+                                  setDeliveryAvailableConfig((prev) => ({
+                                    ...prev,
+                                    [zone.id]: { ...config, cutoffTime: event.target.value },
+                                  }))
+                                }
+                                className="w-32"
+                                disabled={!deliveryAvailableEnabled}
+                              />
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                      {WEEKDAYS.map((day, weekday) => {
+                        const checked = config.days.includes(weekday);
+                        return (
+                          <label
+                            key={`${zone.id}-${day}`}
+                                    className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${checked ? "border-primary/50 bg-primary/5" : "border-[color:var(--neutral-200)] bg-white"}`}
+                                  >
+                                    <Checkbox
+                                      checked={checked}
+                                      onCheckedChange={(value) => {
+                                        setDeliveryAvailableConfig((prev) => {
+                                          const current = prev[zone.id] ?? { days: [], cutoffTime: config.cutoffTime };
+                                          const nextDays = new Set(current.days);
+                                          if (value === true) {
+                                            nextDays.add(weekday);
+                                          } else {
+                                            nextDays.delete(weekday);
+                                          }
+                                          return {
+                                            ...prev,
+                                            [zone.id]: { ...current, days: Array.from(nextDays).sort() },
+                                          };
+                                        });
+                                      }}
+                                      disabled={!deliveryAvailableEnabled}
+                                    />
+                                    {day}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              El cliente verá solo estos días al elegir la zona. Si llega después de la hora límite, saltará al siguiente día disponible.
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : null}
             </div>
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setShowDeliveryRulesModal(false)}>
               Cerrar
             </Button>
-            <Button onClick={handleSaveDeliveryRules} disabled={savingRules || loadingRules || !providerSlug}>
+            <Button
+              onClick={handleSaveDeliveryRules}
+              disabled={
+                savingRules ||
+                loadingRules ||
+                !providerSlug ||
+                (!deliveryRulesEnabled && !deliveryAvailableEnabled)
+              }
+            >
               {savingRules ? (
                 <span className="inline-flex items-center gap-2">
                   <Loader2 className="h-4 w-4 animate-spin" />

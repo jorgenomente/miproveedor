@@ -19,8 +19,6 @@ type PdfClient = {
 };
 
 type PdfRow = {
-  date?: string | null;
-  orderNumber: string;
   description: string;
   quantity: number;
   unitPrice: number;
@@ -49,7 +47,7 @@ const formatMoney = (value: number) =>
     maximumFractionDigits: 0,
   }).format(Number.isFinite(value) ? value : 0);
 
-function drawHeader(doc: PDFKit.PDFDocument, issuedAt: Date) {
+function drawHeader(doc: PDFKit.PDFDocument, issuedAt: Date, orderNumber: string) {
   const width = doc.page.width - PAGE_MARGIN * 2;
   const y = PAGE_MARGIN;
 
@@ -65,6 +63,12 @@ function drawHeader(doc: PDFKit.PDFDocument, issuedAt: Date) {
     .fontSize(22)
     .fillColor(PRIMARY)
     .text("REMITO", PAGE_MARGIN, y + 12, { width, align: "center" });
+
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(11)
+    .fillColor(TEXT)
+    .text(`Pedido #${orderNumber}`, PAGE_MARGIN, y + 14, { width, align: "right" });
 
   doc
     .font("Helvetica")
@@ -85,7 +89,7 @@ function drawHeader(doc: PDFKit.PDFDocument, issuedAt: Date) {
 function drawProviderBlock(doc: PDFKit.PDFDocument, provider: PdfProvider, startY: number) {
   const width = doc.page.width - PAGE_MARGIN * 2;
   const line = [provider.phone ? `Tel: ${provider.phone}` : null, provider.email].filter(Boolean).join(" · ");
-  doc.font("Helvetica-Bold").fontSize(12).fillColor(TEXT).text("Jorge Pulido", PAGE_MARGIN, startY, {
+  doc.font("Helvetica-Bold").fontSize(12).fillColor(TEXT).text(provider.name || "Proveedor", PAGE_MARGIN, startY, {
     width,
     align: "left",
   });
@@ -126,20 +130,49 @@ function drawClientCard(doc: PDFKit.PDFDocument, client: PdfClient, startY: numb
   return startY + cardHeight + 22;
 }
 
+function drawDeliveryInfo(
+  doc: PDFKit.PDFDocument,
+  delivery: { method?: string | null; zone?: string | null; date?: string | null },
+  startY: number,
+) {
+  const width = doc.page.width - PAGE_MARGIN * 2;
+  doc
+    .roundedRect(PAGE_MARGIN, startY, width, 66, 6)
+    .strokeColor(LINE)
+    .lineWidth(1)
+    .fillAndStroke("#FFFFFF", LINE);
+
+  const x = PAGE_MARGIN + 12;
+  let y = startY + 12;
+
+  doc.font("Helvetica-Bold").fontSize(12).fillColor(TEXT).text("Entrega", x, y, { width: width - 24 });
+  y += 16;
+
+  const parts = [
+    delivery.method ? `Método: ${delivery.method === "envio" ? "Envío" : "Retiro"}` : null,
+    delivery.zone ? `Zona: ${delivery.zone}` : null,
+    delivery.date ? `Fecha: ${formatDate(delivery.date)}` : null,
+  ].filter(Boolean);
+
+  doc.font("Helvetica").fontSize(10.5).fillColor(MUTED).text(parts.join(" · ") || "Sin datos de entrega", x, y, {
+    width: width - 24,
+  });
+
+  return startY + 78;
+}
+
 function drawTable(doc: PDFKit.PDFDocument, rows: PdfRow[], startY: number) {
   const availableWidth = doc.page.width - PAGE_MARGIN * 2;
-  const weights = [0.14, 0.13, 0.3, 0.09, 0.11, 0.11, 0.12];
+  const weights = [0.42, 0.12, 0.14, 0.2, 0.12];
   const base = availableWidth / weights.reduce((acc, w) => acc + w, 0);
 
   const columns: { key: keyof PdfRow; label: string; width: number; align?: "left" | "right"; format?: "money" | "text" | "date" | "number"; noWrap?: boolean }[] =
     [
-      { key: "date", label: "Fecha", width: base * weights[0], format: "date", noWrap: true },
-      { key: "orderNumber", label: "Pedido", width: base * weights[1], align: "right", noWrap: true },
-      { key: "description", label: "Descripción", width: base * weights[2], format: "text" },
-      { key: "quantity", label: "Cant.", width: base * weights[3], align: "right", format: "number", noWrap: true },
-      { key: "unitPrice", label: "Unitario", width: base * weights[4], align: "right", format: "money", noWrap: true },
-      { key: "subtotal", label: "Subtotal", width: base * weights[5], align: "right", format: "money", noWrap: true },
-      { key: "balance", label: "Saldo", width: base * weights[6], align: "right", format: "money", noWrap: true },
+      { key: "description", label: "Descripción", width: base * weights[0], format: "text" },
+      { key: "quantity", label: "Cant.", width: base * weights[1], align: "right", format: "number", noWrap: true },
+      { key: "unitPrice", label: "Unitario", width: base * weights[2], align: "right", format: "money", noWrap: true },
+      { key: "subtotal", label: "Subtotal", width: base * weights[3], align: "right", format: "money", noWrap: true },
+      { key: "balance", label: "Saldo", width: base * weights[4], align: "right", format: "money", noWrap: true },
     ];
 
   let y = startY;
@@ -312,12 +345,14 @@ async function buildPdf(order: OrderDetail): Promise<Buffer> {
   };
 
   const rows: PdfRow[] = order.items.map((item) => {
-    const subtotal = item.subtotal ?? item.unitPrice * item.quantity;
+    const deliveredQty =
+      typeof item.deliveredQuantity === "number" && Number.isFinite(item.deliveredQuantity)
+        ? item.deliveredQuantity
+        : item.quantity;
+    const subtotal = (item.deliveredSubtotal ?? null) ?? item.unitPrice * deliveredQty;
     return {
-      date: order.createdAt,
-      orderNumber: order.id.slice(0, 8),
       description: `${item.productName}${item.unit ? ` (${item.unit})` : ""}`,
-      quantity: item.quantity,
+      quantity: deliveredQty,
       unitPrice: item.unitPrice,
       subtotal,
       balance: subtotal,
@@ -326,9 +361,15 @@ async function buildPdf(order: OrderDetail): Promise<Buffer> {
 
   const totalDue = rows.reduce((acc, row) => acc + row.balance, 0);
 
-  const afterHeader = drawHeader(doc, new Date(order.createdAt ?? Date.now()));
+  const issuedAt = new Date(order.receiptGeneratedAt ?? order.createdAt ?? Date.now());
+  const afterHeader = drawHeader(doc, issuedAt, order.id.slice(0, 8));
   const afterProvider = drawProviderBlock(doc, provider, afterHeader + 4);
-  const tableStart = drawClientCard(doc, client, afterProvider + 12);
+  const afterClient = drawClientCard(doc, client, afterProvider + 12);
+  const tableStart = drawDeliveryInfo(
+    doc,
+    { method: order.deliveryMethod, zone: order.deliveryZoneName, date: order.deliveryDate },
+    afterClient + 6,
+  );
   const afterTable = drawTable(doc, rows, tableStart + 10);
 
   let totalsY = afterTable;
@@ -351,8 +392,14 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ or
     return NextResponse.json({ error: detail.errors.join(" · ") }, { status: 404 });
   }
 
+  if (!detail.order.receiptGeneratedAt) {
+    return NextResponse.json({ error: "El remito aún no está disponible para este pedido." }, { status: 404 });
+  }
+
   const pdf = await buildPdf(detail.order);
-  return new NextResponse(pdf, {
+  const pdfBody = new Uint8Array(pdf);
+
+  return new NextResponse(pdfBody, {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",

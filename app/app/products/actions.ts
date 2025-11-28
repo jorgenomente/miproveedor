@@ -165,8 +165,14 @@ export type DeliveryZone = {
   isActive: boolean;
 };
 
+export type DeliveryAvailableRow = {
+  zoneId: string;
+  deliveryWeekdays: number[];
+  cutoffTimeMinutes: number;
+};
+
 export type ListDeliveryRulesResult =
-  | { success: true; rules: DeliveryRuleRow[] }
+  | { success: true; rules: DeliveryRuleRow[]; mode: "windows" | "available_days"; availableRules: DeliveryAvailableRow[] }
   | { success: false; errors: string[] };
 
 export type SaveDeliveryRulesResult =
@@ -1189,9 +1195,17 @@ const deliveryRuleSchema = z.object({
   deliveryWeekday: z.number().int().min(0).max(6),
 });
 
+const deliveryAvailableSchema = z.object({
+  zoneId: z.string().uuid(),
+  cutoffTime: z.string().trim().min(4),
+  deliveryWeekdays: z.array(z.number().int().min(0).max(6)).min(1),
+});
+
 const saveRulesSchema = z.object({
   providerSlug: z.string().min(2),
-  rules: z.array(deliveryRuleSchema).min(1),
+  mode: z.enum(["windows", "available_days"]).default("windows"),
+  rules: z.array(deliveryRuleSchema).min(0),
+  availableRules: z.array(deliveryAvailableSchema).min(0).default([]),
 });
 
 function normalizeRuleInputs(rules: DeliveryRuleInput[]): { rules: DeliveryRule[]; errors: string[] } {
@@ -1229,6 +1243,33 @@ function normalizeRuleInputs(rules: DeliveryRuleInput[]): { rules: DeliveryRule[
   return { rules: normalized, errors };
 }
 
+function normalizeAvailableInputs(
+  entries: { zoneId: string; cutoffTime: string; deliveryWeekdays: number[] }[],
+): { rules: DeliveryAvailableRow[]; errors: string[] } {
+  const errors: string[] = [];
+  const normalized: DeliveryAvailableRow[] = [];
+
+  entries.forEach((entry, index) => {
+    const cutoffMinutes = timeStringToMinutes(entry.cutoffTime);
+    if (cutoffMinutes === null) {
+      errors.push(`Hora inválida en la fila ${index + 1}. Usa formato HH:MM.`);
+      return;
+    }
+    const uniqueDays = Array.from(new Set(entry.deliveryWeekdays.filter((day) => day >= 0 && day <= 6))).sort();
+    if (!uniqueDays.length) {
+      errors.push(`Selecciona al menos un día en la fila ${index + 1}.`);
+      return;
+    }
+    normalized.push({
+      zoneId: entry.zoneId,
+      cutoffTimeMinutes: cutoffMinutes,
+      deliveryWeekdays: uniqueDays,
+    });
+  });
+
+  return { rules: normalized, errors };
+}
+
 export async function listDeliveryRules(providerSlug: string): Promise<ListDeliveryRulesResult> {
   const demoRules: DeliveryRuleRow[] = [
     {
@@ -1248,7 +1289,7 @@ export async function listDeliveryRules(providerSlug: string): Promise<ListDeliv
   ];
 
   if (providerSlug === "demo") {
-    return { success: true, rules: demoRules };
+    return { success: true, rules: demoRules, mode: "windows", availableRules: [] };
   }
 
   const scopeResult = await getProviderScope();
@@ -1270,15 +1311,31 @@ export async function listDeliveryRules(providerSlug: string): Promise<ListDeliv
     return { success: false, errors: [providerError ?? "Proveedor no encontrado."] };
   }
 
-  const { data, error } = await supabase
-    .from("delivery_windows")
-    .select("id, cutoff_weekday, cutoff_time_minutes, delivery_weekday, delivery_time_minutes")
-    .eq("provider_id", provider.id)
-    .order("cutoff_weekday", { ascending: true })
-    .order("cutoff_time_minutes", { ascending: true });
+  const [{ data, error }, { data: settings }, { data: available, error: availableError }] = await Promise.all([
+    supabase
+      .from("delivery_windows")
+      .select("id, cutoff_weekday, cutoff_time_minutes, delivery_weekday, delivery_time_minutes")
+      .eq("provider_id", provider.id)
+      .order("cutoff_weekday", { ascending: true })
+      .order("cutoff_time_minutes", { ascending: true }),
+    supabase
+      .from("provider_delivery_settings")
+      .select("mode")
+      .eq("provider_id", provider.id)
+      .maybeSingle(),
+    supabase
+      .from("delivery_zone_available_days")
+      .select("zone_id, delivery_weekday, cutoff_time_minutes")
+      .eq("provider_id", provider.id)
+      .order("zone_id")
+      .order("delivery_weekday"),
+  ]);
 
   if (error) {
     return { success: false, errors: [`No se pudieron cargar las reglas: ${error.message}`] };
+  }
+  if (availableError) {
+    return { success: false, errors: [`No se pudieron cargar las reglas por días: ${availableError.message}`] };
   }
 
   const rules =
@@ -1290,15 +1347,38 @@ export async function listDeliveryRules(providerSlug: string): Promise<ListDeliv
       deliveryTimeMinutes: row.delivery_time_minutes ?? 10 * 60,
     })) ?? [];
 
+  const availableRules: DeliveryAvailableRow[] = [];
+  const grouped = new Map<string, { cutoff: number; days: number[] }>();
+  (available ?? []).forEach((row) => {
+    const cutoff = row.cutoff_time_minutes ?? 0;
+    const entry = grouped.get(row.zone_id) ?? { cutoff, days: [] };
+    entry.cutoff = cutoff;
+    entry.days.push(row.delivery_weekday ?? 0);
+    grouped.set(row.zone_id, entry);
+  });
+  grouped.forEach((value, zoneId) => {
+    availableRules.push({
+      zoneId,
+      cutoffTimeMinutes: value.cutoff,
+      deliveryWeekdays: Array.from(new Set(value.days)).sort(),
+    });
+  });
+
+  const mode: "windows" | "available_days" = settings?.mode === "available_days" ? "available_days" : "windows";
+
   return {
     success: true,
     rules: rules.length ? rules : demoRules.map((rule) => ({ ...rule, id: randomUUID() })),
+    mode,
+    availableRules,
   };
 }
 
 export async function saveDeliveryRules(payload: {
   providerSlug: string;
+  mode: "windows" | "available_days";
   rules: DeliveryRuleInput[];
+  availableRules: { zoneId: string; cutoffTime: string; deliveryWeekdays: number[] }[];
 }): Promise<SaveDeliveryRulesResult> {
   if (payload.providerSlug === "demo") {
     return {
@@ -1322,8 +1402,10 @@ export async function saveDeliveryRules(payload: {
   }
 
   const normalized = normalizeRuleInputs(parsed.data.rules);
-  if (normalized.errors.length) {
-    return { success: false, errors: normalized.errors };
+  const normalizedAvailable = normalizeAvailableInputs(parsed.data.availableRules);
+  const errors = [...normalized.errors, ...normalizedAvailable.errors];
+  if (errors.length) {
+    return { success: false, errors };
   }
 
   const supabase = getSupabaseAdmin();
@@ -1336,6 +1418,58 @@ export async function saveDeliveryRules(payload: {
     return { success: false, errors: [providerError ?? "Proveedor no encontrado."] };
   }
 
+  const { data: zonesData, error: zonesError } = await supabase
+    .from("delivery_zones")
+    .select("id, is_active")
+    .eq("provider_id", provider.id);
+
+  if (zonesError) {
+    return { success: false, errors: [`No se pudieron validar las zonas: ${zonesError.message}`] };
+  }
+
+  const activeZones = (zonesData ?? []).filter((z) => z.is_active !== false);
+
+  if (parsed.data.mode === "available_days") {
+    if (!activeZones.length) {
+      return { success: false, errors: ["Carga al menos una zona de entrega para usar este modo."] };
+    }
+    const missingZones = activeZones.filter(
+      (zone) => !normalizedAvailable.rules.find((rule) => rule.zoneId === zone.id && rule.deliveryWeekdays.length),
+    );
+    if (missingZones.length) {
+      return { success: false, errors: ["Configura días para todas las zonas activas antes de guardar."] };
+    }
+  } else if (!normalized.rules.length) {
+    return { success: false, errors: ["Agrega al menos una regla de entrega."] };
+  }
+
+  const upsertSettings = await supabase
+    .from("provider_delivery_settings")
+    .upsert({ provider_id: provider.id, mode: parsed.data.mode, updated_at: new Date().toISOString() }, { onConflict: "provider_id" });
+  if (upsertSettings.error) {
+    return { success: false, errors: [`No se pudo actualizar el modo de entrega: ${upsertSettings.error.message}`] };
+  }
+
+  if (parsed.data.mode === "available_days") {
+    await supabase.from("delivery_zone_available_days").delete().eq("provider_id", provider.id);
+    await supabase.from("delivery_windows").delete().eq("provider_id", provider.id);
+    const records = normalizedAvailable.rules.flatMap((entry) =>
+      entry.deliveryWeekdays.map((day) => ({
+        id: randomUUID(),
+        provider_id: provider.id,
+        zone_id: entry.zoneId,
+        delivery_weekday: day,
+        cutoff_time_minutes: entry.cutoffTimeMinutes,
+      })),
+    );
+    const { error: insertAvailableError } = await supabase.from("delivery_zone_available_days").insert(records);
+    if (insertAvailableError) {
+      return { success: false, errors: [`No se pudieron guardar los días disponibles: ${insertAvailableError.message}`] };
+    }
+    return { success: true, message: "Reglas de entrega por días actualizadas." };
+  }
+
+  // modo windows
   const { error: deleteError } = await supabase.from("delivery_windows").delete().eq("provider_id", provider.id);
   if (deleteError) {
     return { success: false, errors: [`No se pudieron limpiar las reglas previas: ${deleteError.message}`] };
@@ -1354,6 +1488,8 @@ export async function saveDeliveryRules(payload: {
   if (insertError) {
     return { success: false, errors: [`No se pudieron guardar las reglas: ${insertError.message}`] };
   }
+
+  await supabase.from("delivery_zone_available_days").delete().eq("provider_id", provider.id);
 
   return { success: true, message: "Reglas de entrega actualizadas." };
 }

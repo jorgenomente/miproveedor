@@ -145,6 +145,7 @@ model Order {
   note          String?
   deliveryDate  DateTime?   @map("delivery_date")
   deliveryRuleId String?    @map("delivery_rule_id")
+  receiptGeneratedAt DateTime? @map("receipt_generated_at")
   createdAt     DateTime    @default(now()) @map("created_at")
   updatedAt     DateTime    @updatedAt @map("updated_at")
 
@@ -162,6 +163,7 @@ model OrderItem {
   orderId   String   @map("order_id")
   productId String   @map("product_id")
   quantity  Int
+  deliveredQuantity Int? @map("delivered_quantity")
   unitPrice Decimal  @map("unit_price")
 
   order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
