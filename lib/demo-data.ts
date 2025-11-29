@@ -43,6 +43,8 @@ type DemoOrderSeed = {
   contactName: string;
   contactPhone: string;
   deliveryMethod?: string;
+  deliveryZoneName?: string | null;
+  deliveryDate?: string | null;
   paymentMethod?: "efectivo" | "transferencia";
   paymentProofStatus?: "no_aplica" | "pendiente" | "subido";
   note?: string;
@@ -51,6 +53,7 @@ type DemoOrderSeed = {
 
 export type DemoOrder = DemoOrderSeed & {
   createdAt: string;
+  receiptGeneratedAt?: string | null;
   total: number;
   items: (DemoOrderSeed["items"][number] & {
     name: string;

@@ -446,7 +446,9 @@ async function fetchData(params: { providerSlug: string; clientSlug: string }): 
             ? "subido"
             : rawProofStatus === "no_aplica"
               ? "no_aplica"
-              : null;
+              : rawProofStatus === "verificado"
+                ? "subido"
+                : null;
 
       return {
         id: order.id,

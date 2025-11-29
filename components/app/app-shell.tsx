@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  type ComponentType,
-  type ReactNode,
-  type SVGProps,
-  useMemo,
-  useState,
-} from "react";
+import { type ComponentType, type ReactNode, type SVGProps, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
@@ -28,7 +22,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { ProviderContextProvider, useProviderContext } from "./provider-context";
+import { listProviders, type ProviderRow } from "@/app/app/orders/actions";
 
 type NavItem = {
   label: string;
@@ -96,7 +93,57 @@ function NavLinks({
   );
 }
 
-export function AppShell({ children, providerSlug }: { children: ReactNode; providerSlug?: string }) {
+function AdminProviderSelect() {
+  const { role, providerSlug, setProviderSlug, isLocked } = useProviderContext();
+  const [providers, setProviders] = useState<ProviderRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (role !== "admin") return;
+    setLoading(true);
+    setError(null);
+    void listProviders()
+      .then((response) => {
+        if (response.success) {
+          setProviders(response.providers);
+          if (!providerSlug && response.providers.length > 0) {
+            const firstActive =
+              response.providers.find((provider) => provider.is_active !== false) ?? response.providers[0];
+            if (firstActive?.slug) {
+              void setProviderSlug(firstActive.slug);
+            }
+          }
+        } else {
+          setError(response.errors.join("\n"));
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [providerSlug, role, setProviderSlug]);
+
+  if (role !== "admin") return null;
+
+  return (
+    <div className="flex items-center gap-2">
+      <Select value={providerSlug} onValueChange={(value) => void setProviderSlug(value)} disabled={loading || isLocked}>
+        <SelectTrigger className="w-[220px]">
+          <SelectValue placeholder="Selecciona proveedor" />
+        </SelectTrigger>
+        <SelectContent>
+          {providers.map((provider) => (
+            <SelectItem key={provider.id} value={provider.slug}>
+              {provider.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+    </div>
+  );
+}
+
+function AppShellContent({ children }: { children: ReactNode }) {
+  const { providerSlug } = useProviderContext();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -176,6 +223,7 @@ export function AppShell({ children, providerSlug }: { children: ReactNode; prov
               </div>
             </div>
             <div className="flex items-center gap-1">
+              <AdminProviderSelect />
               <Button variant="ghost" size="icon-sm" aria-label="Ayuda">
                 <HelpCircle className="h-4 w-4 text-[color:var(--neutral-500)]" />
               </Button>
@@ -203,5 +251,21 @@ export function AppShell({ children, providerSlug }: { children: ReactNode; prov
         </main>
       </div>
     </div>
+  );
+}
+
+export function AppShell({
+  children,
+  providerSlug,
+  role,
+}: {
+  children: ReactNode;
+  providerSlug?: string;
+  role: "admin" | "provider";
+}) {
+  return (
+    <ProviderContextProvider role={role} initialProviderSlug={providerSlug} locked={role === "provider"}>
+      <AppShellContent>{children}</AppShellContent>
+    </ProviderContextProvider>
   );
 }

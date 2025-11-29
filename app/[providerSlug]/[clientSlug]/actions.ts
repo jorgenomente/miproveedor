@@ -457,7 +457,8 @@ export async function createOrder(
 
   const availableByZone: Map<string, { days: number[]; cutoffTimeMinutes: number }> = new Map();
   (availableRows ?? []).forEach((row) => {
-    const entry = availableByZone.get(row.zone_id) ?? { days: [], cutoffTimeMinutes: row.cutoff_time_minutes ?? 20 * 60 };
+    const entry: { days: number[]; cutoffTimeMinutes: number } =
+      availableByZone.get(row.zone_id) ?? { days: [], cutoffTimeMinutes: row.cutoff_time_minutes ?? 20 * 60 };
     entry.cutoffTimeMinutes = row.cutoff_time_minutes ?? entry.cutoffTimeMinutes;
     if (!entry.days.includes(row.delivery_weekday ?? 0)) entry.days.push(row.delivery_weekday ?? 0);
     availableByZone.set(row.zone_id, entry);

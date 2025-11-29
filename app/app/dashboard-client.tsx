@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { motion } from "framer-motion";
-import { ArrowUpRight, CreditCard, Phone, Wallet } from "lucide-react";
+import { ArrowUpRight, CreditCard, Phone, Truck, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { RealtimeChannel } from "@supabase/supabase-js";
@@ -476,22 +476,25 @@ export function DashboardClient({
                                 : state.tone === "warn"
                                   ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200"
                                   : "border-muted-foreground/20 bg-muted text-muted-foreground";
-                            return (
-                              <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${tone}`}>
-                                {state.label}
-                              </span>
-                            );
-                          })()}
-                          {order.deliveryDate ? (
-                            <Badge variant="outline" className="text-[11px]">
-                              Entrega {new Date(order.deliveryDate).toLocaleDateString("es-AR", { weekday: "short" })}
-                            </Badge>
-                          ) : null}
-                          {order.deliveryZoneName ? (
-                            <Badge variant="secondary" className="text-[11px]">
-                              Zona {order.deliveryZoneName}
-                            </Badge>
-                          ) : null}
+                          return (
+                            <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${tone}`}>
+                              {state.label}
+                            </span>
+                          );
+                        })()}
+                        {(order.deliveryDate || order.deliveryZoneName) ? (
+                          <Badge variant="secondary" className="flex items-center gap-1 text-[11px]">
+                            <Truck className="h-3.5 w-3.5" />
+                            {order.deliveryDate
+                              ? new Date(order.deliveryDate).toLocaleDateString("es-AR", {
+                                  weekday: "short",
+                                  day: "numeric",
+                                  month: "short",
+                                })
+                              : "Sin fecha"}
+                            {order.deliveryZoneName ? ` · Zona ${order.deliveryZoneName}` : ""}
+                          </Badge>
+                        ) : null}
                           {order.contactPhone ? (
                             <a
                               href={`https://wa.me/${order.contactPhone.replace(/\D/g, "")}`}

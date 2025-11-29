@@ -7,7 +7,7 @@ import { getOrderDetail } from "../actions";
 
 type PageProps = {
   params: Promise<{ orderId: string }>;
-  searchParams?: Promise<{ provider?: string }>;
+  searchParams?: Promise<{ provider?: string; openReceipt?: string }>;
 };
 
 export default async function OrderDetailPage(props: PageProps) {
@@ -15,6 +15,7 @@ export default async function OrderDetailPage(props: PageProps) {
   const orderId = params.orderId;
   const searchParams = props.searchParams ? await props.searchParams : undefined;
   const providerSlug = searchParams?.provider;
+  const autoOpenReceipt = searchParams?.openReceipt === "1" || searchParams?.openReceipt === "true";
 
   const detail = await getOrderDetail(orderId);
   if (!detail.success) {
@@ -29,5 +30,5 @@ export default async function OrderDetailPage(props: PageProps) {
 
   const backHref = providerSlug ? `/app/orders?provider=${providerSlug}` : "/app/orders";
 
-  return <OrderDetailClient order={detail.order} backHref={backHref} />;
+  return <OrderDetailClient order={detail.order} backHref={backHref} autoOpenReceipt={autoOpenReceipt} />;
 }

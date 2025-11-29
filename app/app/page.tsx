@@ -6,6 +6,7 @@ import { getDemoData } from "@/lib/demo-data";
 import { fetchRecentDemoOrders } from "@/lib/demo-orders";
 import { getProviderScope } from "@/lib/provider-scope";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { getAdminSelectedProviderSlug } from "./actions/admin-provider";
 
 function mapProviderRow(row: {
   id: string;
@@ -148,7 +149,7 @@ async function fetchData(preferredProvider?: string) {
     const { data: orders, error: ordersError } = await supabase
       .from("orders")
       .select(
-        "id, status, created_at, contact_phone, payment_method, payment_proof_status, shipping_cost, client:clients(name), order_items(quantity, unit_price)",
+        "id, status, created_at, delivery_date, delivery_zone:delivery_zones(name), contact_phone, payment_method, payment_proof_status, shipping_cost, client:clients(name), order_items(quantity, unit_price)",
       )
       .eq("provider_id", provider.id)
       .order("created_at", { ascending: false })
@@ -178,6 +179,11 @@ async function fetchData(preferredProvider?: string) {
           clientName,
           total,
           createdAt: order.created_at,
+          deliveryDate: (order as { delivery_date?: string | null }).delivery_date ?? null,
+          deliveryZoneName:
+            Array.isArray((order as any).delivery_zone) && (order as any).delivery_zone.length > 0
+              ? (order as any).delivery_zone[0]?.name ?? null
+              : ((order as any).delivery_zone as { name?: string } | null | undefined)?.name ?? null,
           paymentMethod: (order as { payment_method?: "efectivo" | "transferencia" | null }).payment_method ?? null,
           contactPhone: (order as { contact_phone?: string | null }).contact_phone ?? null,
           paymentProofStatus: (order as { payment_proof_status?: "no_aplica" | "pendiente" | "subido" | null }).payment_proof_status ?? null,
@@ -293,7 +299,11 @@ export default async function AppDashboard({
   searchParams?: Promise<{ provider?: string; debug?: string }>;
 }) {
   const resolvedSearch = searchParams ? await searchParams : undefined;
-  const preferred = resolvedSearch?.provider;
+  const scopeResult = await getProviderScope();
+  const scope = scopeResult.scope;
+  const adminStoredProvider =
+    scope?.role === "admin" ? await getAdminSelectedProviderSlug() : undefined;
+  const preferred = resolvedSearch?.provider ?? adminStoredProvider;
   const data = await fetchData(preferred);
   const debug = typeof resolvedSearch?.debug !== "undefined";
 

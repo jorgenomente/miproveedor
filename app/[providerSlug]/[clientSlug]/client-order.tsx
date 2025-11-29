@@ -10,6 +10,8 @@ import {
   LayoutGrid,
   History,
   MessageCircle,
+  CheckCircle2,
+  Truck,
   Rows,
   Search,
   ShoppingCart,
@@ -209,6 +211,7 @@ export function ClientOrder({
   const [historyItems, setHistoryItems] = useState<PublicOrderHistory[]>(history);
   const [showSummary, setShowSummary] = useState(true);
   const [productView, setProductView] = useState<"cards" | "table">("cards");
+  const [historyView, setHistoryView] = useState<"cards" | "table">("cards");
   const [activeBrands, setActiveBrands] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [drafts, setDrafts] = useState<DraftState[]>(initialDrafts);
@@ -227,6 +230,7 @@ export function ClientOrder({
     products.forEach((product) => map.set(product.id, product));
     return map;
   }, [products]);
+
   const resetOrderDraft = useCallback(() => {
     setServerItems(null);
     setServerTotal(null);
@@ -493,11 +497,11 @@ export function ClientOrder({
     [historyItems],
   );
   const historyAccordionDefaults = useMemo(() => ["pending"], []);
-  const proofShortId = useMemo(() => (proofSuccess?.orderId ? shortOrderId(proofSuccess.orderId) : null), [proofSuccess]);
-  const proofWhatsAppLink = useMemo(() => {
-    if (!proofSuccess || !provider.contact_phone) return null;
-    const phone = provider.contact_phone.replace(/[^+0-9]/g, "");
-    const totalLabel = formatCurrency(proofSuccess.total ?? 0);
+const proofShortId = useMemo(() => (proofSuccess?.orderId ? shortOrderId(proofSuccess.orderId) : null), [proofSuccess]);
+const proofWhatsAppLink = useMemo(() => {
+  if (!proofSuccess || !provider.contact_phone) return null;
+  const phone = provider.contact_phone.replace(/[^+0-9]/g, "");
+  const totalLabel = formatCurrency(proofSuccess.total ?? 0);
     const text = encodeURIComponent(
       `Hola, ya he cargado el comprobante correspondiente al pedido #${proofShortId ?? proofSuccess.orderId} de monto total ${totalLabel}.`,
     );
@@ -540,6 +544,88 @@ export function ClientOrder({
       setUploadingProofFor(null);
     }
   };
+
+  const renderHistoryRow = useCallback(
+    (order: PublicOrderHistory) => {
+      const paymentStatus =
+        paymentStatusLabel[order.paymentProofStatus ?? "no_aplica"] ?? paymentStatusLabel.no_aplica;
+      const paymentLabel =
+        order.paymentMethod === "transferencia"
+          ? "Transferencia"
+          : order.paymentMethod === "efectivo"
+            ? "Efectivo"
+            : "Pago";
+      const statusText =
+        order.status === "entregado"
+          ? "Completado"
+          : ORDER_STATUS_LABEL[order.status as keyof typeof ORDER_STATUS_LABEL] ?? order.status;
+      const deliveryText = order.deliveryDate
+        ? new Date(order.deliveryDate).toLocaleDateString("es-AR", { weekday: "short", day: "numeric", month: "short" })
+        : "Sin fecha";
+      const deliveryZone = order.deliveryZoneName ? ` · Zona ${order.deliveryZoneName}` : "";
+      const needsProofUpload = order.paymentMethod === "transferencia" && order.paymentProofStatus !== "subido";
+      const proofInputId = `history-table-proof-${order.id}`;
+
+      return (
+        <TableRow key={order.id}>
+          <TableCell className="font-semibold">#{shortOrderId(order.id)}</TableCell>
+          <TableCell className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</TableCell>
+          <TableCell className="text-right">{formatCurrency(order.total ?? 0)}</TableCell>
+          <TableCell className="text-right text-xs">
+            {deliveryText}
+            {deliveryZone}
+          </TableCell>
+          <TableCell className="text-right text-xs">{paymentLabel}</TableCell>
+          <TableCell className="text-right text-xs">{paymentStatus.label ?? statusText}</TableCell>
+          <TableCell className="text-right text-xs">
+            {needsProofUpload ? (
+              <div className="flex items-center justify-end gap-2">
+                <Label
+                  htmlFor={proofInputId}
+                  className="flex cursor-pointer items-center gap-1 rounded-md border border-amber-400/60 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-100"
+                >
+                  <FileUp className="h-3.5 w-3.5" />
+                  {uploadingProofFor === order.id ? "Subiendo..." : "Subir comprobante"}
+                </Label>
+                <input
+                  id={proofInputId}
+                  type="file"
+                  accept="image/*,application/pdf"
+                  className="hidden"
+                  onChange={(event) => void uploadHistoryProof(order.id, event.target.files?.[0] ?? null)}
+                  disabled={uploadingProofFor === order.id}
+                />
+              </div>
+            ) : order.paymentProofUrl ? (
+              <Button asChild size="sm" variant="ghost" className="text-xs">
+                <a href={order.paymentProofUrl} target="_blank" rel="noreferrer">
+                  Ver comprobante
+                </a>
+              </Button>
+            ) : (
+              <Badge variant="outline" className="text-[11px] text-muted-foreground">
+                Sin comprobante
+              </Badge>
+            )}
+          </TableCell>
+          <TableCell className="text-right text-xs">
+            {order.receiptGeneratedAt ? (
+              <Button asChild size="sm" variant="outline" className="text-xs">
+                <a href={`/${provider.slug}/${client.slug}/orders/${order.id}/receipt`} target="_blank" rel="noreferrer">
+                  Remito
+                </a>
+              </Button>
+            ) : (
+              <Badge variant="outline" className="text-[11px] text-muted-foreground">
+                Sin remito
+              </Badge>
+            )}
+          </TableCell>
+        </TableRow>
+      );
+    },
+    [client.slug, provider.slug, uploadHistoryProof, uploadingProofFor],
+  );
 
   const handleProofFile = async (file?: File | null) => {
     setPaymentProofError(null);
@@ -2007,25 +2093,44 @@ export function ClientOrder({
                 Revisa estados anteriores y el estado del comprobante.
               </p>
             </div>
-            <Badge variant="secondary">{historyItems.length} pedidos</Badge>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-xs"
+                onClick={() => setHistoryView((prev) => (prev === "cards" ? "table" : "cards"))}
+              >
+                {historyView === "cards" ? (
+                  <>
+                    <Rows className="mr-2 h-4 w-4" />
+                    Modo tabla
+                  </>
+                ) : (
+                  <>
+                    <LayoutGrid className="mr-2 h-4 w-4" />
+                    Modo tarjetas
+                  </>
+                )}
+              </Button>
+              <Badge variant="secondary">{historyItems.length} pedidos</Badge>
+            </div>
           </div>
-          <Separator />
-          {historyItems.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Aún no hay pedidos registrados para esta tienda.
-            </p>
-          ) : (
-            <div className="space-y-4">
+        <Separator />
+        {historyItems.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Aún no hay pedidos registrados para esta tienda.</p>
+        ) : (
+          <div className="space-y-4">
+            <div className={historyView === "table" ? "hidden" : "block"}>
               <Accordion
                 type="multiple"
                 defaultValue={historyAccordionDefaults}
                 className="overflow-hidden rounded-xl border border-(--neutral-200) bg-white"
               >
-                <AccordionItem value="pending" className="border-b border-(--neutral-200) last:border-0">
-                  <AccordionTrigger className="items-center px-3 py-3 sm:px-4">
-                    <div className="flex w-full items-center justify-between gap-3">
-                      <div className="space-y-1 text-left">
-                        <p className="text-sm font-semibold">Pendientes</p>
+              <AccordionItem value="pending" className="border-b border-(--neutral-200) last:border-0">
+                <AccordionTrigger className="items-center px-3 py-3 sm:px-4">
+                  <div className="flex w-full items-center justify-between gap-3">
+                    <div className="space-y-1 text-left">
+                      <p className="text-sm font-semibold">Pendientes</p>
                         <p className="text-xs font-normal text-muted-foreground">
                           Pedidos por confirmar, preparar o enviar.
                         </p>
@@ -2050,9 +2155,11 @@ export function ClientOrder({
                     ) : (
                       <div className="space-y-3 pb-3">
                         {pendingHistory.map((order, index) => {
+                          const hasProofFile = Boolean(order.paymentProofUrl);
                           const paymentStatus =
-                            paymentStatusLabel[order.paymentProofStatus ?? "no_aplica"] ??
-                            paymentStatusLabel.no_aplica;
+                            hasProofFile && order.paymentProofStatus === "pendiente"
+                              ? paymentStatusLabel.subido
+                              : paymentStatusLabel[order.paymentProofStatus ?? "no_aplica"] ?? paymentStatusLabel.no_aplica;
                           const paymentLabel =
                             order.paymentMethod === "transferencia"
                               ? "Transferencia"
@@ -2079,14 +2186,17 @@ export function ClientOrder({
                                   </p>
                                   <div className="flex flex-wrap items-center gap-2">
                                     <p className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</p>
-                                    {order.deliveryDate ? (
-                                      <Badge variant="outline" className="text-[11px]">
-                                        Entrega {new Date(order.deliveryDate).toLocaleDateString("es-AR", { weekday: "short" })}
-                                      </Badge>
-                                    ) : null}
-                                    {order.deliveryZoneName ? (
-                                      <Badge variant="secondary" className="text-[11px]">
-                                        Zona {order.deliveryZoneName}
+                                    {(order.deliveryDate || order.deliveryZoneName) ? (
+                                      <Badge variant="secondary" className="flex items-center gap-1 text-[11px]">
+                                        <Truck className="h-3.5 w-3.5" />
+                                        {order.deliveryDate
+                                          ? new Date(order.deliveryDate).toLocaleDateString("es-AR", {
+                                              weekday: "short",
+                                              day: "numeric",
+                                              month: "short",
+                                            })
+                                          : "Sin fecha"}
+                                        {order.deliveryZoneName ? ` · Zona ${order.deliveryZoneName}` : ""}
                                       </Badge>
                                     ) : null}
                                   </div>
@@ -2137,7 +2247,7 @@ export function ClientOrder({
                                         target="_blank"
                                         rel="noreferrer"
                                       >
-                                        Imprimir remito
+                                        Descargar remito
                                       </a>
                                     </Button>
                                   ) : (
@@ -2149,11 +2259,11 @@ export function ClientOrder({
                               </div>
                               {order.items?.length ? (
                                 <div className="overflow-hidden rounded-lg border border-(--neutral-200) bg-white">
-                                  <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-4">
+                                  <div className="grid grid-cols-[1fr_repeat(3,minmax(70px,auto))] gap-3 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-4">
                                     <span>Producto</span>
-                                    <span className="text-right">Cant.</span>
-                                    <span className="text-right">P. unit</span>
-                                    <span className="text-right">Subtotal</span>
+                                    <span className="text-right pr-1">Cant.</span>
+                                    <span className="text-right pr-1">P. unit</span>
+                                    <span className="text-right pl-1">Subtotal</span>
                                   </div>
                                   {order.items.map((item, idx) => (
                                     <motion.div
@@ -2161,13 +2271,13 @@ export function ClientOrder({
                                       initial={{ opacity: 0, y: 6 }}
                                       animate={{ opacity: 1, y: 0 }}
                                       transition={{ delay: idx * 0.02 }}
-                                      className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 px-3 py-2 text-sm sm:px-4"
+                                      className="grid grid-cols-[1fr_repeat(3,minmax(70px,auto))] items-center gap-3 px-3 py-2 text-sm sm:px-4"
                                     >
                                       <div>
                                         <p className="font-medium">{item.productName}</p>
                                         <p className="text-xs text-muted-foreground">{item.unit ?? "Unidad"}</p>
                                       </div>
-                                      <div className="text-right">
+                                      <div className="text-right pr-1">
                                         <p>{item.deliveredQuantity ?? item.quantity}</p>
                                         {item.deliveredQuantity != null && item.deliveredQuantity !== item.quantity ? (
                                           <p className="text-[11px] text-amber-600">
@@ -2175,8 +2285,8 @@ export function ClientOrder({
                                           </p>
                                         ) : null}
                                       </div>
-                                      <p className="text-right">{formatCurrency(item.unitPrice)}</p>
-                                      <p className="text-right font-semibold">{formatCurrency(item.subtotal)}</p>
+                                      <p className="text-right pr-1">{formatCurrency(item.unitPrice)}</p>
+                                      <p className="text-right pl-1 font-semibold">{formatCurrency(item.subtotal)}</p>
                                     </motion.div>
                                   ))}
                                 </div>
@@ -2232,9 +2342,11 @@ export function ClientOrder({
                     ) : (
                       <div className="space-y-3 pb-3">
                         {completedHistory.map((order, index) => {
+                          const hasProofFile = Boolean(order.paymentProofUrl);
                           const paymentStatus =
-                            paymentStatusLabel[order.paymentProofStatus ?? "no_aplica"] ??
-                            paymentStatusLabel.no_aplica;
+                            hasProofFile && order.paymentProofStatus === "pendiente"
+                              ? paymentStatusLabel.subido
+                              : paymentStatusLabel[order.paymentProofStatus ?? "no_aplica"] ?? paymentStatusLabel.no_aplica;
                           const paymentLabel =
                             order.paymentMethod === "transferencia"
                               ? "Transferencia"
@@ -2260,14 +2372,17 @@ export function ClientOrder({
                                 </p>
                                 <div className="flex flex-wrap items-center gap-2">
                                   <p className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</p>
-                                  {order.deliveryDate ? (
-                                    <Badge variant="outline" className="text-[11px]">
-                                      Entrega {new Date(order.deliveryDate).toLocaleDateString("es-AR", { weekday: "short" })}
-                                    </Badge>
-                                  ) : null}
-                                  {order.deliveryZoneName ? (
-                                    <Badge variant="secondary" className="text-[11px]">
-                                      Zona {order.deliveryZoneName}
+                                  {(order.deliveryDate || order.deliveryZoneName) ? (
+                                    <Badge variant="secondary" className="flex items-center gap-1 text-[11px]">
+                                      <Truck className="h-3.5 w-3.5" />
+                                      {order.deliveryDate
+                                        ? new Date(order.deliveryDate).toLocaleDateString("es-AR", {
+                                            weekday: "short",
+                                            day: "numeric",
+                                            month: "short",
+                                          })
+                                        : "Sin fecha"}
+                                      {order.deliveryZoneName ? ` · Zona ${order.deliveryZoneName}` : ""}
                                     </Badge>
                                   ) : null}
                                 </div>
@@ -2318,7 +2433,7 @@ export function ClientOrder({
                                         target="_blank"
                                         rel="noreferrer"
                                       >
-                                        Imprimir remito
+                                        Descargar remito
                                       </a>
                                     </Button>
                                   ) : (
@@ -2330,11 +2445,11 @@ export function ClientOrder({
                               </div>
                               {order.items?.length ? (
                                 <div className="overflow-hidden rounded-lg border border-(--neutral-200) bg-white">
-                                  <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-4">
+                                  <div className="grid grid-cols-[1fr_repeat(3,minmax(70px,auto))] gap-3 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-4">
                                     <span>Producto</span>
-                                    <span className="text-right">Cant.</span>
-                                    <span className="text-right">P. unit</span>
-                                    <span className="text-right">Subtotal</span>
+                                    <span className="text-right pr-1">Cant.</span>
+                                    <span className="text-right pr-1">P. unit</span>
+                                    <span className="text-right pl-1">Subtotal</span>
                                   </div>
                                   {order.items.map((item, idx) => (
                                     <motion.div
@@ -2342,13 +2457,13 @@ export function ClientOrder({
                                       initial={{ opacity: 0, y: 6 }}
                                       animate={{ opacity: 1, y: 0 }}
                                       transition={{ delay: idx * 0.02 }}
-                                      className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 px-3 py-2 text-sm sm:px-4"
+                                      className="grid grid-cols-[1fr_repeat(3,minmax(70px,auto))] items-center gap-3 px-3 py-2 text-sm sm:px-4"
                                     >
                                       <div>
                                         <p className="font-medium">{item.productName}</p>
                                         <p className="text-xs text-muted-foreground">{item.unit ?? "Unidad"}</p>
                                       </div>
-                                      <div className="text-right">
+                                      <div className="text-right pr-1">
                                         <p>{item.deliveredQuantity ?? item.quantity}</p>
                                         {item.deliveredQuantity != null && item.deliveredQuantity !== item.quantity ? (
                                           <p className="text-[11px] text-amber-600">
@@ -2356,8 +2471,8 @@ export function ClientOrder({
                                           </p>
                                         ) : null}
                                       </div>
-                                      <p className="text-right">{formatCurrency(item.unitPrice)}</p>
-                                      <p className="text-right font-semibold">{formatCurrency(item.subtotal)}</p>
+                                      <p className="text-right pr-1">{formatCurrency(item.unitPrice)}</p>
+                                      <p className="text-right pl-1 font-semibold">{formatCurrency(item.subtotal)}</p>
                                     </motion.div>
                                   ))}
                                 </div>
@@ -2373,7 +2488,66 @@ export function ClientOrder({
                 </AccordionItem>
               </Accordion>
             </div>
-          )}
+            <div className={historyView === "table" ? "space-y-4" : "hidden"}>
+              <div className="overflow-hidden rounded-xl border border-(--neutral-200) bg-white">
+                <div className="flex items-center justify-between border-b border-(--neutral-200) px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    <Truck className="h-4 w-4 text-amber-700" />
+                    Cobros por confirmar
+                  </div>
+                  <Badge variant="outline">{pendingHistory.length}</Badge>
+                </div>
+                {pendingHistory.length === 0 ? (
+                  <p className="px-4 py-3 text-sm text-muted-foreground">Sin pedidos pendientes.</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Pedido</TableHead>
+                        <TableHead>Fecha</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
+                        <TableHead className="text-right">Entrega</TableHead>
+                        <TableHead className="text-right">Pago</TableHead>
+                        <TableHead className="text-right">Estado</TableHead>
+                      <TableHead className="text-right">Comprobante</TableHead>
+                      <TableHead className="text-right">Remito</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                  <TableBody>{pendingHistory.map((order) => renderHistoryRow(order))}</TableBody>
+                  </Table>
+                )}
+              </div>
+              <div className="overflow-hidden rounded-xl border border-(--neutral-200) bg-white">
+                <div className="flex items-center justify-between border-b border-(--neutral-200) px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-700" />
+                    Completados
+                  </div>
+                  <Badge variant="outline">{completedHistory.length}</Badge>
+                </div>
+                {completedHistory.length === 0 ? (
+                  <p className="px-4 py-3 text-sm text-muted-foreground">Sin pedidos completados.</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Pedido</TableHead>
+                        <TableHead>Fecha</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
+                        <TableHead className="text-right">Entrega</TableHead>
+                        <TableHead className="text-right">Pago</TableHead>
+                        <TableHead className="text-right">Estado</TableHead>
+                        <TableHead className="text-right">Comprobante</TableHead>
+                        <TableHead className="text-right">Remito</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                  <TableBody>{completedHistory.map((order) => renderHistoryRow(order))}</TableBody>
+                  </Table>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         </motion.section>
       </main>
       <AnimatePresence>

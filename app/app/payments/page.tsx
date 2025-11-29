@@ -2,6 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getProviderScope } from "@/lib/provider-scope";
 import { PaymentsClient } from "./payments-client";
 import { getPaymentSettings } from "./actions";
+import { getAdminSelectedProviderSlug } from "../actions/admin-provider";
 
 type PageProps = {
   searchParams?: Promise<{ provider?: string }>;
@@ -11,7 +12,9 @@ export default async function PaymentsPage({ searchParams }: PageProps) {
   const resolvedSearchParams = (await searchParams) ?? undefined;
   const scopeResult = await getProviderScope();
   const scopedSlug = scopeResult.scope?.role === "provider" ? scopeResult.scope.provider.slug : undefined;
-  const providerSlug = resolvedSearchParams?.provider ?? scopedSlug;
+  const adminStoredSlug =
+    scopeResult.scope?.role === "admin" ? await getAdminSelectedProviderSlug() : undefined;
+  const providerSlug = resolvedSearchParams?.provider ?? adminStoredSlug ?? scopedSlug;
 
   if (!providerSlug) {
     return (

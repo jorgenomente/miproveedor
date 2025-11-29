@@ -7,15 +7,18 @@ import {
   ArrowLeft,
   Banknote,
   CheckCircle2,
-  Clock3,
+  Archive,
+  Truck,
   Eye,
   FileUp,
+  FilePlus2,
   Download,
   RefreshCcw,
   ShieldCheck,
   ShoppingBag,
   Wallet,
   ChevronDown,
+  X,
   Trash2,
   FileText,
   LayoutGrid,
@@ -24,19 +27,25 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { useProviderContext } from "@/components/app/provider-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -66,11 +75,15 @@ import {
   markOrderProofStatus,
   recordClientPayment,
   updateOrderStatus,
+  updatePaymentMethod,
   deleteOrder,
   type AccountOrder,
   type AccountPayment,
   type ClientAccount,
 } from "./actions";
+import { uploadPaymentProof } from "./upload-proof";
+import { updateDeliveryDate } from "../orders/actions";
+import { compressImageFile } from "@/lib/compress-image";
 
 export type AccountsPageProps = { initialProviderSlug?: string };
 
@@ -87,7 +100,7 @@ const shortId = (id: string) => (id?.length > 8 ? id.slice(0, 8) : id);
 const proofLabel: Record<string, { label: string; tone: string }> = {
   no_aplica: { label: "No aplica", tone: "bg-slate-100 text-slate-700" },
   pendiente: { label: "Comprobante pendiente", tone: "bg-amber-100 text-amber-800" },
-  subido: { label: "Comprobante subido", tone: "bg-blue-100 text-blue-800" },
+  subido: { label: "Comprobante cargado", tone: "bg-blue-100 text-blue-800" },
   verificado: { label: "Comprobante verificado", tone: "bg-emerald-100 text-emerald-800" },
 };
 
@@ -96,31 +109,67 @@ function OrderRow({
   payments,
   onConfirmCash,
   onVerifyTransfer,
+  onRemoveProof,
+  onUploadProof,
+  onRequestPaymentChange,
+  onChangePaymentMethod,
   isProcessing,
   onChangeStatus,
   isStatusUpdating,
   onDelete,
   isDeleting,
+  providerSlug,
+  deliveryDate,
+  deliveryZoneName,
+  onChangeDeliveryDate,
+  deliveryUpdatingId,
+  isProofDeleting,
+  isPaymentUpdating,
 }: {
   order: AccountOrder;
   payments: AccountPayment[];
   onConfirmCash: (order: AccountOrder) => void;
   onVerifyTransfer: (order: AccountOrder) => void;
+  onRemoveProof: (order: AccountOrder) => void;
+  onUploadProof: (order: AccountOrder) => void;
+  onRequestPaymentChange: (order: AccountOrder, method: AccountOrder["paymentMethod"]) => void;
+  onChangePaymentMethod: (order: AccountOrder, method: AccountOrder["paymentMethod"]) => void;
   isProcessing?: boolean;
   onChangeStatus: (order: AccountOrder, status: AccountOrder["status"]) => void;
   isStatusUpdating?: boolean;
-  onDelete: (order: AccountOrder) => void;
+  onDelete: (order: AccountOrder, audit: { archivedBy: string; archivedReason: string }) => void;
   isDeleting?: boolean;
+  providerSlug?: string;
+  deliveryDate?: string | null;
+  deliveryZoneName?: string | null;
+  onChangeDeliveryDate?: (orderId: string, date: Date | null) => void;
+  deliveryUpdatingId?: string | null;
+  isProofDeleting?: boolean;
+  isPaymentUpdating?: boolean;
 }) {
+  const [datePopoverOpen, setDatePopoverOpen] = useState(false);
+  const [localDeliveryDate, setLocalDeliveryDate] = useState<Date | undefined>(
+    deliveryDate ? new Date(deliveryDate) : undefined,
+  );
+  const [archiveResponsible, setArchiveResponsible] = useState("");
+  const [archiveReason, setArchiveReason] = useState("");
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLocalDeliveryDate(deliveryDate ? new Date(deliveryDate) : undefined);
+  }, [deliveryDate]);
   const approvedPayment = payments.find((payment) => payment.orderId === order.id && payment.status === "approved");
   const hasApprovedTransfer = payments.some(
     (payment) => payment.orderId === order.id && payment.status === "approved" && payment.method === "transferencia",
   );
   const cashReceived = approvedPayment?.method === "efectivo";
   const transferVerified = order.paymentProofStatus === "verificado" || (order.paymentProofStatus === "subido" && hasApprovedTransfer);
+  const proofLoadedButPending = order.paymentProofStatus === "pendiente" && !!order.paymentProofUrl;
   const proofInfo = transferVerified
     ? proofLabel.verificado
-    : proofLabel[order.paymentProofStatus ?? "no_aplica"] ?? proofLabel.no_aplica;
+    : proofLoadedButPending
+      ? proofLabel.subido
+      : proofLabel[order.paymentProofStatus ?? "no_aplica"] ?? proofLabel.no_aplica;
   const orderStatuses: AccountOrder["status"][] = ["nuevo", "preparando", "enviado", "entregado", "cancelado"];
 
   return (
@@ -156,10 +205,100 @@ function OrderRow({
               </DropdownMenuContent>
             </DropdownMenu>
             {order.paymentMethod ? (
-              <Badge variant="outline" className="gap-1">
-                <Wallet className="h-3.5 w-3.5" />
-                {order.paymentMethod === "efectivo" ? "Efectivo" : "Transferencia"}
-              </Badge>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Badge
+                    variant="outline"
+                    className={`gap-1 ${order.paymentMethod === "efectivo" ? "bg-emerald-50 text-emerald-800" : ""} ${
+                      isPaymentUpdating ? "opacity-60" : "cursor-pointer"
+                    }`}
+                    role="button"
+                    aria-label="Cambiar método de pago"
+                  >
+                    {order.paymentMethod === "transferencia" ? <Wallet className="h-3.5 w-3.5" /> : <Banknote className="h-3.5 w-3.5" />}
+                    {order.paymentMethod === "efectivo" ? "Efectivo" : "Transferencia"}
+                  </Badge>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" sideOffset={6}>
+                  <DropdownMenuItem
+                    onClick={() =>
+                      order.paymentMethod === "transferencia" && order.paymentProofUrl
+                        ? onRequestPaymentChange(order, "efectivo")
+                        : onChangePaymentMethod(order, "efectivo")
+                    }
+                    disabled={order.paymentMethod === "efectivo" || isProcessing || isPaymentUpdating}
+                    className="flex items-center gap-2"
+                  >
+                    <Banknote className="h-4 w-4" />
+                    Efectivo
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onChangePaymentMethod(order, "transferencia")}
+                    disabled={order.paymentMethod === "transferencia" || isProcessing || isPaymentUpdating}
+                    className="flex items-center gap-2"
+                  >
+                    <Wallet className="h-4 w-4" />
+                    Transferencia
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+            <Popover open={datePopoverOpen} onOpenChange={setDatePopoverOpen}>
+              <PopoverTrigger asChild>
+                <Badge
+                  variant="secondary"
+                  className="gap-1 bg-slate-100 text-slate-800 hover:cursor-pointer"
+                  title="Reprogramar entrega"
+                >
+                  <Truck className="h-3.5 w-3.5" />
+                  {deliveryDate
+                    ? new Date(deliveryDate).toLocaleDateString("es-AR", { weekday: "short", day: "numeric", month: "short" })
+                    : "Sin fecha"}
+                  {deliveryZoneName ? ` · Zona ${deliveryZoneName}` : ""}
+                </Badge>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-3" align="start">
+                <div className="space-y-2">
+                  <Calendar
+                    mode="single"
+                    selected={localDeliveryDate}
+                    onSelect={(date) => {
+                      setLocalDeliveryDate(date ?? undefined);
+                      onChangeDeliveryDate?.(order.id, date ?? null);
+                    }}
+                    initialFocus
+                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setLocalDeliveryDate(undefined);
+                        onChangeDeliveryDate?.(order.id, null);
+                      }}
+                      disabled={deliveryUpdatingId === order.id}
+                    >
+                      Limpiar
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setDatePopoverOpen(false)}
+                      disabled={deliveryUpdatingId === order.id}
+                    >
+                      Listo
+                    </Button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+            {providerSlug ? (
+              <Button asChild size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs">
+                <Link href={`/app/orders/${order.id}?provider=${providerSlug}&openReceipt=1`} target="_blank" rel="noreferrer">
+                  <FilePlus2 className="h-3.5 w-3.5" />
+                  Remito
+                </Link>
+              </Button>
             ) : null}
           </div>
           <p className="text-xs text-muted-foreground">
@@ -191,11 +330,47 @@ function OrderRow({
                 El pedido se moverá a Pedidos eliminados en Configuración. Podrás restaurarlo más adelante.
               </AlertDialogDescription>
               </AlertDialogHeader>
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <Label htmlFor={`archived-by-${order.id}`}>Responsable</Label>
+                  <Input
+                    id={`archived-by-${order.id}`}
+                    placeholder="Quién archiva el pedido"
+                    value={archiveResponsible}
+                    onChange={(event) => setArchiveResponsible(event.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor={`archived-reason-${order.id}`}>Motivo</Label>
+                  <Textarea
+                    id={`archived-reason-${order.id}`}
+                    placeholder="Explica con detalle por qué se archiva este pedido (cambios del cliente, error en carga, duplicado, etc.)"
+                    value={archiveReason}
+                    onChange={(event) => setArchiveReason(event.target.value)}
+                    rows={4}
+                    className="max-h-48"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Describe con detalle la razón por la cual este pedido necesita ser archivado. Usa todo el espacio necesario.
+                  </p>
+                </div>
+                {archiveError ? <p className="text-xs text-destructive">{archiveError}</p> : null}
+              </div>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancelar</AlertDialogCancel>
                 <AlertDialogAction
                   className="bg-destructive text-white hover:bg-destructive/90"
-                  onClick={() => onDelete(order)}
+                  onClick={(event) => {
+                    if (!archiveResponsible.trim() || !archiveReason.trim()) {
+                      event.preventDefault();
+                      setArchiveError("Completa responsable y motivo para archivar.");
+                      return;
+                    }
+                    setArchiveError(null);
+                    onDelete(order, { archivedBy: archiveResponsible.trim(), archivedReason: archiveReason.trim() });
+                    setArchiveResponsible("");
+                    setArchiveReason("");
+                  }}
                   disabled={isProcessing || isStatusUpdating || isDeleting}
                 >
                 Archivar
@@ -207,22 +382,16 @@ function OrderRow({
 
         <div className="flex flex-wrap items-center justify-end gap-2">
           {order.paymentMethod === "efectivo" ? (
-            <>
-              <Badge variant="outline" className="gap-1 bg-emerald-50 text-emerald-800">
-                <Banknote className="h-3.5 w-3.5" />
-                Efectivo
-              </Badge>
-              <Button
-                size="sm"
-                variant={cashReceived ? "secondary" : "outline"}
-                className={`h-8 gap-2 ${cashReceived ? "bg-emerald-50 text-emerald-800" : ""}`}
-                disabled={cashReceived || isProcessing}
-                onClick={() => onConfirmCash(order)}
-              >
-                <CheckCircle2 className="h-4 w-4" />
-                {cashReceived ? "Efectivo recibido" : "Marcar efectivo recibido"}
-              </Button>
-            </>
+            <Button
+              size="sm"
+              variant={cashReceived ? "secondary" : "outline"}
+              className={`h-8 gap-2 ${cashReceived ? "bg-emerald-50 text-emerald-800" : ""}`}
+              disabled={cashReceived || isProcessing}
+              onClick={() => onConfirmCash(order)}
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              {cashReceived ? "Efectivo recibido" : "Marcar efectivo recibido"}
+            </Button>
           ) : null}
 
           {order.paymentMethod === "transferencia" ? (
@@ -232,13 +401,36 @@ function OrderRow({
                 {proofInfo.label}
               </Badge>
               {order.paymentProofUrl ? (
-                <Button asChild size="sm" variant="ghost" className="h-8 gap-1 text-xs">
-                  <a href={order.paymentProofUrl} target="_blank" rel="noreferrer">
-                    <Eye className="h-4 w-4" />
-                    Ver comprobante
-                  </a>
+                <div className="flex items-center gap-1">
+                  <Button asChild size="sm" variant="ghost" className="h-8 gap-1 text-xs">
+                    <a href={order.paymentProofUrl} target="_blank" rel="noreferrer">
+                      <Eye className="h-4 w-4" />
+                      Ver comprobante
+                    </a>
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                    onClick={() => onRemoveProof(order)}
+                    disabled={isProcessing || isProofDeleting}
+                    aria-label="Borrar comprobante"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-2"
+                  onClick={() => onUploadProof(order)}
+                  disabled={isProcessing}
+                >
+                  <FileUp className="h-4 w-4" />
+                  Cargar comprobante
                 </Button>
-              ) : null}
+              )}
               <Button
                 size="sm"
                 variant={transferVerified ? "secondary" : "outline"}
@@ -261,10 +453,11 @@ function OrderRow({
 export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
   const searchParams = useSearchParams();
   const providerQuery = searchParams?.get("provider") ?? null;
-  const lockedProvider = Boolean(initialProviderSlug || providerQuery);
-  const [providerSlug, setProviderSlug] = useState(initialProviderSlug ?? providerQuery ?? "");
+  const { providerSlug, setProviderSlug, isLocked } = useProviderContext();
+  const lockedProvider = isLocked || Boolean(initialProviderSlug || providerQuery);
   const [providers, setProviders] = useState<ProviderRow[]>([]);
   const [accounts, setAccounts] = useState<ClientAccount[]>([]);
+  const [archivedCount, setArchivedCount] = useState(0);
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -274,11 +467,31 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
   const [detailsOpen, setDetailsOpen] = useState(true);
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
   const [archivingOrderId, setArchivingOrderId] = useState<string | null>(null);
+  const [deliveryUpdatingId, setDeliveryUpdatingId] = useState<string | null>(null);
   const [accountsPanelOpen, setAccountsPanelOpen] = useState(true);
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
   const [summaryAccount, setSummaryAccount] = useState<ClientAccount | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [downloadingSummary, setDownloadingSummary] = useState(false);
+  const [proofDialogOrder, setProofDialogOrder] = useState<AccountOrder | null>(null);
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [proofPreview, setProofPreview] = useState<string | null>(null);
+  const [proofError, setProofError] = useState<string | null>(null);
+  const [proofSaving, setProofSaving] = useState(false);
+  const [verificationAlert, setVerificationAlert] = useState<string | null>(null);
+  const [proofDeletingId, setProofDeletingId] = useState<string | null>(null);
+  const [paymentUpdatingId, setPaymentUpdatingId] = useState<string | null>(null);
+  const [paymentChangeRequest, setPaymentChangeRequest] = useState<{
+    order: AccountOrder;
+    method: AccountOrder["paymentMethod"];
+  } | null>(null);
+
+  useEffect(() => {
+    const preferred = initialProviderSlug || providerQuery;
+    if (preferred && preferred !== providerSlug) {
+      void setProviderSlug(preferred, { lock: true });
+    }
+  }, [initialProviderSlug, providerQuery, providerSlug, setProviderSlug]);
 
   const filteredAccounts = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -304,21 +517,30 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
     );
     return totals;
   }, [filteredAccounts]);
-  const isOrderConfirmed = useCallback(
-    (order: AccountOrder, payments: AccountPayment[]) => {
-      const hasApprovedCash = payments.some(
-        (payment) => payment.orderId === order.id && payment.status === "approved" && payment.method === "efectivo",
-      );
-      const hasApprovedTransfer = payments.some(
-        (payment) => payment.orderId === order.id && payment.status === "approved" && payment.method === "transferencia",
-      );
-      const proofVerified =
-        order.paymentProofStatus === "verificado" || (order.paymentProofStatus === "subido" && hasApprovedTransfer);
-      const cashReceived = order.paymentMethod === "efectivo" && hasApprovedCash;
-      return order.status === "entregado" && (proofVerified || cashReceived);
-    },
-    [],
-  );
+  const isOrderConfirmed = useCallback((order: AccountOrder, payments: AccountPayment[]) => {
+    if (order.status !== "entregado") return false;
+
+    const approvedForOrder = payments.filter(
+      (payment) => payment.orderId === order.id && payment.status === "approved",
+    );
+
+    const proofVerified = order.paymentProofStatus === "verificado";
+    const proofUploaded = order.paymentProofStatus === "subido";
+
+    if (order.paymentMethod === "efectivo") {
+      const hasApprovedCash = approvedForOrder.some((payment) => payment.method === "efectivo");
+      return hasApprovedCash;
+    }
+
+    if (order.paymentMethod === "transferencia") {
+      const hasApprovedTransfer = approvedForOrder.some((payment) => payment.method === "transferencia");
+      // Si el comprobante está verificado, confirmamos aunque no exista pago aprobado registrado.
+      if (proofVerified) return true;
+      return hasApprovedTransfer && (proofVerified || proofUploaded);
+    }
+
+    return false;
+  }, []);
 
   const confirmedOrders = useMemo(() => {
     if (!selectedAccount) return [];
@@ -329,6 +551,27 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
     if (!selectedAccount) return [];
     return selectedAccount.orders.filter((order) => !isOrderConfirmed(order, selectedAccount.payments));
   }, [isOrderConfirmed, selectedAccount]);
+
+  const handleSelectProofFile = useCallback((file: File | null) => {
+    setProofError(null);
+    setProofFile(null);
+    setProofPreview(null);
+    if (!file) return;
+    setProofFile(file);
+    const reader = new FileReader();
+    reader.onload = () => setProofPreview(reader.result as string);
+    reader.readAsDataURL(file);
+  }, []);
+
+  const handleUploadProof = useCallback(
+    (order: AccountOrder) => {
+      setProofDialogOrder(order);
+      setProofError(null);
+      setProofPreview(null);
+      setProofFile(null);
+    },
+    [],
+  );
 
   const summaryCompletedOrders = useMemo(() => {
     if (!summaryAccount) return [];
@@ -364,6 +607,14 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
     setSummaryOpen(true);
   }, []);
 
+  const resetProofDialog = useCallback(() => {
+    setProofDialogOrder(null);
+    setProofFile(null);
+    setProofPreview(null);
+    setProofError(null);
+    setProofSaving(false);
+  }, []);
+
   const handleDownloadSummary = useCallback(async () => {
     if (!providerSlug || !summaryAccount) return;
     try {
@@ -394,12 +645,12 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
     if (response.success) {
       setProviders(response.providers);
       if (!providerSlug && response.providers.length > 0) {
-        setProviderSlug(response.providers[0].slug);
+        void setProviderSlug(response.providers[0].slug);
       }
     } else {
       setError(response.errors.join("\n"));
     }
-  }, [providerSlug]);
+  }, [providerSlug, setProviderSlug]);
 
   const loadAccounts = useCallback(
     async (slug: string) => {
@@ -409,6 +660,7 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
       const response = await getClientAccounts(slug);
       if (response.success) {
         setAccounts(response.accounts);
+        setArchivedCount(response.archivedCount ?? 0);
         if (!selectedClientId && response.accounts.length > 0) {
           setSelectedClientId(response.accounts[0].client.id);
         }
@@ -509,6 +761,53 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
     [loadAccounts, providerSlug, selectedAccount],
   );
 
+  const removeTransferProof = useCallback(
+    async (order: AccountOrder) => {
+      if (!providerSlug) return;
+      try {
+        setProofDeletingId(order.id);
+        const response = await markOrderProofStatus({
+          providerSlug,
+          orderId: order.id,
+          status: "pendiente",
+          proofUrl: null,
+        });
+        if (!response.success) {
+          setError(response.errors.join("\n"));
+          return;
+        }
+        await loadAccounts(providerSlug);
+      } finally {
+        setProofDeletingId(null);
+      }
+    },
+    [loadAccounts, providerSlug],
+  );
+
+  const handleChangePaymentMethod = useCallback(
+    async (order: AccountOrder, method: AccountOrder["paymentMethod"]) => {
+      if (!providerSlug || !method) return;
+      try {
+        setPaymentUpdatingId(order.id);
+        const response = await updatePaymentMethod({ providerSlug, orderId: order.id, method });
+        if (!response.success) {
+          setError(response.errors.join("\n"));
+          return;
+        }
+        await loadAccounts(providerSlug);
+      } finally {
+        setPaymentUpdatingId(null);
+      }
+    },
+    [loadAccounts, providerSlug],
+  );
+
+  const confirmPaymentMethodChange = useCallback(async () => {
+    if (!paymentChangeRequest) return;
+    await handleChangePaymentMethod(paymentChangeRequest.order, paymentChangeRequest.method);
+    setPaymentChangeRequest(null);
+  }, [handleChangePaymentMethod, paymentChangeRequest]);
+
   const handleUpdateOrderStatus = useCallback(
     async (order: AccountOrder, status: AccountOrder["status"]) => {
       if (!providerSlug) return;
@@ -527,12 +826,36 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
     [loadAccounts, providerSlug],
   );
 
+  const handleUpdateDeliveryDate = useCallback(
+    async (orderId: string, date: Date | null) => {
+      if (!providerSlug) return;
+      try {
+        setDeliveryUpdatingId(orderId);
+        const payloadDate = date ? new Date(date).toISOString() : null;
+        const response = await updateDeliveryDate({ providerSlug, orderId, deliveryDate: payloadDate });
+        if (!response.success) {
+          setError(response.errors.join("\n"));
+          return;
+        }
+        await loadAccounts(providerSlug);
+      } finally {
+        setDeliveryUpdatingId(null);
+      }
+    },
+    [loadAccounts, providerSlug],
+  );
+
   const handleDeleteOrder = useCallback(
-    async (order: AccountOrder) => {
+    async (order: AccountOrder, audit: { archivedBy: string; archivedReason: string }) => {
       if (!providerSlug) return;
       try {
         setArchivingOrderId(order.id);
-        const response = await deleteOrder({ providerSlug, orderId: order.id });
+        const response = await deleteOrder({
+          providerSlug,
+          orderId: order.id,
+          archivedBy: audit.archivedBy,
+          archivedReason: audit.archivedReason,
+        });
         if (!response.success) {
           setError(response.errors.join("\n"));
           return;
@@ -544,6 +867,57 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
     },
     [loadAccounts, providerSlug],
   );
+
+  const handleSaveProof = useCallback(async () => {
+    if (!providerSlug || !proofDialogOrder) {
+      setProofError("Falta el pedido o proveedor.");
+      return;
+    }
+    if (!proofFile) {
+      setProofError("Selecciona una imagen de comprobante.");
+      return;
+    }
+    setProofSaving(true);
+    setProofError(null);
+    try {
+      const compressed = await compressImageFile(proofFile, {
+        maxBytes: 600 * 1024,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        quality: 0.6,
+      });
+      const arrayBuffer = await compressed.arrayBuffer();
+      const uint8 = new Uint8Array(arrayBuffer);
+      const base64 = btoa(String.fromCharCode(...uint8));
+      const upload = await uploadPaymentProof({
+        providerSlug,
+        orderId: proofDialogOrder.id,
+        fileName: compressed.name,
+        contentType: compressed.type || "image/jpeg",
+        base64,
+      });
+      if (!upload.success) {
+        setProofError(upload.errors.join("\n"));
+        return;
+      }
+      const response = await markOrderProofStatus({
+        providerSlug,
+        orderId: proofDialogOrder.id,
+        status: "subido",
+        proofUrl: upload.url,
+      });
+      if (!response.success) {
+        setProofError(response.errors.join("\n"));
+        return;
+      }
+      await loadAccounts(providerSlug);
+      resetProofDialog();
+    } catch (err) {
+      setProofError((err as Error).message ?? "No se pudo subir el comprobante.");
+    } finally {
+      setProofSaving(false);
+    }
+  }, [loadAccounts, proofDialogOrder, proofFile, providerSlug, resetProofDialog]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -560,7 +934,7 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
         </div>
         <div className="flex items-center gap-2">
           {!lockedProvider ? (
-            <Select value={providerSlug} onValueChange={(value) => setProviderSlug(value)}>
+            <Select value={providerSlug} onValueChange={(value) => void setProviderSlug(value)}>
               <SelectTrigger className="w-[220px]">
                 <SelectValue placeholder="Proveedor" />
               </SelectTrigger>
@@ -609,7 +983,7 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
                     {formatCurrency(summary.paid)}
                   </div>
                   <div className="flex items-center gap-2 rounded-full bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 shadow-sm">
-                    <Clock3 className="h-4 w-4" />
+                    <Truck className="h-4 w-4" />
                     Pendiente {formatCurrency(summary.pending)}
                   </div>
                   <motion.span
@@ -868,6 +1242,10 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
             </div>
             <div className="flex items-center gap-3">
               <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="secondary" className="flex items-center gap-1 bg-rose-100 text-rose-800">
+                  <Archive className="h-4 w-4" />
+                  {selectedAccount.totals.archivedCount ?? 0}
+                </Badge>
                 <Badge variant="secondary" className="bg-amber-50 text-amber-800">
                   Pendiente {formatCurrency(selectedAccount.totals.pending)}
                 </Badge>
@@ -902,7 +1280,7 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
                         <ShoppingBag className="h-4 w-4 text-[color:var(--brand-deep)]" />
                         Pedidos
                       </div>
-                      <Badge variant="outline" className="bg-slate-50">
+                        <Badge variant="outline" className="bg-slate-50">
                         Último{" "}
                         {selectedAccount.totals.lastOrderAt ? new Date(selectedAccount.totals.lastOrderAt).toLocaleDateString() : "—"}
                       </Badge>
@@ -912,7 +1290,7 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
                         <AccordionTrigger className="px-4 py-3 hover:no-underline">
                           <div className="flex w-full items-center justify-between gap-2">
                             <div className="flex items-center gap-2 text-sm font-semibold">
-                              <Clock3 className="h-4 w-4 text-amber-700" />
+                              <Truck className="h-4 w-4 text-amber-700" />
                               Cobros por confirmar
                             </div>
                             <Badge variant="outline">{pendingOrders.length}</Badge>
@@ -932,11 +1310,24 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
                                 payments={selectedAccount.payments}
                                 onConfirmCash={confirmCashPayment}
                                 onVerifyTransfer={verifyTransferPayment}
+                                onRemoveProof={removeTransferProof}
+                                onUploadProof={handleUploadProof}
+                                onRequestPaymentChange={(payloadOrder, method) =>
+                                  setPaymentChangeRequest({ order: payloadOrder, method })
+                                }
+                                onChangePaymentMethod={handleChangePaymentMethod}
                                 isProcessing={markingOrderId === order.id || saving}
                                 onChangeStatus={handleUpdateOrderStatus}
                                 isStatusUpdating={statusUpdatingId === order.id}
                                 onDelete={handleDeleteOrder}
                                 isDeleting={archivingOrderId === order.id}
+                                providerSlug={providerSlug}
+                                deliveryDate={order.deliveryDate}
+                                deliveryZoneName={order.deliveryZoneName}
+                                onChangeDeliveryDate={handleUpdateDeliveryDate}
+                                deliveryUpdatingId={deliveryUpdatingId}
+                                isProofDeleting={proofDeletingId === order.id}
+                                isPaymentUpdating={paymentUpdatingId === order.id}
                               />
                             ))}
                           </div>
@@ -970,11 +1361,24 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
                                 payments={selectedAccount.payments}
                                 onConfirmCash={confirmCashPayment}
                                 onVerifyTransfer={verifyTransferPayment}
+                                onRemoveProof={removeTransferProof}
+                                onUploadProof={handleUploadProof}
+                                onRequestPaymentChange={(payloadOrder, method) =>
+                                  setPaymentChangeRequest({ order: payloadOrder, method })
+                                }
+                                onChangePaymentMethod={handleChangePaymentMethod}
                                 isProcessing={markingOrderId === order.id || saving}
                                 onChangeStatus={handleUpdateOrderStatus}
                                 isStatusUpdating={statusUpdatingId === order.id}
                                 onDelete={handleDeleteOrder}
                                 isDeleting={archivingOrderId === order.id}
+                                providerSlug={providerSlug}
+                                deliveryDate={order.deliveryDate}
+                                deliveryZoneName={order.deliveryZoneName}
+                                onChangeDeliveryDate={handleUpdateDeliveryDate}
+                                deliveryUpdatingId={deliveryUpdatingId}
+                                isProofDeleting={proofDeletingId === order.id}
+                                isPaymentUpdating={paymentUpdatingId === order.id}
                               />
                             ))}
                           </div>
@@ -1002,7 +1406,7 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
                     </div>
                   </div>
                   <div className="flex items-center gap-3 rounded-lg bg-amber-50 px-3 py-2">
-                    <Clock3 className="h-5 w-5 text-amber-800" />
+                    <Truck className="h-5 w-5 text-amber-800" />
                     <div>
                       <p className="text-xs text-amber-700">Pagos en curso</p>
                       <p className="text-sm font-semibold text-amber-900">
@@ -1137,6 +1541,92 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
           </ScrollArea>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={Boolean(proofDialogOrder)}
+        onOpenChange={(open) => {
+          if (!open) resetProofDialog();
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cargar comprobante</DialogTitle>
+            <DialogDescription>
+              No puedes verificar sin comprobante. Sube una imagen (JPG/PNG/WEBP, máx 900KB).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {proofDialogOrder ? (
+              <div className="rounded-lg border border-muted/50 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                Pedido #{shortId(proofDialogOrder.id)} · {formatCurrency(proofDialogOrder.total)}
+              </div>
+            ) : null}
+            <div className="space-y-2">
+              <Label htmlFor="proof-file">Imagen del comprobante</Label>
+              <Input
+                id="proof-file"
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                onChange={(event) => handleSelectProofFile(event.target.files?.[0] ?? null)}
+              />
+              {proofError ? <p className="text-xs text-destructive">{proofError}</p> : null}
+              {proofPreview ? (
+                <div className="rounded-lg border border-muted/50 bg-white p-2">
+                  <p className="text-xs text-muted-foreground mb-1">Vista previa</p>
+                  <img src={proofPreview} alt="Vista previa comprobante" className="max-h-56 w-full rounded object-contain" />
+                </div>
+              ) : null}
+            </div>
+          </div>
+          <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <Button variant="ghost" onClick={resetProofDialog} disabled={proofSaving}>
+              Cancelar
+            </Button>
+            <div className="flex gap-2">
+              <Button onClick={handleSaveProof} disabled={proofSaving || !proofFile}>
+                {proofSaving ? "Guardando..." : "Guardar comprobante y marcar verificado"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={Boolean(paymentChangeRequest)}
+        onOpenChange={(open) => {
+          if (!open) setPaymentChangeRequest(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cambiar a efectivo</AlertDialogTitle>
+            <AlertDialogDescription>
+              El comprobante actual se eliminará automáticamente. Descarga un respaldo si lo necesitas antes de continuar.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3">
+            {paymentChangeRequest?.order.paymentProofUrl ? (
+              <Button asChild variant="outline" className="gap-2">
+                <a href={paymentChangeRequest.order.paymentProofUrl} target="_blank" rel="noreferrer" download>
+                  <Download className="h-4 w-4" />
+                  Descargar comprobante
+                </a>
+              </Button>
+            ) : null}
+            <p className="text-sm text-muted-foreground">¿Deseas continuar y cambiar el método de pago a efectivo?</p>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPaymentChangeRequest(null)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void confirmPaymentMethodChange()}
+              className="bg-emerald-600 text-white hover:bg-emerald-700"
+              disabled={Boolean(paymentUpdatingId)}
+            >
+              Continuar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

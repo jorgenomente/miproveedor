@@ -52,6 +52,8 @@ export type AccountOrder = {
   total: number;
   status: OrderStatus;
   createdAt: string | null;
+  deliveryDate?: string | null;
+  deliveryZoneName?: string | null;
   isArchived?: boolean;
   archivedAt?: string | null;
   paymentMethod?: PaymentMethod | null;
@@ -92,13 +94,14 @@ export type ClientAccount = {
     pending: number;
     pendingPayments: number;
     lastOrderAt?: string | null;
+    archivedCount?: number;
   };
   orders: AccountOrder[];
   payments: AccountPayment[];
 };
 
 export type AccountsResult =
-  | { success: true; provider: ProviderRow; accounts: ClientAccount[] }
+  | { success: true; provider: ProviderRow; accounts: ClientAccount[]; archivedCount?: number }
   | { success: false; errors: string[] };
 
 export type RecordPaymentResult =
@@ -106,7 +109,7 @@ export type RecordPaymentResult =
   | { success: false; errors: string[] };
 
 export type ProofStatusResult =
-  | { success: true }
+  | { success: true; proofUrl?: string | null; status?: PaymentProofStatus }
   | { success: false; errors: string[] };
 
 export type UpdateOrderStatusResult =
@@ -114,6 +117,10 @@ export type UpdateOrderStatusResult =
   | { success: false; errors: string[] };
 
 export type DeleteOrderResult =
+  | { success: true }
+  | { success: false; errors: string[] };
+
+export type UpdatePaymentMethodResult =
   | { success: true }
   | { success: false; errors: string[] };
 
@@ -255,7 +262,35 @@ async function persistDemoClientPayment(payload: {
 }
 
 const calculateOrderTotal = (items?: { quantity?: number; unit_price?: number | string | null }[]) =>
-  (items ?? []).reduce((acc, item) => acc + Number(item.unit_price ?? 0) * Number(item.quantity ?? 0), 0);
+  (items ?? []).reduce((acc, item) => {
+    const qty = (item as { delivered_quantity?: number | null }).delivered_quantity ?? item.quantity ?? 0;
+    return acc + Number(item.unit_price ?? 0) * Number(qty);
+  }, 0);
+
+const isOrderConfirmedServer = (
+  order: { id: string; status?: string | null; paymentMethod?: PaymentMethod | null; paymentProofStatus?: string | null },
+  payments: AccountPayment[],
+) => {
+  const status = normalizeStatus(order.status);
+  if (status !== "entregado") return false;
+
+  const proofVerified = order.paymentProofStatus === "verificado";
+  const proofUploaded = order.paymentProofStatus === "subido";
+  const approvedForOrder = payments.filter((payment) => payment.orderId === order.id && payment.status === "approved");
+
+  if (order.paymentMethod === "efectivo") {
+    return approvedForOrder.some((payment) => payment.method === "efectivo");
+  }
+
+  if (order.paymentMethod === "transferencia") {
+    const hasApprovedTransfer = approvedForOrder.some((payment) => payment.method === "transferencia");
+    // Confirmamos si el comprobante está verificado o si existe una transferencia aprobada con comprobante cargado.
+    if (proofVerified) return true;
+    return hasApprovedTransfer && (proofVerified || proofUploaded);
+  }
+
+  return false;
+};
 
 export async function getClientAccounts(providerSlug: string): Promise<AccountsResult> {
   if (!providerSlug) return { success: false, errors: ["Falta el proveedor."] };
@@ -298,6 +333,18 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
             ? Boolean((order as { isArchived?: boolean | null }).isArchived)
             : false;
       const archivedAt = "archived_at" in order ? (order as { archived_at?: string | null }).archived_at ?? null : null;
+      const deliveryDate =
+        "delivery_date" in order
+          ? (order as { delivery_date?: string | null }).delivery_date ?? null
+          : "deliveryDate" in order
+            ? (order as { deliveryDate?: string | null }).deliveryDate ?? null
+            : null;
+      const deliveryZoneName =
+        "delivery_zone_name" in order
+          ? (order as { delivery_zone_name?: string | null }).delivery_zone_name ?? null
+          : "deliveryZoneName" in order
+            ? (order as { deliveryZoneName?: string | null }).deliveryZoneName ?? null
+            : null;
 
       return {
         id: order.id,
@@ -309,6 +356,8 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
         paymentProofStatus,
         paymentProofUrl,
         isArchived,
+        deliveryDate,
+        deliveryZoneName,
         archivedAt,
       };
     });
@@ -325,11 +374,16 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
     const clientMap = new Map(demo.clients.map((client) => [client.slug, client]));
     const paymentBuckets = new Map<string, AccountPayment[]>();
     const orderBuckets = new Map<string, AccountOrder[]>();
+    const archivedCounts = new Map<string, number>();
 
     mergedOrders.forEach((order) => {
       const client = clientMap.get(order.clientSlug);
       if (!client) return;
-      if (order.isArchived) return;
+      if (order.isArchived) {
+        const current = archivedCounts.get(client.id) ?? 0;
+        archivedCounts.set(client.id, current + 1);
+        return;
+      }
       const entry: AccountOrder = {
         id: order.id,
         total: Number(order.total ?? 0),
@@ -373,10 +427,15 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
         return bDate - aDate;
       });
       const validOrders = clientOrders.filter((order) => order.status !== "cancelado");
+      const activeOrderIds = new Set(validOrders.map((order) => order.id));
+      const confirmedOrders = validOrders.filter((order) => isOrderConfirmedServer(order, clientPayments));
+      const pendingOrders = validOrders.filter((order) => !isOrderConfirmedServer(order, clientPayments));
       const totalOrdered = validOrders.reduce((acc, order) => acc + order.total, 0);
-      const paid = clientPayments.filter((payment) => payment.status === "approved").reduce((acc, payment) => acc + payment.amount, 0);
-      const pendingPayments = clientPayments.filter((payment) => payment.status === "pending").reduce((acc, payment) => acc + payment.amount, 0);
-      const pending = Math.max(totalOrdered - paid, 0);
+      const paid = confirmedOrders.reduce((acc, order) => acc + order.total, 0);
+      const pendingPayments = clientPayments
+        .filter((payment) => payment.status === "pending" && (!payment.orderId || activeOrderIds.has(payment.orderId)))
+        .reduce((acc, payment) => acc + payment.amount, 0);
+      const pending = Math.max(pendingOrders.reduce((acc, order) => acc + order.total, 0), pendingPayments, 0);
 
       return {
         client: {
@@ -395,6 +454,7 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
           pending,
           pendingPayments,
           lastOrderAt: clientOrders[0]?.createdAt ?? null,
+          archivedCount: archivedCounts.get(client.id) ?? 0,
         },
         orders: clientOrders,
         payments: clientPayments,
@@ -414,6 +474,7 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
         country: null,
       },
       accounts,
+      archivedCount: mergedOrders.filter((order) => order.isArchived).length,
     };
   }
 
@@ -437,7 +498,12 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
     return { success: false, errors: ["No tienes acceso a este proveedor."] };
   }
 
-  const [{ data: clients, error: clientsError }, { data: orders, error: ordersError }, { data: payments, error: paymentsError }] = await Promise.all([
+  const [
+    { data: clients, error: clientsError },
+    { data: orders, error: ordersError },
+    { data: payments, error: paymentsError },
+    { data: archivedRows },
+  ] = await Promise.all([
     supabase
       .from("clients")
       .select("id, name, slug, contact_name, contact_phone, address, is_active")
@@ -446,7 +512,7 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
     supabase
       .from("orders")
       .select(
-        "id, client_id, status, created_at, archived_at, is_archived, payment_method, payment_proof_status, payment_proof_url, order_items(quantity, unit_price)",
+        "id, client_id, status, created_at, archived_at, is_archived, payment_method, payment_proof_status, payment_proof_url, delivery_date, delivery_zone:delivery_zones(name), order_items(quantity, delivered_quantity, unit_price)",
       )
       .eq("provider_id", provider.id)
       .eq("is_archived", false)
@@ -457,11 +523,23 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
       .eq("provider_id", provider.id)
       .order("paid_at", { ascending: false, nullsFirst: true })
       .order("created_at", { ascending: false }),
+    supabase
+      .from("orders")
+      .select("client_id")
+      .eq("provider_id", provider.id)
+      .eq("is_archived", true),
   ]);
 
   if (clientsError) return { success: false, errors: [`No se pudieron cargar clientes: ${clientsError.message}`] };
   if (ordersError) return { success: false, errors: [`No se pudieron cargar pedidos: ${ordersError.message}`] };
   if (paymentsError) return { success: false, errors: [`No se pudieron cargar pagos: ${paymentsError.message}`] };
+
+  const archivedCounts = new Map<string, number>();
+  (archivedRows ?? []).forEach((row) => {
+    const clientId = (row as { client_id?: string }).client_id;
+    if (!clientId) return;
+    archivedCounts.set(clientId, (archivedCounts.get(clientId) ?? 0) + 1);
+  });
 
   const orderBuckets = new Map<string, AccountOrder[]>();
   (orders ?? []).forEach((order) => {
@@ -476,6 +554,11 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
       paymentMethod: (order as { payment_method?: PaymentMethod | null }).payment_method ?? null,
       paymentProofStatus: (order as { payment_proof_status?: PaymentProofStatus | null }).payment_proof_status ?? null,
       paymentProofUrl: (order as { payment_proof_url?: string | null }).payment_proof_url ?? null,
+      deliveryDate: (order as { delivery_date?: string | null }).delivery_date ?? null,
+      deliveryZoneName:
+        Array.isArray((order as any).delivery_zone) && (order as any).delivery_zone.length > 0
+          ? (order as any).delivery_zone[0]?.name ?? null
+          : ((order as any).delivery_zone as { name?: string } | null | undefined)?.name ?? null,
     };
     const existing = orderBuckets.get(order.client_id) ?? [];
     orderBuckets.set(order.client_id, [...existing, entry]);
@@ -511,10 +594,15 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
         return bDate - aDate;
       });
       const validOrders = clientOrders.filter((order) => order.status !== "cancelado");
+      const activeOrderIds = new Set(validOrders.map((order) => order.id));
+      const confirmedOrders = validOrders.filter((order) => isOrderConfirmedServer(order, clientPayments));
+      const pendingOrders = validOrders.filter((order) => !isOrderConfirmedServer(order, clientPayments));
       const totalOrdered = validOrders.reduce((acc, order) => acc + order.total, 0);
-      const paid = clientPayments.filter((payment) => payment.status === "approved").reduce((acc, payment) => acc + payment.amount, 0);
-      const pendingPayments = clientPayments.filter((payment) => payment.status === "pending").reduce((acc, payment) => acc + payment.amount, 0);
-      const pending = Math.max(totalOrdered - paid, 0);
+      const paid = confirmedOrders.reduce((acc, order) => acc + order.total, 0);
+      const pendingPayments = clientPayments
+        .filter((payment) => payment.status === "pending" && (!payment.orderId || activeOrderIds.has(payment.orderId)))
+        .reduce((acc, payment) => acc + payment.amount, 0);
+      const pending = Math.max(pendingOrders.reduce((acc, order) => acc + order.total, 0), pendingPayments, 0);
 
       return {
         client: {
@@ -533,6 +621,7 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
           pending,
           pendingPayments,
           lastOrderAt: clientOrders[0]?.createdAt ?? null,
+          archivedCount: archivedCounts.get(client.id) ?? 0,
         },
         orders: clientOrders,
         payments: clientPayments,
@@ -551,7 +640,9 @@ export async function getClientAccounts(providerSlug: string): Promise<AccountsR
     is_active: provider.is_active ?? null,
   };
 
-  return { success: true, provider: providerRow, accounts };
+  const providerArchivedTotal = Array.from(archivedCounts.values()).reduce((acc, val) => acc + val, 0);
+
+  return { success: true, provider: providerRow, accounts, archivedCount: providerArchivedTotal };
 }
 
 export async function recordClientPayment(payload: z.infer<typeof paymentSchema>): Promise<RecordPaymentResult> {
@@ -655,21 +746,28 @@ export async function recordClientPayment(payload: z.infer<typeof paymentSchema>
 export async function markOrderProofStatus({
   providerSlug,
   orderId,
+  proofUrl,
   status,
 }: {
   providerSlug: string;
   orderId: string;
+  proofUrl?: string | null;
   status: PaymentProofStatus;
 }): Promise<ProofStatusResult> {
   if (!orderId) return { success: false, errors: ["Falta el ID del pedido"] };
   if (!["no_aplica", "pendiente", "subido", "verificado"].includes(status)) {
     return { success: false, errors: ["Estado de comprobante inválido"] };
   }
-  const targetStatus = status === "verificado" ? "subido" : status;
+  const targetStatus = status;
+  const dbStatus: PaymentProofStatus = status === "verificado" ? "subido" : status;
 
   if (providerSlug === "demo") {
     // No persistimos en demo, solo devolvemos éxito para mantener la UI fluida.
-    return { success: true };
+    return {
+      success: true,
+      proofUrl: proofUrl ?? null,
+      status: targetStatus,
+    };
   }
 
   const scopeResult = await getProviderScope();
@@ -692,9 +790,16 @@ export async function markOrderProofStatus({
     return { success: false, errors: ["No tienes acceso a este proveedor."] };
   }
 
+  const payload: { payment_proof_status: PaymentProofStatus; payment_proof_url?: string | null } = {
+    payment_proof_status: dbStatus,
+  };
+  if (proofUrl !== undefined) {
+    payload.payment_proof_url = proofUrl;
+  }
+
   const { error: updateError } = await supabase
     .from("orders")
-    .update({ payment_proof_status: targetStatus })
+    .update(payload)
     .eq("id", orderId)
     .eq("provider_id", provider.id);
 
@@ -760,23 +865,99 @@ export async function updateOrderStatus({
   return { success: true };
 }
 
-export async function deleteOrder({
+export async function updatePaymentMethod({
   providerSlug,
   orderId,
+  method,
 }: {
   providerSlug: string;
   orderId: string;
-}): Promise<DeleteOrderResult> {
-  if (!orderId) return { success: false, errors: ["Falta el ID del pedido."] };
-
-  const archivedAt = new Date().toISOString();
+  method: PaymentMethod;
+}): Promise<UpdatePaymentMethodResult> {
+  if (!orderId) return { success: false, errors: ["Falta el ID del pedido"] };
+  if (!["efectivo", "transferencia"].includes(method)) {
+    return { success: false, errors: ["Método de pago inválido"] };
+  }
 
   if (providerSlug === "demo") {
     const supabase = getSupabaseAdmin();
     if (!supabase) return { success: true };
+    const updates: Record<string, unknown> = {
+      payment_method: method,
+      payment_proof_status: method === "efectivo" ? "no_aplica" : "pendiente",
+      payment_proof_url: method === "efectivo" ? null : null,
+    };
+    const { error } = await supabase.from("demo_orders").update(updates).eq("id", orderId);
+    if (error) return { success: false, errors: [`No se pudo actualizar el demo: ${error.message}`] };
+    return { success: true };
+  }
+
+  const scopeResult = await getProviderScope();
+  if (scopeResult.error) return { success: false, errors: [scopeResult.error] };
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return { success: false, errors: ["Faltan credenciales de Supabase (SERVICE_ROLE / URL)."] };
+
+  const { data: provider, error: providerError } = await supabase
+    .from("providers")
+    .select("id, slug")
+    .eq("slug", providerSlug)
+    .maybeSingle();
+
+  if (providerError || !provider) {
+    return { success: false, errors: [`Proveedor no disponible: ${providerError?.message ?? "no encontrado"}`] };
+  }
+
+  if (scopeResult.scope?.role === "provider" && scopeResult.scope.provider.id !== provider.id) {
+    return { success: false, errors: ["No tienes acceso a este proveedor."] };
+  }
+
+  const updates: Record<string, unknown> = {
+    payment_method: method,
+    payment_proof_status: method === "efectivo" ? "no_aplica" : "pendiente",
+    payment_proof_url: method === "efectivo" ? null : null,
+  };
+
+  const { error: updateError } = await supabase
+    .from("orders")
+    .update(updates)
+    .eq("id", orderId)
+    .eq("provider_id", provider.id);
+
+  if (updateError) {
+    return { success: false, errors: [`No se pudo actualizar el método de pago: ${updateError.message}`] };
+  }
+
+  return { success: true };
+}
+
+export async function deleteOrder({
+  providerSlug,
+  orderId,
+  archivedBy,
+  archivedReason,
+}: {
+  providerSlug: string;
+  orderId: string;
+  archivedBy: string;
+  archivedReason: string;
+}): Promise<DeleteOrderResult> {
+  if (!orderId) return { success: false, errors: ["Falta el ID del pedido."] };
+  if (!archivedBy?.trim()) return { success: false, errors: ["Falta el responsable."] };
+  if (!archivedReason?.trim()) return { success: false, errors: ["Falta la razón de archivo."] };
+
+  const archivedAt = new Date().toISOString();
+  const auditNote = `Archivado por ${archivedBy.trim()} (${new Date().toLocaleString("es-AR")}). Motivo: ${archivedReason.trim()}`;
+
+  if (providerSlug === "demo") {
+    const supabase = getSupabaseAdmin();
+    if (!supabase) return { success: true };
+    const { data: orderRow } = await supabase.from("demo_orders").select("note").eq("id", orderId).maybeSingle();
+    const existingNote = (orderRow as { note?: string | null } | null)?.note ?? null;
+    const mergedNote = [existingNote, auditNote].filter(Boolean).join("\n\n");
     const { error } = await supabase
       .from("demo_orders")
-      .update({ is_archived: true, archived_at: archivedAt })
+      .update({ is_archived: true, archived_at: archivedAt, note: mergedNote })
       .eq("id", orderId);
     if (error) return { success: false, errors: [`No se pudo archivar el pedido demo: ${error.message}`] };
     return { success: true };
@@ -802,9 +983,23 @@ export async function deleteOrder({
     return { success: false, errors: ["No tienes acceso a este proveedor."] };
   }
 
+  const { data: orderRow, error: orderFetchError } = await supabase
+    .from("orders")
+    .select("note")
+    .eq("id", orderId)
+    .eq("provider_id", provider.id)
+    .maybeSingle();
+
+  if (orderFetchError) {
+    return { success: false, errors: [`No se pudo obtener el pedido: ${orderFetchError.message}`] };
+  }
+
+  const existingNote = (orderRow as { note?: string | null } | null)?.note ?? null;
+  const mergedNote = [existingNote, auditNote].filter(Boolean).join("\n\n");
+
   const { error: updateError } = await supabase
     .from("orders")
-    .update({ is_archived: true, archived_at: archivedAt })
+    .update({ is_archived: true, archived_at: archivedAt, note: mergedNote })
     .eq("id", orderId)
     .eq("provider_id", provider.id);
 
@@ -921,7 +1116,7 @@ export async function listArchivedOrders(providerSlug: string): Promise<Archived
         payment_proof_url,
         is_archived,
         client:clients(id, name, slug, contact_name, contact_phone, is_active),
-        order_items(quantity, unit_price)
+        order_items(quantity, delivered_quantity, unit_price)
       `,
     )
     .eq("provider_id", provider.id)

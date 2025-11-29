@@ -350,8 +350,9 @@ async function buildPdf(order: OrderDetail): Promise<Buffer> {
         ? item.deliveredQuantity
         : item.quantity;
     const subtotal = (item.deliveredSubtotal ?? null) ?? item.unitPrice * deliveredQty;
+    const isOutOfStock = deliveredQty === 0;
     return {
-      description: `${item.productName}${item.unit ? ` (${item.unit})` : ""}`,
+      description: `${item.productName}${item.unit ? ` (${item.unit})` : ""}${isOutOfStock ? " · SIN STOCK" : ""}`,
       quantity: deliveredQty,
       unitPrice: item.unitPrice,
       subtotal,

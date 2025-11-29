@@ -1351,7 +1351,7 @@ export async function listDeliveryRules(providerSlug: string): Promise<ListDeliv
   const grouped = new Map<string, { cutoff: number; days: number[] }>();
   (available ?? []).forEach((row) => {
     const cutoff = row.cutoff_time_minutes ?? 0;
-    const entry = grouped.get(row.zone_id) ?? { cutoff, days: [] };
+    const entry: { cutoff: number; days: number[] } = grouped.get(row.zone_id) ?? { cutoff, days: [] };
     entry.cutoff = cutoff;
     entry.days.push(row.delivery_weekday ?? 0);
     grouped.set(row.zone_id, entry);

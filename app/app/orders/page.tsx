@@ -3,13 +3,34 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, ArrowUpRight, Check, MessageCircle, RefreshCcw } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowUpRight,
+  Check,
+  CreditCard,
+  Download,
+  Eye,
+  LayoutList,
+  MessagesSquare,
+  RefreshCcw,
+  Rows3,
+  Truck,
+  Wallet,
+} from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,12 +41,17 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ORDER_STATUS, ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/order-status";
+import { useProviderContext } from "@/components/app/provider-context";
 import { formatCurrency } from "@/lib/whatsapp";
 import {
+  getOrderSnapshot,
   listOrders,
   listPendingProducts,
   listProviders,
@@ -33,6 +59,7 @@ import {
   updateDeliveryDate,
   type ListOrdersResult,
   type OrderListItem,
+  type OrderDetail,
   type ProviderRow,
 } from "./actions";
 
@@ -47,11 +74,11 @@ const statusBadge: Record<string, string> = {
 export type OrdersPageProps = { initialProviderSlug?: string };
 
 function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
+  const { providerSlug, setProviderSlug, isLocked } = useProviderContext();
   const [providers, setProviders] = useState<ProviderRow[]>([]);
   const searchParams = useSearchParams();
   const providerQuery = searchParams?.get("provider") ?? null;
-  const lockedProvider = Boolean(initialProviderSlug || providerQuery);
-  const [providerSlug, setProviderSlug] = useState(initialProviderSlug ?? providerQuery ?? "");
+  const lockedProvider = isLocked || Boolean(initialProviderSlug || providerQuery);
   const [orders, setOrders] = useState<OrderListItem[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
@@ -64,33 +91,141 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
   const [loadingItems, setLoadingItems] = useState(false);
   const [itemsError, setItemsError] = useState<string | null>(null);
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
-  const [openPaymentPopover, setOpenPaymentPopover] = useState<string | null>(null);
-  const [editingDeliveryId, setEditingDeliveryId] = useState<string | null>(null);
-  const [editingDeliveryValue, setEditingDeliveryValue] = useState<string>("");
   const [updatingDeliveryId, setUpdatingDeliveryId] = useState<string | null>(null);
   const [openDeliveryPopover, setOpenDeliveryPopover] = useState<string | null>(null);
   const [searchClient, setSearchClient] = useState("");
-  const paymentStatusLabel = useCallback(
-    (method?: "efectivo" | "transferencia" | null, status?: "no_aplica" | "pendiente" | "subido" | null) => {
-      if (method === "transferencia") {
-        if (status === "subido") return "Comprobante cargado";
-        if (status === "pendiente") return "Comprobante pendiente";
-        return "Comprobante pendiente";
+  const [tableView, setTableView] = useState(false);
+  const [quickViewOpen, setQuickViewOpen] = useState(false);
+  const [quickViewLoading, setQuickViewLoading] = useState(false);
+  const [quickViewOrder, setQuickViewOrder] = useState<OrderDetail | null>(null);
+  const [quickViewError, setQuickViewError] = useState<string | null>(null);
+  const paymentStatusLabel = useCallback((status?: "no_aplica" | "pendiente" | "subido" | null) => {
+    if (status === "subido") return { label: "Comprobante cargado", tone: "ok" as const };
+    if (status === "pendiente") return { label: "Comprobante pendiente", tone: "warn" as const };
+    return { label: "A pagar en la entrega", tone: "muted" as const };
+  }, []);
+  const preferredProvider = useMemo(() => {
+    return initialProviderSlug || providerQuery || providerSlug || undefined;
+  }, [initialProviderSlug, providerQuery, providerSlug]);
+
+  useEffect(() => {
+    const nextPreferred = initialProviderSlug || providerQuery;
+    if (nextPreferred && nextPreferred !== providerSlug) {
+      void setProviderSlug(nextPreferred, { lock: true });
+    }
+  }, [initialProviderSlug, providerQuery, providerSlug, setProviderSlug]);
+
+  const formatDate = useCallback((value?: string | null, withTime = true) => {
+    if (!value) return "Fecha no disponible";
+    try {
+      return new Date(value).toLocaleString("es-AR", {
+        dateStyle: "medium",
+        timeStyle: withTime ? "short" : undefined,
+      });
+    } catch {
+      return value;
+    }
+  }, []);
+
+  const openQuickView = useCallback(
+    async (orderId: string) => {
+      setQuickViewOpen(true);
+      setQuickViewLoading(true);
+      setQuickViewError(null);
+      const response = await getOrderSnapshot(orderId);
+      if (response.success) {
+        setQuickViewOrder(response.order);
+      } else {
+        setQuickViewOrder(null);
+        setQuickViewError(response.errors.join("\n"));
       }
-      // Efectivo
-      return status === "subido" ? "Efectivo recibido" : "A pagar en la entrega";
+      setQuickViewLoading(false);
     },
     [],
   );
-  const preferredProvider = useMemo(() => {
-    return initialProviderSlug || providerQuery || undefined;
-  }, [initialProviderSlug, providerQuery]);
 
-  useEffect(() => {
-    if (lockedProvider && preferredProvider && preferredProvider !== providerSlug) {
-      setProviderSlug(preferredProvider);
-    }
-  }, [lockedProvider, preferredProvider, providerSlug]);
+  const downloadQuickViewPdf = useCallback(() => {
+    if (!quickViewOrder) return;
+    const order = quickViewOrder;
+    const createdAt = formatDate(order.createdAt);
+    const delivery = order.deliveryDate ? formatDate(order.deliveryDate, false) : "Sin fecha";
+    const rows = order.items
+      .map((item, index) => {
+        const subtotal = item.subtotal ?? item.unitPrice * item.quantity;
+        return `
+          <tr>
+            <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;">${index + 1}</td>
+            <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;">${item.productName}</td>
+            <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right;">${item.quantity}</td>
+            <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right;">${item.unit ?? "-"}</td>
+            <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right;">${formatCurrency(
+              item.unitPrice ?? 0,
+            )}</td>
+            <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right;">${formatCurrency(
+              subtotal ?? 0,
+            )}</td>
+          </tr>`;
+      })
+      .join("");
+
+    const total = order.items.reduce((acc, item) => {
+      const subtotal = item.subtotal ?? item.unitPrice * item.quantity;
+      return acc + (Number.isFinite(subtotal) ? subtotal : 0);
+    }, 0);
+
+    const html = `<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Pedido ${order.id}</title>
+          <style>
+            * { box-sizing: border-box; }
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; padding: 24px; color: #111827; }
+            h1 { margin: 0 0 4px; font-size: 20px; }
+            .muted { color: #6b7280; font-size: 12px; margin: 0 0 8px; }
+            .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+            .row { display: flex; flex-wrap: wrap; gap: 12px; }
+            .pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: #f3f4f6; font-size: 12px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+            th { text-align: left; background: #f9fafb; font-size: 12px; color: #4b5563; padding: 8px; border-bottom: 1px solid #e5e7eb; }
+            tfoot td { font-weight: 600; }
+          </style>
+        </head>
+        <body>
+          <h1>Pedido #${order.id.slice(0, 8)}</h1>
+          <p class="muted">${order.client.name} · Creado: ${createdAt} · Entrega: ${delivery}</p>
+          <div class="card">
+            <div class="row">
+              <span class="pill">Cliente: ${order.client.name}</span>
+              <span class="pill">Tel: ${order.contactPhone || "—"}</span>
+              <span class="pill">Entrega: ${delivery}</span>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th><th>Producto</th><th style="text-align:right;">Cant.</th><th style="text-align:right;">Unidad</th><th style="text-align:right;">Precio</th><th style="text-align:right;">Subtotal</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="5" style="padding:8px;text-align:right;">Total</td>
+                  <td style="padding:8px;text-align:right;">${formatCurrency(total)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <p class="muted">Notas: ${order.note ? order.note : "—"}</p>
+          <script>window.print();</script>
+        </body>
+      </html>`;
+
+    const win = window.open("", "_blank", "width=900,height=1200");
+    if (!win) return;
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+  }, [formatDate, quickViewOrder]);
 
   const loadProviders = useCallback(async () => {
     setProvidersError(null);
@@ -105,14 +240,14 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
           foundPreferred ??
           response.providers.find((provider) => provider.is_active !== false) ??
           response.providers[0];
-        if (firstActive?.slug) setProviderSlug(firstActive.slug);
+        if (firstActive?.slug) void setProviderSlug(firstActive.slug);
       } else if (lockedProvider && preferredProvider) {
-        setProviderSlug(preferredProvider);
+        void setProviderSlug(preferredProvider, { lock: true });
       }
     } else {
       setProvidersError(response.errors.join("\n"));
     }
-  }, [lockedProvider, preferredProvider, providerSlug]);
+  }, [lockedProvider, preferredProvider, providerSlug, setProviderSlug]);
 
   const loadOrders = useCallback(
     async (slug: string) => {
@@ -143,31 +278,6 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
     setLoadingItems(false);
   }, []);
 
-  const handleDeliverySave = useCallback(
-    async (orderId: string) => {
-      if (!providerSlug) return;
-      setOrdersError(null);
-      setUpdatingDeliveryId(orderId);
-      const payloadDate = editingDeliveryValue ? new Date(editingDeliveryValue).toISOString() : null;
-      const response = await updateDeliveryDate({ providerSlug, orderId, deliveryDate: payloadDate });
-      if (response.success) {
-        setOrders((prev) =>
-          prev.map((order) => (order.id === orderId ? { ...order, deliveryDate: response.deliveryDate ?? null } : order)),
-        );
-        setEditingDeliveryId(null);
-      } else {
-        setOrdersError(response.errors.join("\n"));
-      }
-      setUpdatingDeliveryId(null);
-    },
-    [providerSlug, editingDeliveryValue],
-  );
-
-  const startEditingDelivery = useCallback((order: OrderListItem) => {
-    setEditingDeliveryId(order.id);
-    setEditingDeliveryValue(order.deliveryDate ? new Date(order.deliveryDate).toISOString().slice(0, 10) : "");
-  }, []);
-
   const handleStatusChange = useCallback(
     async (orderId: string, nextStatus: OrderStatus) => {
       if (!providerSlug) return;
@@ -188,6 +298,25 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
         setOrdersError(response.errors.join("\n"));
       }
       setUpdatingOrderId(null);
+    },
+    [providerSlug],
+  );
+
+  const handleUpdateDeliveryDate = useCallback(
+    async (orderId: string, date: Date | null) => {
+      if (!providerSlug) return;
+      setOrdersError(null);
+      setUpdatingDeliveryId(orderId);
+      const payloadDate = date ? new Date(date).toISOString() : null;
+      const response = await updateDeliveryDate({ providerSlug, orderId, deliveryDate: payloadDate });
+      if (response.success) {
+        setOrders((prev) =>
+          prev.map((order) => (order.id === orderId ? { ...order, deliveryDate: response.deliveryDate ?? null } : order)),
+        );
+      } else {
+        setOrdersError(response.errors.join("\n"));
+      }
+      setUpdatingDeliveryId(null);
     },
     [providerSlug],
   );
@@ -232,6 +361,14 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
     };
     return (["nuevo", "preparando", "entregado"] as const).filter((state) => counts[state] > 0);
   }, [productSummary]);
+  const productRows = useMemo(
+    () => [
+      ...productSummary.nuevo.map((item) => ({ ...item, state: "nuevo" as const })),
+      ...productSummary.preparando.map((item) => ({ ...item, state: "preparando" as const })),
+      ...productSummary.entregado.map((item) => ({ ...item, state: "entregado" as const })),
+    ],
+    [productSummary],
+  );
   const hasOrders = orders.length > 0;
   const hasFilteredOrders = filteredOrders.length > 0;
 
@@ -255,7 +392,7 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
             ) : (
               <Select
                 value={providerSlug}
-                onValueChange={(value) => setProviderSlug(value)}
+                onValueChange={(value) => void setProviderSlug(value)}
                 disabled={providers.length === 0}
               >
                 <SelectTrigger className="w-[220px]">
@@ -293,13 +430,25 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                 Cambia estados y comparte por WhatsApp al cliente.
               </p>
             </div>
-            <div className="w-56">
-              <Input
-                placeholder="Buscar cliente"
-                value={searchClient}
-                onChange={(event) => setSearchClient(event.target.value)}
-                aria-label="Buscar cliente"
-              />
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
+              <div className="w-full min-w-[220px] sm:w-56">
+                <Input
+                  placeholder="Buscar cliente"
+                  value={searchClient}
+                  onChange={(event) => setSearchClient(event.target.value)}
+                  aria-label="Buscar cliente"
+                />
+              </div>
+              <Button
+                variant={tableView ? "default" : "outline"}
+                size="sm"
+                className="justify-center gap-2"
+                onClick={() => setTableView((prev) => !prev)}
+                aria-pressed={tableView}
+              >
+                {tableView ? <LayoutList className="h-4 w-4" /> : <Rows3 className="h-4 w-4" />}
+                {tableView ? "Vista cards" : "Vista tabla"}
+              </Button>
             </div>
           </CardHeader>
           <CardContent className="divide-y divide-border/70 p-0">
@@ -333,6 +482,201 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                 {searchClient.trim()
                   ? `No se encontraron clientes que coincidan con “${searchClient.trim()}”.`
                   : "Aún no hay pedidos para mostrar."}
+              </div>
+            ) : tableView ? (
+              <div className="overflow-hidden px-2 pb-4">
+                <div className="overflow-x-auto rounded-lg border border-[color:var(--neutral-200)] bg-white shadow-sm">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-[color:var(--surface)]">
+                        <TableHead>Cliente</TableHead>
+                        <TableHead className="whitespace-nowrap">Estado</TableHead>
+                        <TableHead className="whitespace-nowrap">Total</TableHead>
+                        <TableHead className="min-w-[200px]">Pago</TableHead>
+                        <TableHead className="min-w-[140px]">Entrega</TableHead>
+                        <TableHead className="whitespace-nowrap text-right">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredOrders.map((order, index) => (
+                        <TableRow
+                          key={order.id}
+                          className="align-top transition-colors hover:bg-muted/40"
+                          style={{ animationDelay: `${index * 40}ms` }}
+                        >
+                          <TableCell className="min-w-[180px]">
+                            <div className="text-sm font-semibold">{order.clientName}</div>
+                            <p className="text-xs text-muted-foreground">
+                              {order.createdAt
+                                ? new Date(order.createdAt).toLocaleString("es-AR", {
+                                    dateStyle: "medium",
+                                    timeStyle: "short",
+                                  })
+                                : "Fecha no disponible"}
+                            </p>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  className={`rounded-full px-3 py-0 text-xs font-semibold capitalize ${statusBadge[order.status]}`}
+                                  disabled={!providerSlug || updatingOrderId === order.id}
+                                >
+                                  {updatingOrderId === order.id
+                                    ? "Actualizando..."
+                                    : ORDER_STATUS_LABEL[order.status] ?? order.status}
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="start" className="w-44">
+                                <DropdownMenuLabel>Estado del pedido</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                {ORDER_STATUS.map((option) => (
+                                  <DropdownMenuItem
+                                    key={option}
+                                    className="flex items-center justify-between capitalize"
+                                    disabled={updatingOrderId === order.id}
+                                    onClick={() => handleStatusChange(order.id, option)}
+                                  >
+                                    <span>{ORDER_STATUS_LABEL[option]}</span>
+                                    {order.status === option ? <Check className="h-4 w-4 text-primary" /> : null}
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap font-semibold">
+                            {formatCurrency(order.total)}
+                          </TableCell>
+                          <TableCell className="min-w-[200px]">
+                            {(() => {
+                              const paymentStatus = paymentStatusLabel(order.paymentProofStatus);
+                              const paymentLabel = order.paymentMethod === "transferencia" ? "Transferencia" : "Efectivo";
+                              return (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge variant="outline" className="flex items-center gap-1 text-[11px]">
+                                    {order.paymentMethod === "transferencia" ? (
+                                      <CreditCard className="h-3.5 w-3.5" />
+                                    ) : (
+                                      <Wallet className="h-3.5 w-3.5" />
+                                    )}
+                                    {paymentLabel}
+                                  </Badge>
+                                  <Badge
+                                    variant={paymentStatus.tone === "ok" ? "secondary" : "outline"}
+                                    className={
+                                      paymentStatus.tone === "warn"
+                                        ? "border-amber-400/60 text-amber-700 dark:text-amber-200"
+                                        : paymentStatus.tone === "ok"
+                                          ? "border-emerald-500/60 text-emerald-700 dark:text-emerald-200"
+                                          : "text-muted-foreground"
+                                    }
+                                  >
+                                    {paymentStatus.label}
+                                  </Badge>
+                                  {order.paymentMethod === "transferencia" && order.paymentProofUrl ? (
+                                    <Button asChild size="sm" variant="ghost" className="px-2 text-xs">
+                                      <a href={order.paymentProofUrl} target="_blank" rel="noreferrer">
+                                        Comprobante
+                                      </a>
+                                    </Button>
+                                  ) : null}
+                                </div>
+                              );
+                            })()}
+                          </TableCell>
+                          <TableCell className="min-w-[140px]">
+                            <Popover open={openDeliveryPopover === order.id} onOpenChange={(open) => setOpenDeliveryPopover(open ? order.id : null)}>
+                              <PopoverTrigger asChild>
+                                <Badge
+                                  variant="secondary"
+                                  className="flex cursor-pointer items-center gap-1 text-[11px]"
+                                  title="Reprogramar entrega"
+                                >
+                                  <Truck className="h-3.5 w-3.5" />
+                                  {order.deliveryDate
+                                    ? new Date(order.deliveryDate).toLocaleDateString("es-AR", {
+                                        weekday: "short",
+                                        day: "numeric",
+                                        month: "short",
+                                      })
+                                    : "Sin fecha"}
+                                  {order.deliveryZoneName ? ` · Zona ${order.deliveryZoneName}` : ""}
+                                </Badge>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-3" align="start">
+                                <Calendar
+                                  mode="single"
+                                  selected={order.deliveryDate ? new Date(order.deliveryDate) : undefined}
+                                  onSelect={(date) => {
+                                    setOpenDeliveryPopover(null);
+                                    void handleUpdateDeliveryDate(order.id, date ?? null);
+                                  }}
+                                  initialFocus
+                                />
+                                <div className="mt-2 flex items-center justify-between gap-2">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      setOpenDeliveryPopover(null);
+                                      void handleUpdateDeliveryDate(order.id, null);
+                                    }}
+                                    disabled={updatingDeliveryId === order.id}
+                                  >
+                                    {updatingDeliveryId === order.id ? "Guardando..." : "Limpiar"}
+                                  </Button>
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => setOpenDeliveryPopover(null)}
+                                    disabled={updatingDeliveryId === order.id}
+                                  >
+                                    {updatingDeliveryId === order.id ? "Guardando..." : "Listo"}
+                                  </Button>
+                                </div>
+                              </PopoverContent>
+                          </Popover>
+                        </TableCell>
+                          <TableCell className="space-y-1 text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                variant="secondary"
+                                size="icon"
+                                className="h-9 w-9"
+                                onClick={() => void openQuickView(order.id)}
+                                disabled={quickViewLoading}
+                                title="Ver pedido"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                asChild
+                                variant="ghost"
+                                size="icon"
+                                className="h-9 w-9"
+                                title="Ver detalle"
+                              >
+                                <Link href={orderDetailHref(order.id)}>
+                                  <ArrowUpRight className="h-4 w-4" />
+                                </Link>
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                className="h-9 w-9"
+                                title="WhatsApp"
+                              >
+                                <MessagesSquare className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               </div>
             ) : (
               <Accordion
@@ -380,20 +724,57 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                                     : "Fecha no disponible"}
                                 </p>
                                 <div className="flex flex-wrap items-center gap-2">
-                                  {order.deliveryDate ? (
-                                    <Badge variant="outline" className="text-[11px]">
-                                      Entrega {new Date(order.deliveryDate).toLocaleDateString("es-AR", { weekday: "short" })}
-                                    </Badge>
-                                  ) : (
-                                    <Badge variant="outline" className="text-[11px]">
-                                      Sin fecha
-                                    </Badge>
-                                  )}
-                                  {order.deliveryZoneName ? (
-                                    <Badge variant="secondary" className="text-[11px]">
-                                      Zona {order.deliveryZoneName}
-                                    </Badge>
-                                  ) : null}
+                                  <Popover open={openDeliveryPopover === order.id} onOpenChange={(open) => setOpenDeliveryPopover(open ? order.id : null)}>
+                                    <PopoverTrigger asChild>
+                                      <Badge
+                                        variant="secondary"
+                                        className="flex cursor-pointer items-center gap-1 text-[11px]"
+                                        title="Reprogramar entrega"
+                                      >
+                                        <Truck className="h-3.5 w-3.5" />
+                                        {order.deliveryDate
+                                          ? new Date(order.deliveryDate).toLocaleDateString("es-AR", {
+                                              weekday: "short",
+                                              day: "numeric",
+                                              month: "short",
+                                            })
+                                          : "Sin fecha"}
+                                        {order.deliveryZoneName ? ` · Zona ${order.deliveryZoneName}` : ""}
+                                      </Badge>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-3" align="start">
+                                      <Calendar
+                                        mode="single"
+                                        selected={order.deliveryDate ? new Date(order.deliveryDate) : undefined}
+                                        onSelect={(date) => {
+                                          setOpenDeliveryPopover(null);
+                                          void handleUpdateDeliveryDate(order.id, date ?? null);
+                                        }}
+                                        initialFocus
+                                      />
+                                      <div className="mt-2 flex items-center justify-between gap-2">
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => {
+                                            setOpenDeliveryPopover(null);
+                                            void handleUpdateDeliveryDate(order.id, null);
+                                          }}
+                                          disabled={updatingDeliveryId === order.id}
+                                        >
+                                          {updatingDeliveryId === order.id ? "Guardando..." : "Limpiar"}
+                                        </Button>
+                                        <Button
+                                          variant="secondary"
+                                          size="sm"
+                                          onClick={() => setOpenDeliveryPopover(null)}
+                                          disabled={updatingDeliveryId === order.id}
+                                        >
+                                          {updatingDeliveryId === order.id ? "Guardando..." : "Listo"}
+                                        </Button>
+                                      </div>
+                                    </PopoverContent>
+                                  </Popover>
                                 </div>
                               </div>
                               <div className="flex flex-wrap items-center gap-2">
@@ -426,100 +807,58 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                                     ))}
                                   </DropdownMenuContent>
                                 </DropdownMenu>
-                                {editingDeliveryId === order.id ? (
-                                  <>
-                                    <Input
-                                      type="date"
-                                      value={editingDeliveryValue}
-                                      onChange={(event) => setEditingDeliveryValue(event.target.value)}
-                                      className="h-9 w-40"
-                                    />
-                                    <Button
-                                      size="sm"
-                                      onClick={() => void handleDeliverySave(order.id)}
-                                      disabled={updatingDeliveryId === order.id}
-                                    >
-                                      {updatingDeliveryId === order.id ? "Guardando..." : "Guardar entrega"}
-                                    </Button>
-                                    <Button size="sm" variant="ghost" onClick={() => setEditingDeliveryId(null)}>
-                                      Cancelar
-                                    </Button>
-                                  </>
-                                ) : (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => startEditingDelivery(order)}
-                                  >
-                                    Reprogramar entrega
-                                  </Button>
-                                )}
-                                <Popover
-                                  open={openPaymentPopover === order.id}
-                                  onOpenChange={(open) => setOpenPaymentPopover(open ? order.id : null)}
-                                >
-                                  <PopoverTrigger asChild>
-                                    <Badge
-                                      variant="outline"
-                                      className="flex cursor-pointer items-center gap-1 text-[11px]"
-                                      role="button"
-                                      aria-label="Ver comprobante"
-                                    >
-                                      {order.paymentMethod === "transferencia" ? "Transferencia" : "Efectivo"}
-                                      <span className="text-[11px] text-muted-foreground">
-                                        {paymentStatusLabel(order.paymentMethod ?? "efectivo", order.paymentProofStatus)}
-                                      </span>
-                                    </Badge>
-                                  </PopoverTrigger>
-                                  <PopoverContent align="end" className="w-64 space-y-3">
-                                    <div className="space-y-1">
-                                      <p className="text-sm font-semibold">
-                                        {order.paymentMethod === "transferencia" ? "Transferencia" : "Efectivo"}
-                                      </p>
-                                      <p className="text-xs text-muted-foreground">
-                                        {paymentStatusLabel(order.paymentMethod ?? "efectivo", order.paymentProofStatus)}
-                                      </p>
-                                    </div>
-                                    {order.paymentMethod === "transferencia" ? (
-                                      order.paymentProofStatus === "subido" ? (
-                                        <div className="space-y-2">
-                                          {order.paymentProofUrl ? (
-                                            <Button asChild size="sm" className="w-full">
-                                              <a href={order.paymentProofUrl} target="_blank" rel="noreferrer">
-                                                Ver comprobante
-                                              </a>
-                                            </Button>
-                                          ) : (
-                                            <Button size="sm" className="w-full" variant="outline" disabled>
-                                              Comprobante no disponible
-                                            </Button>
-                                          )}
-                                          <p className="text-xs text-muted-foreground">
-                                            Abrimos el comprobante cargado para esta orden.
-                                          </p>
-                                        </div>
-                                      ) : (
-                                        <p className="text-xs text-muted-foreground">
-                                          Sube el comprobante para habilitar la vista rápida.
-                                        </p>
-                                      )
-                                    ) : order.paymentProofStatus === "subido" ? (
-                                      <p className="text-xs text-muted-foreground">Efectivo recibido.</p>
-                                    ) : (
-                                      <p className="text-xs text-muted-foreground">A pagar en la entrega.</p>
-                                    )}
-                                  </PopoverContent>
-                                </Popover>
-                                <Button asChild variant="ghost" size="sm">
-                                  <Link href={orderDetailHref(order.id)}>
-                                    Ver detalle
-                                    <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
-                                  </Link>
-                                </Button>
-                                <Button variant="outline" size="sm">
-                                  <MessageCircle className="mr-2 h-4 w-4" />
-                                  WhatsApp
-                                </Button>
+                                {(() => {
+                                  const paymentStatus = paymentStatusLabel(order.paymentProofStatus);
+                                  const paymentLabel = order.paymentMethod === "transferencia" ? "Transferencia" : "Efectivo";
+                                  return (
+                                    <>
+                                      <Badge variant="outline" className="flex items-center gap-1 text-[11px]">
+                                        {order.paymentMethod === "transferencia" ? (
+                                          <CreditCard className="h-3.5 w-3.5" />
+                                        ) : (
+                                          <Wallet className="h-3.5 w-3.5" />
+                                        )}
+                                        {paymentLabel}
+                                      </Badge>
+                                      <Badge
+                                        variant={paymentStatus.tone === "ok" ? "secondary" : "outline"}
+                                        className={
+                                          paymentStatus.tone === "warn"
+                                            ? "border-amber-400/60 text-amber-700 dark:text-amber-200"
+                                            : paymentStatus.tone === "ok"
+                                              ? "border-emerald-500/60 text-emerald-700 dark:text-emerald-200"
+                                              : "text-muted-foreground"
+                                        }
+                                      >
+                                        {paymentStatus.label}
+                                      </Badge>
+                                      {order.paymentMethod === "transferencia" && order.paymentProofUrl ? (
+                                        <Button asChild size="sm" variant="ghost" className="text-xs">
+                                          <a href={order.paymentProofUrl} target="_blank" rel="noreferrer">
+                                            Ver comprobante
+                                          </a>
+                                        </Button>
+                                      ) : null}
+                                    </>
+                                  );
+                                })()}
+                            <Button
+                              variant="secondary"
+                              size="icon"
+                              onClick={() => void openQuickView(order.id)}
+                              disabled={quickViewLoading}
+                              title="Ver pedido"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button asChild variant="ghost" size="icon" title="Ver detalle">
+                              <Link href={orderDetailHref(order.id)}>
+                                <ArrowUpRight className="h-4 w-4" />
+                              </Link>
+                            </Button>
+                            <Button variant="outline" size="icon" title="WhatsApp">
+                              <MessagesSquare className="h-4 w-4" />
+                            </Button>
                               </div>
                             </motion.div>
                           ))}
@@ -568,6 +907,41 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                     <Skeleton className="h-3 w-10" />
                   </div>
                 ))}
+              </div>
+            ) : tableView ? (
+              <div className="overflow-hidden px-2 pb-4">
+                <div className="overflow-x-auto rounded-lg border border-[color:var(--neutral-200)] bg-white shadow-sm">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-[color:var(--surface)]">
+                        <TableHead>Estado</TableHead>
+                        <TableHead>Producto</TableHead>
+                        <TableHead className="whitespace-nowrap">Unidad</TableHead>
+                        <TableHead className="whitespace-nowrap text-right">Cantidad</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {productRows.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={4} className="py-6 text-center text-sm text-muted-foreground">
+                            Aún no hay artículos por mostrar.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        productRows.map((item) => (
+                          <TableRow key={`${item.state}-${item.productId}`} className="transition-colors hover:bg-muted/40">
+                            <TableCell className="capitalize text-sm font-semibold">
+                              {item.state === "preparando" ? "Preparado" : item.state === "nuevo" ? "Nuevo" : "Entregado"}
+                            </TableCell>
+                            <TableCell className="text-sm font-semibold">{item.name}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{item.unit ?? "Unidad"}</TableCell>
+                            <TableCell className="text-right font-semibold">{item.quantity}</TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
               </div>
             ) : (
               <Accordion type="multiple" defaultValue={productAccordionDefaults} className="divide-y divide-border/70 px-2">
@@ -627,6 +1001,129 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
           Nota: el botón de WhatsApp reutilizará el helper de resumen del pedido cuando se conecte a datos reales.
         </p>
       </main>
+
+      <Dialog
+        open={quickViewOpen}
+        onOpenChange={(open) => {
+          setQuickViewOpen(open);
+          if (!open) {
+            setQuickViewOrder(null);
+            setQuickViewError(null);
+            setQuickViewLoading(false);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Vista rápida del pedido</DialogTitle>
+            <DialogDescription>Revisa los ítems y descarga un PDF listo para imprimir.</DialogDescription>
+          </DialogHeader>
+          {quickViewError ? (
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {quickViewError}
+            </div>
+          ) : null}
+          {quickViewLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-48" />
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-24 w-full" />
+            </div>
+          ) : quickViewOrder ? (
+            <ScrollArea className="max-h-[70vh] pr-2">
+              <div className="space-y-4 rounded-lg bg-[color:var(--surface)] p-1">
+                <div className="rounded-lg border border-muted/40 bg-white p-4 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Cliente</p>
+                      <p className="text-base font-semibold">{quickViewOrder.client.name}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-muted-foreground">Pedido</p>
+                      <p className="text-base font-semibold">#{quickViewOrder.id.slice(0, 8)}</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                    <div>
+                      <p className="text-xs uppercase text-muted-foreground">Creado</p>
+                      <p className="text-sm font-semibold text-foreground">{formatDate(quickViewOrder.createdAt)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase text-muted-foreground">Entrega</p>
+                      <p className="text-sm font-semibold text-foreground">
+                        {quickViewOrder.deliveryDate ? formatDate(quickViewOrder.deliveryDate, false) : "Sin fecha"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase text-muted-foreground">Contacto</p>
+                      <p className="text-sm font-semibold text-foreground">
+                        {quickViewOrder.contactPhone || quickViewOrder.contactName || "Sin contacto"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-muted/40 bg-white p-3 shadow-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold">Artículos</p>
+                    <Badge variant="secondary">{quickViewOrder.items.length} items</Badge>
+                  </div>
+                  <div className="mt-3 overflow-hidden rounded-lg border border-muted/40">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/60 text-left text-xs uppercase text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2 font-medium">Producto</th>
+                          <th className="px-2 py-2 text-right font-medium">Cant.</th>
+                          <th className="px-2 py-2 text-right font-medium">Unidad</th>
+                          <th className="px-2 py-2 text-right font-medium">Precio</th>
+                          <th className="px-3 py-2 text-right font-medium">Subtotal</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-muted/40">
+                        {quickViewOrder.items.map((item) => (
+                          <tr key={item.orderItemId || item.productId}>
+                            <td className="px-3 py-2 font-medium text-foreground">{item.productName}</td>
+                            <td className="px-2 py-2 text-right">{item.quantity}</td>
+                            <td className="px-2 py-2 text-right text-muted-foreground">{item.unit || "—"}</td>
+                            <td className="px-2 py-2 text-right text-muted-foreground">
+                              {formatCurrency(item.unitPrice ?? 0)}
+                            </td>
+                            <td className="px-3 py-2 text-right font-semibold">
+                              {formatCurrency(item.subtotal ?? item.unitPrice * item.quantity)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2 text-sm">
+                    <span className="text-muted-foreground">Total</span>
+                    <span className="text-base font-semibold">
+                      {formatCurrency(
+                        quickViewOrder.items.reduce((acc, item) => {
+                          const subtotal = item.subtotal ?? item.unitPrice * item.quantity;
+                          return acc + (Number.isFinite(subtotal) ? subtotal : 0);
+                        }, 0),
+                      )}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </ScrollArea>
+          ) : null}
+          <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <Button variant="ghost" onClick={() => setQuickViewOpen(false)}>
+              Cerrar
+            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={downloadQuickViewPdf} disabled={!quickViewOrder}>
+                <Download className="mr-2 h-4 w-4" />
+                Descargar PDF
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

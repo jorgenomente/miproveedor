@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import NextImage from "next/image";
+import { useProviderContext } from "@/components/app/provider-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -204,7 +205,8 @@ async function cropAndOptimizeImage(
 const formatKb = (bytes: number) => Math.max(1, Math.round(bytes / 1024));
 
 export default function ProductsPage({ initialProviderSlug }: ProductsPageProps) {
-  const providerSlug = initialProviderSlug ?? "";
+  const { providerSlug: selectedProviderSlug, setProviderSlug } = useProviderContext();
+  const providerSlug = selectedProviderSlug ?? "";
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [productsError, setProductsError] = useState<string | null>(null);
@@ -278,6 +280,12 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
   const [zonePrice, setZonePrice] = useState<string>("");
   const [savingZone, startSavingZone] = useTransition();
   const [showDeliveryZonesModal, setShowDeliveryZonesModal] = useState(false);
+
+  useEffect(() => {
+    if (initialProviderSlug && initialProviderSlug !== providerSlug) {
+      void setProviderSlug(initialProviderSlug, { lock: true });
+    }
+  }, [initialProviderSlug, providerSlug, setProviderSlug]);
 
   const loadProducts = useCallback(
     async (slug: string) => {
@@ -1156,7 +1164,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
       <div className="mx-auto max-w-3xl px-4 py-16 text-center">
         <p className="text-xl font-semibold">Falta el slug de proveedor.</p>
         <p className="mt-2 text-sm text-muted-foreground">
-          Usa la ruta /app/[providerSlug]/products para gestionar el catálogo de un proveedor.
+          Selecciona un proveedor desde el selector superior para gestionar el catálogo.
         </p>
       </div>
     );

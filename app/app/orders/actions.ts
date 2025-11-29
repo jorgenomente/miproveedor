@@ -35,9 +35,10 @@ const generateReceiptSchema = z.object({
   items: z
     .array(
       z.object({
-        orderItemId: z.string().min(1),
+        orderItemId: z.string().min(1).optional(),
         productId: z.string().min(1),
         quantity: z.number().int().min(0),
+        outOfStock: z.boolean().optional(),
       }),
     )
     .nonempty("Debes confirmar al menos un producto."),
@@ -690,6 +691,10 @@ export async function getOrderDetail(orderId: string): Promise<OrderDetailResult
   };
 }
 
+export async function getOrderSnapshot(orderId: string): Promise<OrderDetailResult> {
+  return getOrderDetail(orderId);
+}
+
 export async function updateOrderStatus(
   payload: z.infer<typeof updateSchema>,
 ): Promise<UpdateOrderResult> {
@@ -899,28 +904,75 @@ export async function generateReceipt(payload: z.infer<typeof generateReceiptSch
   }
 
   const orderItems = (order.order_items ?? []) as { id: string; product_id?: string | null; quantity: number }[];
+  type ReceiptItemInput = z.infer<typeof generateReceiptSchema>["items"][number];
+  const orderItemMap = new Map(orderItems.map((item) => [item.id, item]));
 
-  const missing = parsed.data.items.filter((entry) => !orderItems.some((row) => row.id === entry.orderItemId));
-  if (missing.length > 0) {
+  const invalid = parsed.data.items.filter((entry) => entry.orderItemId && !orderItemMap.has(entry.orderItemId));
+  if (invalid.length > 0) {
     return { success: false, errors: ["Algún producto no pertenece al pedido."] };
   }
 
-  const exceeding = parsed.data.items.find((entry) => {
-    const row = orderItems.find((item) => item.id === entry.orderItemId);
-    return row ? entry.quantity > row.quantity : false;
-  });
-  if (exceeding) {
-    return { success: false, errors: ["No puedes enviar más cantidad de la que se pidió. Ajusta los valores."] };
-  }
+  const existingEntries = parsed.data.items.filter(
+    (item): item is ReceiptItemInput & { orderItemId: string } => Boolean(item.orderItemId),
+  );
+  const newEntries = parsed.data.items
+    .filter((item): item is ReceiptItemInput & { orderItemId?: undefined } => !item.orderItemId)
+    .filter((item) => item.quantity > 0 || item.outOfStock);
 
-  for (const item of parsed.data.items) {
+  for (const item of existingEntries) {
+    const deliveredQuantity = item.outOfStock ? 0 : item.quantity;
     const { error } = await supabase
       .from("order_items")
-      .update({ delivered_quantity: item.quantity })
+      .update({ delivered_quantity: deliveredQuantity })
       .eq("id", item.orderItemId);
 
     if (error) {
       return { success: false, errors: [`No se pudo guardar la cantidad de ${item.productId}: ${error.message}`] };
+    }
+  }
+
+  if (newEntries.length > 0) {
+    const productIds = [...new Set(newEntries.map((item) => item.productId))];
+    const { data: products, error: productsError } = await supabase
+      .from("products")
+      .select("id, provider_id, price, unit")
+      .in("id", productIds);
+
+    if (productsError) {
+      return { success: false, errors: [`No se pudieron cargar productos del catálogo: ${productsError.message}`] };
+    }
+
+    if (!products || products.length !== productIds.length) {
+      return { success: false, errors: ["Algún producto a agregar no está disponible."] };
+    }
+
+    const unauthorized = products.find(
+      (product) => product.provider_id !== (order as { provider_id?: string | null }).provider_id,
+    );
+    if (unauthorized) {
+      return { success: false, errors: ["Algún producto no pertenece a tu catálogo."] };
+    }
+
+    const rowsToInsert = newEntries
+      .map((item) => {
+        const product = products.find((candidate) => candidate.id === item.productId);
+        if (!product) return null;
+        const unitPrice = Number((product as { price?: string | number | null }).price ?? 0);
+        return {
+          order_id: parsed.data.orderId,
+          product_id: item.productId,
+          quantity: item.quantity,
+          delivered_quantity: item.outOfStock ? 0 : item.quantity,
+          unit_price: unitPrice,
+        };
+      })
+      .filter(Boolean);
+
+    if (rowsToInsert.length > 0) {
+      const { error } = await supabase.from("order_items").insert(rowsToInsert);
+      if (error) {
+        return { success: false, errors: [`No se pudo agregar el producto extra: ${error.message}`] };
+      }
     }
   }
 

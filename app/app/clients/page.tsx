@@ -48,13 +48,15 @@ import {
   updateClient,
   type UpdateClientResult,
 } from "./actions";
+import { useProviderContext } from "@/components/app/provider-context";
 
 type CopyState = { link: string; copied: boolean };
 
 export type ClientsPageProps = { initialProviderSlug?: string };
 
 export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
-  const providerSlug = initialProviderSlug ?? "";
+  const { providerSlug, setProviderSlug } = useProviderContext();
+  const activeProviderSlug = providerSlug ?? "";
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [loadingClients, setLoadingClients] = useState(false);
   const [clientsError, setClientsError] = useState<string | null>(null);
@@ -82,6 +84,12 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
   const [pendingEdit, startEdit] = useTransition();
 
   useEffect(() => {
+    if (initialProviderSlug && initialProviderSlug !== activeProviderSlug) {
+      void setProviderSlug(initialProviderSlug, { lock: true });
+    }
+  }, [activeProviderSlug, initialProviderSlug, setProviderSlug]);
+
+  useEffect(() => {
     setOrigin(window.location.origin);
   }, []);
 
@@ -102,8 +110,8 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
   );
 
   useEffect(() => {
-    void loadClients(providerSlug);
-  }, [loadClients, providerSlug]);
+    void loadClients(activeProviderSlug);
+  }, [activeProviderSlug, loadClients]);
 
   useEffect(() => {
     if (!createDialogOpen) {
@@ -138,7 +146,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
     setResult(null);
     const formData = new FormData(event.currentTarget);
     const payload = {
-      providerSlug,
+      providerSlug: activeProviderSlug,
       name: (formData.get("name") as string) ?? "",
       slug: (formData.get("slug") as string) ?? "",
       contactName: (formData.get("contactName") as string) ?? "",
@@ -150,7 +158,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
       const response = await createClient(payload);
       setResult(response);
       if (response.success) {
-        await loadClients(providerSlug);
+        await loadClients(activeProviderSlug);
         (event.target as HTMLFormElement).reset();
         setSlugValue("");
         setSlugError(null);
@@ -172,7 +180,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
     startEdit(async () => {
       const response = await updateClient({
         id: editingClient.id,
-        providerSlug,
+        providerSlug: activeProviderSlug,
         name: editValues.name.trim(),
         slug: editValues.slug.trim(),
         contactName: editValues.contactName.trim(),
@@ -182,7 +190,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
       });
       setEditResult(response);
       if (response.success) {
-        await loadClients(providerSlug);
+        await loadClients(activeProviderSlug);
         setEditDialogOpen(false);
       } else {
         setEditError(response.errors[0] ?? "No se pudo actualizar.");
@@ -192,7 +200,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
 
   const buildOrderLink = (client: ClientRow) => {
     const base = origin || "https://miproveedor.app";
-    return `${base}/${providerSlug}/${client.slug}`;
+    return `${base}/${activeProviderSlug}/${client.slug}`;
   };
 
   const handleCopyLink = (client: ClientRow) => {
@@ -256,12 +264,12 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
     return { label: "Link débil", tone: "border-amber-200 bg-amber-50 text-amber-700", glow: true };
   }, [editValues.slug]);
 
-  if (!providerSlug) {
+  if (!activeProviderSlug) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-16 text-center">
         <p className="text-xl font-semibold">Falta el slug de proveedor.</p>
         <p className="mt-2 text-sm text-muted-foreground">
-          Usa la ruta /app/[providerSlug]/clients para gestionar las tiendas de un proveedor.
+          Selecciona un proveedor desde el selector superior para gestionar las tiendas y links de pedido.
         </p>
       </div>
     );
@@ -272,7 +280,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
       <main className="flex w-full flex-col gap-6">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Button asChild variant="ghost" size="sm">
-            <Link href={providerSlug ? `/app/${providerSlug}` : "/app"}>
+            <Link href={activeProviderSlug ? `/app/${activeProviderSlug}` : "/app"}>
               <ArrowLeft className="mr-1 h-4 w-4" />
               Volver al dashboard
             </Link>
@@ -287,7 +295,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
               <div className="space-y-1">
                 <CardTitle className="text-lg">Clientes registrados</CardTitle>
                 <p className="text-sm text-muted-foreground">
-                  Bienvenido, {providerSlug}: aquí puedes administrar tus clientes y copiar sus links
+                  Bienvenido, {activeProviderSlug}: aquí puedes administrar tus clientes y copiar sus links
                   únicos de pedido.
                 </p>
               </div>
@@ -296,7 +304,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
                   size="icon"
                   variant="outline"
                   aria-label="Refrescar tiendas"
-                  onClick={() => void loadClients(providerSlug)}
+                  onClick={() => void loadClients(activeProviderSlug)}
                   disabled={loadingClients}
                 >
                   <RefreshCcw className={`h-4 w-4 ${loadingClients ? "animate-spin" : ""}`} />
@@ -331,7 +339,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
                             <span>Link</span>
                             <span className="text-right text-[11px] font-normal text-muted-foreground">
                               {(origin || "https://miproveedor.app") +
-                                `/${providerSlug || "[proveedor]"}/${slugValue || "[tienda]"}`}
+                                `/${activeProviderSlug || "[proveedor]"}/${slugValue || "[tienda]"}`}
                             </span>
                           </Label>
                           <Input
@@ -371,12 +379,12 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
                       <div className="flex items-center justify-between rounded-lg border border-(--neutral-200) bg-(--surface) px-3 py-2 text-sm">
                         <div className="flex items-center gap-2">
                           <Building2 className="h-4 w-4 text-primary" />
-                          <span className="font-semibold">{providerSlug || "Sin proveedor"}</span>
+                          <span className="font-semibold">{activeProviderSlug || "Sin proveedor"}</span>
                         </div>
                         <span className="text-muted-foreground">Se usará para el link único</span>
                       </div>
                       <div className="flex justify-end gap-2">
-                        <Button type="submit" disabled={pendingCreate || !providerSlug}>
+                        <Button type="submit" disabled={pendingCreate || !activeProviderSlug}>
                           Crear tienda
                         </Button>
                       </div>
@@ -442,7 +450,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
             </div>
             <div className="flex flex-wrap items-center gap-2 rounded-lg border border-(--neutral-200) bg-(--surface) px-3 py-2 text-sm">
               <Label className="text-xs text-muted-foreground">Proveedor</Label>
-              <Badge variant="outline">{providerSlug}</Badge>
+              <Badge variant="outline">{activeProviderSlug}</Badge>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -669,7 +677,7 @@ export default function ClientsPage({ initialProviderSlug }: ClientsPageProps) {
                   </Label>
                   <span className="text-right text-[11px] font-normal text-muted-foreground">
                     {(origin || "https://miproveedor.app") +
-                      `/${providerSlug || "[proveedor]"}/${editSlugValue || "[tienda]"}`}
+                      `/${activeProviderSlug || "[proveedor]"}/${editSlugValue || "[tienda]"}`}
                   </span>
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
