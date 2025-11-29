@@ -303,7 +303,7 @@ export default async function AppDashboard({
   const scope = scopeResult.scope;
   const adminStoredProvider =
     scope?.role === "admin" ? await getAdminSelectedProviderSlug() : undefined;
-  const preferred = resolvedSearch?.provider ?? adminStoredProvider;
+  const preferred = resolvedSearch?.provider ?? adminStoredProvider ?? undefined;
   const data = await fetchData(preferred);
   const debug = typeof resolvedSearch?.debug !== "undefined";
 

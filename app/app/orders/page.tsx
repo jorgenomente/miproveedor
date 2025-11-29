@@ -326,6 +326,7 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
   }, [loadProviders]);
 
   useEffect(() => {
+    if (!providerSlug) return;
     void loadOrders(providerSlug);
     void loadPendingItems(providerSlug);
   }, [loadOrders, loadPendingItems, providerSlug]);
@@ -411,6 +412,7 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
               variant="outline"
               size="icon"
               onClick={() => {
+                if (!providerSlug) return;
                 void loadOrders(providerSlug);
                 void loadPendingItems(providerSlug);
               }}
