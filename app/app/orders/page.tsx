@@ -64,11 +64,16 @@ import {
 } from "./actions";
 
 const statusBadge: Record<string, string> = {
-  nuevo: "bg-primary/10 text-primary",
-  preparando: "bg-amber-500/10 text-amber-700 dark:text-amber-200",
-  enviado: "bg-blue-500/10 text-blue-700 dark:text-blue-200",
-  entregado: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-200",
-  cancelado: "bg-destructive/10 text-destructive",
+  nuevo:
+    "border border-[color:var(--accent-foreground)]/20 bg-[color:var(--accent)] text-[color:var(--brand-deep)]",
+  preparando:
+    "border border-[color:var(--warning)]/25 bg-[color:var(--warning-light)] text-[color:var(--warning)]",
+  enviado:
+    "border border-[color:var(--info)]/25 bg-[color:var(--info-light)] text-[color:var(--info)]",
+  entregado:
+    "border border-[color:var(--success)]/25 bg-[color:var(--success-light)] text-[color:var(--success)]",
+  cancelado:
+    "border border-[color:var(--destructive)]/25 bg-[color:var(--error-light)] text-[color:var(--destructive)]",
 };
 
 export type OrdersPageProps = { initialProviderSlug?: string };
@@ -424,10 +429,10 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
           </div>
         </div>
 
-        <Card className="border-[color:var(--neutral-200)] bg-white shadow-sm backdrop-blur">
+        <Card className="border-border/70 bg-card/95 shadow-[0_20px_60px_-32px_rgba(0,0,0,0.55)] backdrop-blur-sm">
           <CardHeader className="flex flex-row items-center justify-between gap-4">
             <div>
-              <CardTitle className="text-lg">Pedidos</CardTitle>
+              <CardTitle className="text-xl">Pedidos</CardTitle>
               <p className="text-sm text-muted-foreground">
                 Cambia estados y comparte por WhatsApp al cliente.
               </p>
@@ -465,7 +470,7 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                 {[0, 1, 2].map((index) => (
                   <div
                     key={index}
-                    className="flex flex-col gap-3 rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3 sm:flex-row sm:items-center sm:justify-between"
+                    className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-[color:var(--muted)]/60 p-4 sm:flex-row sm:items-center sm:justify-between shadow-[var(--shadow-xs)]"
                   >
                     <div className="space-y-2">
                       <Skeleton className="h-3 w-32" />
@@ -487,16 +492,18 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
               </div>
             ) : tableView ? (
               <div className="overflow-hidden px-2 pb-4">
-                <div className="overflow-x-auto rounded-lg border border-[color:var(--neutral-200)] bg-white shadow-sm">
+                <div className="overflow-x-auto rounded-2xl border border-border/70 bg-card/95 shadow-[var(--shadow-sm)]">
                   <Table>
                     <TableHeader>
-                      <TableRow className="bg-[color:var(--surface)]">
-                        <TableHead>Cliente</TableHead>
-                        <TableHead className="whitespace-nowrap">Estado</TableHead>
-                        <TableHead className="whitespace-nowrap">Total</TableHead>
-                        <TableHead className="min-w-[200px]">Pago</TableHead>
-                        <TableHead className="min-w-[140px]">Entrega</TableHead>
-                        <TableHead className="whitespace-nowrap text-right">Acciones</TableHead>
+                      <TableRow className="bg-[color:var(--muted)]/60 text-muted-foreground">
+                        <TableHead className="uppercase tracking-[0.08em] text-[11px]">Cliente</TableHead>
+                        <TableHead className="whitespace-nowrap uppercase tracking-[0.08em] text-[11px]">Estado</TableHead>
+                        <TableHead className="whitespace-nowrap uppercase tracking-[0.08em] text-[11px]">Total</TableHead>
+                        <TableHead className="min-w-[200px] uppercase tracking-[0.08em] text-[11px]">Pago</TableHead>
+                        <TableHead className="min-w-[140px] uppercase tracking-[0.08em] text-[11px]">Entrega</TableHead>
+                        <TableHead className="whitespace-nowrap text-right uppercase tracking-[0.08em] text-[11px]">
+                          Acciones
+                        </TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -692,7 +699,7 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                     value={group.status}
                     className="border-0 px-2 py-1 [--trigger-height:44px]"
                   >
-                    <AccordionTrigger className="rounded-lg px-2 text-sm font-semibold hover:no-underline">
+                    <AccordionTrigger className="rounded-xl px-2 text-sm font-semibold hover:no-underline">
                       <div className="flex w-full items-center justify-between">
                         <span>{group.label}</span>
                         <Badge variant="outline" className="text-[11px]">
@@ -711,7 +718,7 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                               initial={{ opacity: 0, y: 10 }}
                               animate={{ opacity: 1, y: 0 }}
                               transition={{ duration: 0.25, delay: index * 0.05 + groupIndex * 0.02 }}
-                              className="flex flex-col gap-3 rounded-lg border border-[color:var(--neutral-200)] bg-white px-3 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                              className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-card/95 px-3 py-3 shadow-[var(--shadow-sm)] sm:flex-row sm:items-center sm:justify-between"
                             >
                               <div className="space-y-1">
                                 <p className="text-sm font-semibold">
@@ -874,7 +881,7 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
           </CardContent>
         </Card>
 
-        <Card className="border-[color:var(--neutral-200)] bg-white shadow-sm backdrop-blur">
+        <Card className="border-border/70 bg-card/95 shadow-[0_18px_48px_-28px_rgba(0,0,0,0.55)] backdrop-blur-sm">
           <CardHeader className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -903,7 +910,7 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                 {[0, 1, 2].map((index) => (
                   <div
                     key={index}
-                    className="flex items-center justify-between rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3"
+                    className="flex items-center justify-between rounded-2xl border border-border/70 bg-[color:var(--muted)]/60 p-3 shadow-[var(--shadow-xs)]"
                   >
                     <Skeleton className="h-3 w-40" />
                     <Skeleton className="h-3 w-10" />
@@ -912,14 +919,16 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
               </div>
             ) : tableView ? (
               <div className="overflow-hidden px-2 pb-4">
-                <div className="overflow-x-auto rounded-lg border border-[color:var(--neutral-200)] bg-white shadow-sm">
+                <div className="overflow-x-auto rounded-2xl border border-border/70 bg-card/95 shadow-[var(--shadow-sm)]">
                   <Table>
                     <TableHeader>
-                      <TableRow className="bg-[color:var(--surface)]">
-                        <TableHead>Estado</TableHead>
-                        <TableHead>Producto</TableHead>
-                        <TableHead className="whitespace-nowrap">Unidad</TableHead>
-                        <TableHead className="whitespace-nowrap text-right">Cantidad</TableHead>
+                      <TableRow className="bg-[color:var(--muted)]/60 text-muted-foreground">
+                        <TableHead className="uppercase tracking-[0.08em] text-[11px]">Estado</TableHead>
+                        <TableHead className="uppercase tracking-[0.08em] text-[11px]">Producto</TableHead>
+                        <TableHead className="whitespace-nowrap uppercase tracking-[0.08em] text-[11px]">Unidad</TableHead>
+                        <TableHead className="whitespace-nowrap text-right uppercase tracking-[0.08em] text-[11px]">
+                          Cantidad
+                        </TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -957,7 +966,7 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                   const label = state === "preparando" ? "Preparado" : state === "nuevo" ? "Nuevo" : "Entregado";
                   return (
                     <AccordionItem key={state} value={state} className="border-0 px-2 py-1 [--trigger-height:44px]">
-                      <AccordionTrigger className="rounded-lg px-2 text-sm font-semibold capitalize hover:no-underline">
+                    <AccordionTrigger className="rounded-xl px-2 text-sm font-semibold capitalize hover:no-underline">
                         <div className="flex w-full items-center justify-between">
                           <span>{label}</span>
                           <Badge variant="secondary" className="text-[11px]">
@@ -976,7 +985,7 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                                 initial={{ opacity: 0, y: 8 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ delay: index * 0.02 }}
-                                className="flex items-center justify-between rounded-lg border border-[color:var(--neutral-200)] bg-white px-3 py-2 shadow-sm"
+                                className="flex items-center justify-between rounded-2xl border border-border/70 bg-card/95 px-3 py-2 shadow-[var(--shadow-sm)]"
                               >
                                 <div>
                                   <p className="text-sm font-semibold">{item.name}</p>
@@ -1033,8 +1042,8 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
             </div>
           ) : quickViewOrder ? (
             <ScrollArea className="max-h-[70vh] pr-2">
-              <div className="space-y-4 rounded-lg bg-[color:var(--surface)] p-1">
-                <div className="rounded-lg border border-muted/40 bg-white p-4 shadow-sm">
+              <div className="space-y-4 rounded-2xl bg-[color:var(--muted)]/60 p-1">
+                <div className="rounded-2xl border border-border/60 bg-card/95 p-4 shadow-[var(--shadow-sm)]">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="text-sm text-muted-foreground">Cliente</p>
@@ -1065,12 +1074,12 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-muted/40 bg-white p-3 shadow-sm">
+                <div className="rounded-2xl border border-border/60 bg-card/95 p-3 shadow-[var(--shadow-sm)]">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-semibold">Artículos</p>
                     <Badge variant="secondary">{quickViewOrder.items.length} items</Badge>
                   </div>
-                  <div className="mt-3 overflow-hidden rounded-lg border border-muted/40">
+                  <div className="mt-3 overflow-hidden rounded-2xl border border-border/60">
                     <table className="w-full text-sm">
                       <thead className="bg-muted/60 text-left text-xs uppercase text-muted-foreground">
                         <tr>
@@ -1098,7 +1107,7 @@ function OrdersPageContent({ initialProviderSlug }: OrdersPageProps) {
                       </tbody>
                     </table>
                   </div>
-                  <div className="mt-3 flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2 text-sm">
+                  <div className="mt-3 flex items-center justify-between rounded-2xl bg-muted/40 px-3 py-2 text-sm">
                     <span className="text-muted-foreground">Total</span>
                     <span className="text-base font-semibold">
                       {formatCurrency(

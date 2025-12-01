@@ -4,6 +4,7 @@ import Image from "next/image";
 import "./globals.css";
 import { getProviderScope, type ProviderScope } from "@/lib/provider-scope";
 import LogoutButton from "@/components/logout-button";
+import { ThemeProvider } from "@/components/theme-provider";
 
 export const metadata: Metadata = {
   title: "MiProveedor · Panel B2B simple",
@@ -69,30 +70,32 @@ export default async function RootLayout({
   const scope = scopeResult?.scope;
 
   return (
-    <html lang="es">
+    <html lang="es" suppressHydrationWarning>
       <body className="antialiased">
-        <header className="sticky top-0 z-30 border-b border-border/70 bg-background/80 backdrop-blur">
-          <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 md:px-6">
-            <div className="flex items-center gap-3">
-              <div className="relative h-10 w-10 overflow-hidden rounded-lg border border-border/70 bg-secondary/50">
-                <Image
-                  src="/MiProveedor.png"
-                  alt="Logo de MiProveedor"
-                  fill
-                  className="object-contain p-1.5"
-                  sizes="40px"
-                  priority
-                />
+        <ThemeProvider>
+          <header className="sticky top-0 z-30 border-b border-border/70 bg-background/80 backdrop-blur">
+            <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 md:px-6">
+              <div className="flex items-center gap-3">
+                <div className="relative h-10 w-10 overflow-hidden rounded-lg border border-border/70 bg-secondary/50">
+                  <Image
+                    src="/MiProveedor.png"
+                    alt="Logo de MiProveedor"
+                    fill
+                    className="object-contain p-1.5"
+                    sizes="40px"
+                    priority
+                  />
+                </div>
+                <div className="leading-tight">
+                  <p className="text-sm font-semibold">MiProveedor</p>
+                  <p className="text-xs text-muted-foreground">Pedidos B2B simples y móviles</p>
+                </div>
               </div>
-              <div className="leading-tight">
-                <p className="text-sm font-semibold">MiProveedor</p>
-                <p className="text-xs text-muted-foreground">Pedidos B2B simples y móviles</p>
-              </div>
+              <div className="flex items-center gap-3 text-xs">{renderUserChip(scope)}</div>
             </div>
-            <div className="flex items-center gap-3 text-xs">{renderUserChip(scope)}</div>
-          </div>
-        </header>
-        {children}
+          </header>
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

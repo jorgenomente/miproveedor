@@ -54,103 +54,139 @@
 }
 
 :root {
-  --radius: 0.5rem;
+  --radius: 0.75rem;
 
   /* Brand */
-  --brand-primary: #5bc7c0;
-  --brand-primary-dark: #3a9fa1;
-  --brand-deep: #1f6f75;
+  --brand-teal-deep: #0f7a82;
+  --brand-teal-medium: #1f8a92;
+  --brand-teal-light: #36aab4;
+  --brand-teal-aqua: #4fd4e4;
+  --brand-aqua-soft: #cdece7;
+  --brand-primary: var(--brand-teal-medium);
+  --brand-primary-dark: var(--brand-teal-deep);
+  --brand-deep: var(--brand-teal-deep);
 
   /* Neutrals */
-  --neutral-900: #111315;
-  --neutral-700: #444b52;
-  --neutral-500: #66707a;
-  --neutral-200: #d8dee2;
-  --neutral-100: #eef1f2;
+  --neutral-900: #111111;
+  --neutral-700: #3a3a3a;
+  --neutral-500: #6a6a6a;
+  --neutral-200: #e4e4e4;
+  --neutral-100: #f7f7f7;
 
-  /* UI states */
-  --success: #1f6f75;
-  --success-light: #e6f4f5;
-  --warning: #e8a351;
-  --warning-light: #fdf3e4;
-  --error: #e96a6a;
-  --error-light: #fbeced;
-  --info: #5bc7c0;
-  --info-light: #e6f7f6;
+  /* Text palette */
+  --text-primary: var(--neutral-900);
+  --text-secondary: var(--neutral-700);
+  --text-tertiary: var(--neutral-500);
+  --text-inverse: #ffffff;
 
   /* Surfaces */
-  --surface: #fafbfc;
+  --surface-100: #ffffff;
+  --surface-200: #f7f7f7;
+  --surface-300: #efefef;
+  --surface-400: #e4e4e4;
+  --surface: var(--surface-200);
   --background: var(--surface);
-  --foreground: var(--neutral-900);
-  --card: #ffffff;
-  --card-foreground: var(--neutral-900);
-  --popover: #ffffff;
-  --popover-foreground: var(--neutral-900);
+  --foreground: var(--text-primary);
+  --card: var(--surface-100);
+  --card-foreground: var(--text-primary);
+  --popover: var(--surface-100);
+  --popover-foreground: var(--text-primary);
+
+  /* UI states */
+  --success: #12b272;
+  --success-light: #e6f6ef;
+  --warning: #e5a100;
+  --warning-light: #fff3d6;
+  --error: #d64545;
+  --error-light: #f9e3e3;
+  --info: #2596d4;
+  --info-light: #e4f1fb;
 
   /* Actions */
   --primary: var(--brand-primary-dark);
   --primary-foreground: #ffffff;
-  --secondary: var(--neutral-100);
-  --secondary-foreground: var(--neutral-900);
-  --muted: var(--neutral-100);
-  --muted-foreground: var(--neutral-500);
-  --accent: var(--info-light);
+  --secondary: var(--surface-200);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--surface-200);
+  --muted-foreground: var(--text-tertiary);
+  --accent: var(--brand-aqua-soft);
   --accent-foreground: var(--brand-deep);
   --destructive: var(--error);
-  --border: var(--neutral-200);
-  --input: var(--neutral-200);
-  --ring: var(--info);
+  --border: var(--surface-400);
+  --input: var(--surface-300);
+  --ring: var(--brand-teal-light);
 
   /* Data viz */
-  --chart-1: #3a9fa1;
-  --chart-2: #5bc7c0;
-  --chart-3: #e8a351;
-  --chart-4: #1f6f75;
-  --chart-5: #e96a6a;
+  --chart-1: var(--brand-teal-medium);
+  --chart-2: var(--brand-teal-light);
+  --chart-3: var(--warning);
+  --chart-4: var(--brand-teal-deep);
+  --chart-5: var(--error);
 
   /* Sidebar shell */
-  --sidebar: #ffffff;
-  --sidebar-foreground: var(--neutral-900);
-  --sidebar-primary: var(--brand-deep);
+  --sidebar: var(--surface-100);
+  --sidebar-foreground: var(--text-primary);
+  --sidebar-primary: var(--brand-teal-deep);
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: var(--info-light);
-  --sidebar-accent-foreground: var(--brand-deep);
-  --sidebar-border: var(--neutral-200);
-  --sidebar-ring: var(--info);
+  --sidebar-accent: var(--brand-aqua-soft);
+  --sidebar-accent-foreground: var(--brand-teal-deep);
+  --sidebar-border: var(--surface-400);
+  --sidebar-ring: var(--brand-teal-light);
+
+  /* Shadows */
+  --shadow-xs: 0px 1px 2px rgba(0, 0, 0, 0.1);
+  --shadow-sm: 0px 3px 8px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0px 6px 20px rgba(0, 0, 0, 0.1);
 }
 
 .dark {
-  --background: #0f1416;
-  --foreground: #eef1f2;
-  --card: #11181c;
-  --card-foreground: #eef1f2;
-  --popover: #11181c;
-  --popover-foreground: #eef1f2;
-  --primary: #5bc7c0;
-  --primary-foreground: #0f1416;
-  --secondary: #182024;
-  --secondary-foreground: #e7ebed;
-  --muted: #182024;
-  --muted-foreground: #9aa3ac;
-  --accent: #1b2a2f;
-  --accent-foreground: #eef1f2;
-  --destructive: #e96a6a;
-  --border: #1f2a30;
-  --input: #1f2a30;
-  --ring: #3a9fa1;
-  --chart-1: #5bc7c0;
-  --chart-2: #3a9fa1;
-  --chart-3: #e8a351;
-  --chart-4: #78d0c8;
-  --chart-5: #e96a6a;
-  --sidebar: #0f1416;
-  --sidebar-foreground: #eef1f2;
-  --sidebar-primary: #3a9fa1;
-  --sidebar-primary-foreground: #0f1416;
-  --sidebar-accent: #1b2a2f;
-  --sidebar-accent-foreground: #eef1f2;
-  --sidebar-border: #1f2a30;
-  --sidebar-ring: #3a9fa1;
+  --surface-100: #0c0f11;
+  --surface-200: #13181b;
+  --surface-300: #1a2125;
+  --surface-400: #243035;
+
+  --text-primary: #ffffff;
+  --text-secondary: #d4d8d9;
+  --text-tertiary: #a0a7a9;
+  --text-inverse: #000000;
+
+  --background: var(--surface-100);
+  --foreground: var(--text-primary);
+  --card: var(--surface-200);
+  --card-foreground: var(--text-primary);
+  --popover: var(--surface-200);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--brand-teal-light);
+  --primary-foreground: var(--surface-100);
+  --secondary: var(--surface-300);
+  --secondary-foreground: var(--text-secondary);
+  --muted: var(--surface-300);
+  --muted-foreground: var(--text-tertiary);
+  --accent: var(--surface-400);
+  --accent-foreground: var(--text-secondary);
+  --destructive: #d64545;
+  --border: var(--surface-400);
+  --input: var(--surface-400);
+  --ring: var(--brand-teal-aqua);
+  --chart-1: var(--brand-teal-light);
+  --chart-2: var(--brand-teal-medium);
+  --chart-3: var(--warning);
+  --chart-4: var(--brand-teal-aqua);
+  --chart-5: var(--error);
+  --sidebar: var(--surface-100);
+  --sidebar-foreground: var(--text-primary);
+  --sidebar-primary: var(--brand-teal-light);
+  --sidebar-primary-foreground: var(--surface-100);
+  --sidebar-accent: var(--surface-300);
+  --sidebar-accent-foreground: var(--text-secondary);
+  --sidebar-border: var(--surface-400);
+  --sidebar-ring: var(--brand-teal-aqua);
+
+  /* UI states in dark mode keep soft contrast */
+  --success-light: rgba(18, 178, 114, 0.12);
+  --warning-light: rgba(229, 161, 0, 0.16);
+  --error-light: rgba(214, 69, 69, 0.14);
+  --info-light: rgba(79, 212, 228, 0.14);
 }
 
 @layer base {

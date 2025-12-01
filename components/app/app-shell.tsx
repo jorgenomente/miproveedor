@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ThemeToggle } from "@/components/app/theme-toggle";
 import { cn } from "@/lib/utils";
 import { ProviderContextProvider, useProviderContext } from "./provider-context";
 import { listProviders, type ProviderRow } from "@/app/app/orders/actions";
@@ -75,14 +76,14 @@ function NavLinks({
             href={item.href}
             onClick={onNavigate}
             className={cn(
-              "relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors",
+              "relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-all",
               isActive
-                ? "bg-[color:var(--info-light)] text-[color:var(--brand-deep)]"
-                : "text-[color:var(--neutral-500)] hover:bg-[color:var(--surface)] hover:text-[color:var(--neutral-900)]",
+                ? "bg-[color:var(--sidebar-accent)] text-[color:var(--sidebar-primary)] shadow-[var(--shadow-sm)]"
+                : "text-[color:var(--sidebar-foreground)]/70 hover:bg-[color:var(--sidebar-accent)]/70 hover:text-[color:var(--sidebar-foreground)]",
             )}
           >
             {isActive ? (
-              <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r bg-[color:var(--brand-deep)]" />
+              <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r bg-[color:var(--sidebar-primary)]" />
             ) : null}
             <Icon className="h-5 w-5" />
             <span>{item.label}</span>
@@ -150,11 +151,11 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const activePath = useMemo(() => pathname?.split("?")[0] ?? "", [pathname]);
 
   return (
-    <div className="flex min-h-screen bg-[color:var(--surface)] text-[color:var(--neutral-900)]">
-      <aside className="hidden h-screen w-[240px] flex-none border-r border-[color:var(--neutral-200)] bg-white md:flex md:flex-col">
-        <div className="border-b border-[color:var(--neutral-100)] px-6 py-6">
+    <div className="flex min-h-screen bg-[color:var(--background)] text-[color:var(--foreground)]">
+      <aside className="hidden h-screen w-[240px] flex-none border-r border-[color:var(--sidebar-border)] bg-[color:var(--sidebar)] md:flex md:flex-col">
+        <div className="border-b border-[color:var(--sidebar-border)] px-6 py-6">
           <div className="flex items-center gap-3">
-            <div className="relative h-10 w-10 overflow-hidden rounded-lg border border-[color:var(--neutral-100)] bg-[color:var(--surface)]">
+            <div className="relative h-10 w-10 overflow-hidden rounded-lg border border-[color:var(--sidebar-border)] bg-[color:var(--sidebar-accent)]">
               <Image
                 src="/MiProveedor.png"
                 alt="Logo de MiProveedor"
@@ -165,8 +166,8 @@ function AppShellContent({ children }: { children: ReactNode }) {
               />
             </div>
             <div>
-              <div className="text-[15px] font-semibold text-[color:var(--brand-deep)]">MiProveedor</div>
-              <p className="text-xs text-[color:var(--neutral-500)]">Panel B2B</p>
+              <div className="text-[15px] font-semibold text-[color:var(--sidebar-primary)]">MiProveedor</div>
+              <p className="text-xs text-[color:var(--sidebar-foreground)]/70">Panel B2B</p>
             </div>
           </div>
         </div>
@@ -176,10 +177,10 @@ function AppShellContent({ children }: { children: ReactNode }) {
       </aside>
 
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="left" className="w-[260px] p-0">
+        <SheetContent side="left" className="w-[260px] p-0 bg-[color:var(--sidebar)] text-[color:var(--sidebar-foreground)]">
           <SheetHeader className="px-6 pb-4 pt-6 text-left">
             <div className="flex items-center gap-3">
-              <div className="relative h-10 w-10 overflow-hidden rounded-lg border border-[color:var(--neutral-100)] bg-[color:var(--surface)]">
+              <div className="relative h-10 w-10 overflow-hidden rounded-lg border border-[color:var(--sidebar-border)] bg-[color:var(--sidebar-accent)]">
                 <Image
                   src="/MiProveedor.png"
                   alt="Logo de MiProveedor"
@@ -190,8 +191,8 @@ function AppShellContent({ children }: { children: ReactNode }) {
                 />
               </div>
               <div>
-                <SheetTitle className="text-[15px] text-[color:var(--brand-deep)]">MiProveedor</SheetTitle>
-                <p className="text-xs text-[color:var(--neutral-500)]">Panel B2B</p>
+                <SheetTitle className="text-[15px] text-[color:var(--sidebar-primary)]">MiProveedor</SheetTitle>
+                <p className="text-xs text-[color:var(--sidebar-foreground)]/70">Panel B2B</p>
               </div>
             </div>
           </SheetHeader>
@@ -202,7 +203,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
       </Sheet>
 
       <div className="flex min-h-screen flex-1 flex-col">
-        <header className="sticky top-0 z-20 border-b border-[color:var(--neutral-200)] bg-white/90 backdrop-blur">
+        <header className="sticky top-0 z-20 border-b border-[color:var(--border)] bg-background/80 backdrop-blur">
           <div className="flex items-center justify-between gap-3 px-4 py-3 md:px-6">
             <div className="flex flex-1 items-center gap-3">
               <Button
@@ -217,21 +218,22 @@ function AppShellContent({ children }: { children: ReactNode }) {
               <div className="relative hidden flex-1 items-center md:flex">
                 <Input
                   placeholder="Buscar pedidos, clientes, productos..."
-                  className="w-full bg-[color:var(--surface)]"
+                  className="w-full bg-[color:var(--muted)]"
                   aria-label="Buscar"
                 />
               </div>
             </div>
             <div className="flex items-center gap-1">
               <AdminProviderSelect />
+              <ThemeToggle />
               <Button variant="ghost" size="icon-sm" aria-label="Ayuda">
-                <HelpCircle className="h-4 w-4 text-[color:var(--neutral-500)]" />
+                <HelpCircle className="h-4 w-4 text-[color:var(--muted-foreground)]" />
               </Button>
               <Button variant="ghost" size="icon-sm" aria-label="Notificaciones" className="relative">
-                <Bell className="h-4 w-4 text-[color:var(--neutral-500)]" />
-                <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[color:var(--error)]" />
+                <Bell className="h-4 w-4 text-[color:var(--muted-foreground)]" />
+                <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[color:var(--error)] shadow-[0_0_0_6px_rgba(214,69,69,0.18)]" />
               </Button>
-              <div className="relative ml-2 h-9 w-9 overflow-hidden rounded-full border border-[color:var(--neutral-200)] bg-[color:var(--surface)]">
+              <div className="relative ml-2 h-9 w-9 overflow-hidden rounded-full border border-[color:var(--border)] bg-[color:var(--muted)]">
                 <Image
                   src="/MiProveedor.png"
                   alt="Logo de MiProveedor"
@@ -243,7 +245,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
               </div>
             </div>
           </div>
-          <Separator className="bg-[color:var(--neutral-200)]" />
+          <Separator className="bg-[color:var(--border)]" />
         </header>
 
         <main className="flex-1 px-4 py-6 md:px-8">

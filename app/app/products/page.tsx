@@ -1208,17 +1208,17 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
 
         {!showCreateModal && result ? (
           result.success ? (
-            <div className="rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3 text-sm">
+            <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] p-3 text-sm">
               {result.message}
             </div>
           ) : (
-            <div className="rounded-lg border border-destructive/60 bg-destructive/10 p-3 text-sm text-destructive">
+            <div className="rounded-xl border border-destructive/60 bg-destructive/10 p-3 text-sm text-destructive">
               {result.errors.join("\n")}
             </div>
           )
         ) : null}
 
-        <Card className="border-[color:var(--neutral-200)] bg-white shadow-sm">
+        <Card className="border-[color:var(--border)] bg-card/95 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle className="text-lg">Catálogo</CardTitle>
@@ -1262,7 +1262,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2">
-                <div className="flex rounded-full border border-[color:var(--neutral-200)] bg-white/80 p-1 shadow-sm backdrop-blur">
+                <div className="flex rounded-full border border-[color:var(--border)] bg-card/95 p-1 shadow-sm backdrop-blur">
                   <Button
                     type="button"
                     size="sm"
@@ -1297,7 +1297,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
             {loadingProducts ? (
               <div className="grid gap-3 sm:grid-cols-2">
                 {[0, 1, 2, 3].map((item) => (
-                  <div key={item} className="rounded-xl border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-4">
+                  <div key={item} className="rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] p-4">
                     <div className="flex items-center gap-3">
                       <Skeleton className="h-12 w-12 rounded-full" />
                       <div className="space-y-2 flex-1">
@@ -1310,15 +1310,15 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                 ))}
               </div>
             ) : products.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-4 text-sm text-muted-foreground">
+              <div className="rounded-xl border border-dashed border-[color:var(--border)] bg-[color:var(--muted)] p-4 text-sm text-muted-foreground">
                 Aún no hay productos para este proveedor.
               </div>
             ) : productView === "table" ? (
-              <div className="overflow-hidden rounded-xl border border-[color:var(--neutral-200)] bg-white shadow-sm">
+              <div className="overflow-hidden rounded-xl border border-[color:var(--border)] bg-card/95 shadow-sm">
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow className="bg-[color:var(--surface)]">
+                      <TableRow className="bg-[color:var(--muted)]">
                         <TableHead className="min-w-[240px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                           Producto
                         </TableHead>
@@ -1351,11 +1351,11 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                             initial={{ opacity: 0, y: 8 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: index * 0.02 }}
-                            className="border-b border-[color:var(--neutral-200)] transition-colors hover:bg-[color:var(--surface)]/60 last:border-0"
+                            className="border-b border-[color:var(--border)] transition-colors hover:bg-[color:var(--muted)]/60 last:border-0"
                           >
                             <TableCell>
                               <div className="flex items-start gap-3">
-                                <div className="relative h-12 w-12 overflow-hidden rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)]">
+                                <div className="relative h-12 w-12 overflow-hidden rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)]">
                                   {product.image_url ? (
                                     <NextImage
                                       src={product.image_url}
@@ -1476,11 +1476,11 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.04 }}
-                    className="flex flex-col gap-2 rounded-xl border border-[color:var(--neutral-200)] bg-white p-4"
+                    className="flex flex-col gap-2 rounded-xl border border-[color:var(--border)] bg-card/95 p-4"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex flex-1 items-start gap-3">
-                        <div className="relative h-16 w-16 overflow-hidden rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)]">
+                        <div className="relative h-16 w-16 overflow-hidden rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)]">
                           {product.image_url ? (
                             <NextImage
                               src={product.image_url}
@@ -1624,7 +1624,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
               </DialogFooter>
             </form>
 
-            <div className="space-y-2 rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
+            <div className="space-y-2 rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] p-3">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-semibold">Zonas creadas</p>
                 <Badge variant="outline">{deliveryZones.length}</Badge>
@@ -1642,7 +1642,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                   {deliveryZones.map((zone) => (
                     <div
                       key={zone.id}
-                      className="flex items-center justify-between rounded-md border border-[color:var(--neutral-200)] bg-white px-3 py-2 shadow-sm"
+                      className="flex items-center justify-between rounded-md border border-[color:var(--border)] bg-card/95 px-3 py-2 shadow-sm"
                     >
                       <div>
                         <p className="text-sm font-semibold">{zone.name}</p>
@@ -1674,7 +1674,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="space-y-3 rounded-xl border border-[color:var(--neutral-200)] bg-white p-3 shadow-sm">
+            <div className="space-y-3 rounded-xl border border-[color:var(--border)] bg-card/95 p-3 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="text-base font-semibold">Entrega según dias de reparto</p>
@@ -1707,7 +1707,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
 
               {!deliveryRulesCollapsed ? (
                 <div className="space-y-3">
-                  <div className="rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3 text-sm text-muted-foreground">
+                  <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] p-3 text-sm text-muted-foreground">
                     <div className="flex items-start gap-2">
                       <Clock4 className="mt-0.5 h-4 w-4 text-primary" />
                       <div className="space-y-1">
@@ -1733,7 +1733,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                   {loadingRules ? (
                     <div className="space-y-2">
                       {[0, 1].map((index) => (
-                        <div key={index} className="rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
+                        <div key={index} className="rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] p-3">
                           <Skeleton className="h-4 w-32" />
                           <div className="mt-2 grid gap-2 sm:grid-cols-3">
                             <Skeleton className="h-10" />
@@ -1748,7 +1748,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                       {deliveryRules.map((rule, index) => (
                         <div
                           key={rule.id ?? `${rule.cutoffWeekday}-${rule.cutoffTime}-${rule.deliveryWeekday}-${index}`}
-                          className={`rounded-lg border border-[color:var(--neutral-200)] bg-white p-3 shadow-sm ${!deliveryRulesEnabled ? "opacity-60" : ""}`}
+                          className={`rounded-xl border border-[color:var(--border)] bg-card/95 p-3 shadow-sm ${!deliveryRulesEnabled ? "opacity-60" : ""}`}
                         >
                           <div className="flex items-center justify-between gap-2">
                             <Badge variant="secondary" className="rounded-full px-2 py-0 text-[11px] uppercase">
@@ -1832,7 +1832,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                     </div>
                   )}
 
-                  <div className="space-y-2 rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
+                  <div className="space-y-2 rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] p-3">
                     <p className="text-xs font-semibold uppercase text-muted-foreground">Cobertura semanal</p>
                     {!deliveryRulesEnabled ? (
                       <p className="text-xs text-muted-foreground">Activa las reglas para ver la cobertura semanal.</p>
@@ -1843,7 +1843,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                           return (
                             <div
                               key={window.id}
-                              className="flex flex-col gap-1 rounded-md border border-[color:var(--neutral-200)] bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                              className="flex flex-col gap-1 rounded-md border border-[color:var(--border)] bg-card/95 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
                             >
                               <div>
                                 <p className="font-semibold">
@@ -1868,7 +1868,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
               ) : null}
             </div>
 
-            <div className="space-y-3 rounded-xl border border-[color:var(--neutral-200)] bg-white p-3 shadow-sm">
+            <div className="space-y-3 rounded-xl border border-[color:var(--border)] bg-card/95 p-3 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="text-base font-semibold">Entrega según zonas</p>
@@ -1937,7 +1937,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                         return (
                           <div
                             key={zone.id}
-                            className="space-y-2 rounded-lg border border-[color:var(--neutral-200)] bg-white p-3 shadow-sm"
+                            className="space-y-2 rounded-xl border border-[color:var(--border)] bg-card/95 p-3 shadow-sm"
                           >
                             <div className="flex items-center justify-between gap-2">
                               <div>
@@ -1966,7 +1966,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                         return (
                           <label
                             key={`${zone.id}-${day}`}
-                                    className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${checked ? "border-primary/50 bg-primary/5" : "border-[color:var(--neutral-200)] bg-white"}`}
+                                    className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${checked ? "border-primary/50 bg-primary/5" : "border-[color:var(--border)] bg-card/95"}`}
                                   >
                                     <Checkbox
                                       checked={checked}
@@ -2119,14 +2119,14 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="flex items-center justify-between rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] px-3 py-2">
+              <div className="flex items-center justify-between rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] px-3 py-2">
                 <div>
                   <p className="text-sm font-semibold">Marcar como nuevo</p>
                   <p className="text-xs text-muted-foreground">Destaca el producto con una etiqueta.</p>
                 </div>
                 <Switch checked={isNew} onCheckedChange={setIsNew} aria-label="Marcar producto como nuevo" />
               </div>
-              <div className="flex items-center justify-between rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] px-3 py-2">
+              <div className="flex items-center justify-between rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] px-3 py-2">
                 <div>
                   <p className="text-sm font-semibold">Sin stock</p>
                   <p className="text-xs text-muted-foreground">Bloquea el agregado en el link público.</p>
@@ -2140,7 +2140,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
             </div>
             <div className="space-y-2">
               <Label htmlFor="tags">Etiquetas</Label>
-              <div className="space-y-3 rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
+              <div className="space-y-3 rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] p-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
                   <div className="flex flex-1 flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3">
                     <Input
@@ -2178,7 +2178,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                         #{tag}
                         <button
                           type="button"
-                          className="rounded-full p-0.5 hover:bg-[color:var(--surface)]"
+                          className="rounded-full p-0.5 hover:bg-[color:var(--muted)]"
                           onClick={() => removeTag(tag)}
                           aria-label={`Quitar etiqueta ${tag}`}
                         >
@@ -2214,7 +2214,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
             </div>
             <div className="space-y-2">
               <Label htmlFor="image">Imagen (opcional)</Label>
-              <div className="flex flex-col gap-3 rounded-lg border border-dashed border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
+              <div className="flex flex-col gap-3 rounded-xl border border-dashed border-[color:var(--border)] bg-[color:var(--muted)] p-3">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-start gap-3">
                     <div className="rounded-full bg-primary/10 p-2">
@@ -2267,7 +2267,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                 {imageError ? <p className="text-xs text-destructive">{imageError}</p> : null}
                 {imagePreview ? (
                   <div className="flex items-center gap-3">
-                    <div className="relative h-24 w-32 overflow-hidden rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)]">
+                    <div className="relative h-24 w-32 overflow-hidden rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)]">
                       <NextImage
                         src={imagePreview}
                         alt="Previsualización del producto"
@@ -2305,11 +2305,11 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
           <Separator className="my-4" />
           {resultSource === "create" && result ? (
             result.success ? (
-              <div className="rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3 text-sm">
+              <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] p-3 text-sm">
                 {result.message}
               </div>
             ) : (
-              <div className="rounded-lg border border-destructive/60 bg-destructive/10 p-3 text-sm text-destructive">
+              <div className="rounded-xl border border-destructive/60 bg-destructive/10 p-3 text-sm text-destructive">
                 {result.errors.join("\n")}
               </div>
             )
@@ -2419,7 +2419,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                 </div>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="flex items-center justify-between rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] px-3 py-2">
+                <div className="flex items-center justify-between rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] px-3 py-2">
                   <div>
                     <p className="text-sm font-semibold">Marcar como nuevo</p>
                     <p className="text-xs text-muted-foreground">Se muestra al lado del nombre.</p>
@@ -2430,7 +2430,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                     aria-label="Marcar producto como nuevo"
                   />
                 </div>
-                <div className="flex items-center justify-between rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] px-3 py-2">
+                <div className="flex items-center justify-between rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] px-3 py-2">
                   <div>
                     <p className="text-sm font-semibold">Sin stock</p>
                     <p className="text-xs text-muted-foreground">No se podrá agregar al carrito.</p>
@@ -2444,7 +2444,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-tags">Etiquetas</Label>
-                <div className="space-y-3 rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
+                <div className="space-y-3 rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] p-3">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
                     <div className="flex flex-1 items-center gap-2">
                       <Input
@@ -2473,7 +2473,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                           #{tag}
                           <button
                             type="button"
-                            className="rounded-full p-0.5 hover:bg-[color:var(--surface)]"
+                            className="rounded-full p-0.5 hover:bg-[color:var(--muted)]"
                             onClick={() => removeEditTag(tag)}
                             aria-label={`Quitar etiqueta ${tag}`}
                           >
@@ -2516,7 +2516,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
 
               <div className="space-y-2">
                 <Label>Imagen</Label>
-                <div className="flex flex-col gap-3 rounded-lg border border-dashed border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
+                <div className="flex flex-col gap-3 rounded-xl border border-dashed border-[color:var(--border)] bg-[color:var(--muted)] p-3">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="space-y-1">
                       <p className="text-sm font-medium text-foreground">Reemplaza o recorta</p>
@@ -2567,7 +2567,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                   {editImageError ? <p className="text-xs text-destructive">{editImageError}</p> : null}
                   {editImagePreview || editingProduct.image_url ? (
                     <div className="flex items-center gap-3">
-                      <div className="relative h-24 w-32 overflow-hidden rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)]">
+                      <div className="relative h-24 w-32 overflow-hidden rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)]">
                         <NextImage
                           src={editImagePreview ?? editingProduct.image_url ?? ""}
                           alt="Previsualización del producto"
@@ -2620,7 +2620,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid gap-3 md:grid-cols-[1.1fr,0.9fr]">
-              <div className="space-y-3 rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3">
+              <div className="space-y-3 rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
                     type="button"
@@ -2640,7 +2640,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                       </span>
                     )}
                   </Button>
-                  <label className="flex cursor-pointer items-center gap-2 rounded-md border border-[color:var(--neutral-200)] bg-[color:var(--surface)] px-3 py-2 text-sm shadow-sm">
+                  <label className="flex cursor-pointer items-center gap-2 rounded-md border border-[color:var(--border)] bg-[color:var(--muted)] px-3 py-2 text-sm shadow-sm">
                     <Upload className="h-4 w-4 text-muted-foreground" />
                     <span>{parsingBulk ? "Leyendo..." : "Subir XLSX"}</span>
                     <Input
@@ -2658,7 +2658,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                   desde cada producto.
                 </p>
               </div>
-              <div className="space-y-3 rounded-lg border border-dashed border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3 text-xs text-muted-foreground">
+              <div className="space-y-3 rounded-xl border border-dashed border-[color:var(--border)] bg-[color:var(--muted)] p-3 text-xs text-muted-foreground">
                 <div className="flex items-start gap-2">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-500" />
                   <div>
@@ -2683,7 +2683,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
             </div>
 
             {bulkErrors.length ? (
-              <div className="rounded-lg border border-destructive/60 bg-destructive/10 p-3 text-sm text-destructive">
+              <div className="rounded-xl border border-destructive/60 bg-destructive/10 p-3 text-sm text-destructive">
                 {bulkErrors.join("\n")}
               </div>
             ) : null}
@@ -2719,7 +2719,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
                   {bulkRows.slice(0, 6).map((row) => (
                     <div
                       key={row.tempId}
-                      className="rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3 text-xs text-muted-foreground"
+                      className="rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] p-3 text-xs text-muted-foreground"
                     >
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-semibold text-foreground">{row.name || "Sin nombre"}</p>
@@ -2762,7 +2762,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
             ) : null}
 
             {bulkSummary ? (
-              <div className="rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)] p-3 text-sm">
+              <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] p-3 text-sm">
                 <p className="font-semibold text-foreground">Resultado de la importación</p>
                 <div className="mt-2 flex flex-wrap gap-3 text-xs">
                   <Badge variant="secondary">Creados: {bulkSummary.created}</Badge>
@@ -2792,7 +2792,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
           </DialogHeader>
           {rawImage ? (
             <div className="space-y-4">
-              <div className="relative aspect-4/3 w-full overflow-hidden rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)]">
+              <div className="relative aspect-4/3 w-full overflow-hidden rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)]">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={rawImage.dataUrl} alt="Imagen original" className="h-full w-full object-contain" />
                 {cropPreviewRect ? (
@@ -2871,7 +2871,7 @@ export default function ProductsPage({ initialProviderSlug }: ProductsPageProps)
           </DialogHeader>
           {editRawImage ? (
             <div className="space-y-4">
-              <div className="relative aspect-4/3 w-full overflow-hidden rounded-lg border border-[color:var(--neutral-200)] bg-[color:var(--surface)]">
+              <div className="relative aspect-4/3 w-full overflow-hidden rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)]">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={editRawImage.dataUrl} alt="Imagen original" className="h-full w-full object-contain" />
                 {editCropPreviewRect ? (

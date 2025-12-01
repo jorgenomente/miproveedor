@@ -88,20 +88,32 @@ import { compressImageFile } from "@/lib/compress-image";
 export type AccountsPageProps = { initialProviderSlug?: string };
 
 const orderStatusTone: Record<string, string> = {
-  nuevo: "bg-blue-100 text-blue-700",
-  preparando: "bg-amber-100 text-amber-800",
-  enviado: "bg-sky-100 text-sky-700",
-  entregado: "bg-emerald-100 text-emerald-700",
-  cancelado: "bg-rose-100 text-rose-700",
+  nuevo: "border-[color:var(--accent-foreground)]/20 bg-[color:var(--accent)] text-[color:var(--brand-deep)]",
+  preparando: "border-[color:var(--warning)]/25 bg-[color:var(--warning-light)] text-[color:var(--warning)]",
+  enviado: "border-[color:var(--info)]/25 bg-[color:var(--info-light)] text-[color:var(--info)]",
+  entregado: "border-[color:var(--success)]/25 bg-[color:var(--success-light)] text-[color:var(--success)]",
+  cancelado: "border-[color:var(--destructive)]/25 bg-[color:var(--error-light)] text-[color:var(--destructive)]",
 };
 
 const shortId = (id: string) => (id?.length > 8 ? id.slice(0, 8) : id);
 
 const proofLabel: Record<string, { label: string; tone: string }> = {
-  no_aplica: { label: "No aplica", tone: "bg-slate-100 text-slate-700" },
-  pendiente: { label: "Comprobante pendiente", tone: "bg-amber-100 text-amber-800" },
-  subido: { label: "Comprobante cargado", tone: "bg-blue-100 text-blue-800" },
-  verificado: { label: "Comprobante verificado", tone: "bg-emerald-100 text-emerald-800" },
+  no_aplica: {
+    label: "No aplica",
+    tone: "border-[color:var(--muted-foreground)]/25 bg-[color:var(--muted)] text-[color:var(--muted-foreground)]",
+  },
+  pendiente: {
+    label: "Comprobante pendiente",
+    tone: "border-[color:var(--warning)]/25 bg-[color:var(--warning-light)] text-[color:var(--warning)]",
+  },
+  subido: {
+    label: "Comprobante cargado",
+    tone: "border-[color:var(--info)]/25 bg-[color:var(--info-light)] text-[color:var(--info)]",
+  },
+  verificado: {
+    label: "Comprobante verificado",
+    tone: "border-[color:var(--success)]/25 bg-[color:var(--success-light)] text-[color:var(--success)]",
+  },
 };
 
 function OrderRow({
@@ -173,7 +185,7 @@ function OrderRow({
   const orderStatuses: AccountOrder["status"][] = ["nuevo", "preparando", "enviado", "entregado", "cancelado"];
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-muted/40 bg-white/60 px-3 py-3">
+    <div className="flex flex-col gap-3 rounded-2xl border border-[color:var(--border)] bg-card/95 px-3 py-3 shadow-[var(--shadow-sm)]">
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
           <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
@@ -961,7 +973,7 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
         </div>
       </div>
 
-      <Card className="border-[color:var(--neutral-200)] bg-white/80 shadow-sm">
+      <Card className="border border-[color:var(--border)] bg-card/95 shadow-[0_18px_48px_-26px_rgba(0,0,0,0.55)] backdrop-blur-sm">
         <Collapsible open={accountsPanelOpen} onOpenChange={setAccountsPanelOpen}>
           <CardHeader className="flex flex-col gap-4">
             <CollapsibleTrigger asChild>
@@ -1011,7 +1023,7 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs uppercase tracking-wide text-muted-foreground">Vista</span>
-                  <div className="flex items-center gap-1 rounded-full border border-muted/40 bg-white/80 p-1 shadow-inner">
+                  <div className="flex items-center gap-1 rounded-full border border-[color:var(--border)] bg-[color:var(--muted)] p-1 shadow-inner">
                     <Button
                       type="button"
                       size="sm"
@@ -1072,7 +1084,7 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
                             role="button"
                             tabIndex={0}
                             onKeyDown={(event) => handleCardKeyDown(event, account.client.id)}
-                            className={`flex flex-col items-start rounded-xl border ${highlight} bg-white p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2`}
+                            className={`flex flex-col items-start rounded-xl border ${highlight} bg-card/95 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2`}
                             initial={{ opacity: 0, y: 12 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: 8 }}
@@ -1125,7 +1137,7 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -8 }}
                       transition={{ duration: 0.18 }}
-                      className="overflow-hidden rounded-xl border border-muted/50 bg-white"
+                      className="overflow-hidden rounded-xl border border-[color:var(--border)] bg-card/95"
                     >
                       <div className="overflow-x-auto">
                         <Table>
@@ -1214,7 +1226,7 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
       {selectedAccount ? (
         <motion.div
           layout
-          className="rounded-2xl border border-[color:var(--neutral-200)] bg-white shadow-sm"
+          className="rounded-2xl border border-[color:var(--border)] bg-card/95 shadow-[var(--shadow-sm)]"
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ type: "spring", stiffness: 120, damping: 18 }}
@@ -1286,7 +1298,7 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
                       </Badge>
                     </div>
                     <Accordion type="multiple" defaultValue={["pending-orders"]} className="space-y-3">
-                      <AccordionItem value="pending-orders" className="overflow-hidden rounded-xl border border-(--neutral-200) bg-white">
+                      <AccordionItem value="pending-orders" className="overflow-hidden rounded-xl border border-[color:var(--border)] bg-card/95">
                         <AccordionTrigger className="px-4 py-3 hover:no-underline">
                           <div className="flex w-full items-center justify-between gap-2">
                             <div className="flex items-center gap-2 text-sm font-semibold">
@@ -1335,7 +1347,7 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
                       </AccordionContent>
                       </AccordionItem>
 
-                      <AccordionItem value="confirmed-orders" className="overflow-hidden rounded-xl border border-(--neutral-200) bg-white">
+                      <AccordionItem value="confirmed-orders" className="overflow-hidden rounded-xl border border-[color:var(--border)] bg-card/95">
                         <AccordionTrigger className="px-4 py-3 hover:no-underline">
                           <div className="flex w-full items-center justify-between gap-2">
                             <div className="flex items-center gap-2 text-sm font-semibold">
@@ -1519,7 +1531,7 @@ export function AccountsClient({ initialProviderSlug }: AccountsPageProps) {
                         initial={{ opacity: 0, x: 8 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: index * 0.04 }}
-                        className="flex items-center justify-between rounded-lg border border-slate-200 bg-white/80 px-3 py-2"
+                        className="flex items-center justify-between rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] px-3 py-2"
                       >
                         <div className="flex flex-col">
                           <span className="text-xs text-muted-foreground">Pedido #{shortId(order.id)}</span>

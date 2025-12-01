@@ -582,7 +582,7 @@ const proofWhatsAppLink = useMemo(() => {
               <div className="flex items-center justify-end gap-2">
                 <Label
                   htmlFor={proofInputId}
-                  className="flex cursor-pointer items-center gap-1 rounded-md border border-amber-400/60 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-100"
+                  className="flex cursor-pointer items-center gap-1 rounded-xl border border-amber-400/60 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-100"
                 >
                   <FileUp className="h-3.5 w-3.5" />
                   {uploadingProofFor === order.id ? "Subiendo..." : "Subir comprobante"}
@@ -1009,7 +1009,7 @@ const proofWhatsAppLink = useMemo(() => {
   }, []);
 
   return (
-    <div className="w-full bg-(--surface)">
+    <div className="w-full bg-[color:var(--muted)]">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <motion.div
           className="absolute -left-10 top-10 h-48 w-48 rounded-full bg-primary/10 blur-3xl"
@@ -1030,7 +1030,7 @@ const proofWhatsAppLink = useMemo(() => {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, ease: "easeOut" }}
-          className="flex flex-col gap-2 rounded-2xl border border-(--neutral-200) bg-white p-5 shadow-sm backdrop-blur md:p-6"
+          className="flex flex-col gap-2 rounded-2xl border border-[color:var(--border)] bg-card/95 p-5 shadow-[var(--shadow-sm)] backdrop-blur md:p-6"
         >
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Badge variant="outline">{provider.slug}</Badge>
@@ -1082,7 +1082,7 @@ const proofWhatsAppLink = useMemo(() => {
               <Badge variant="secondary">Mobile-first</Badge>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex rounded-full border border-(--neutral-200) bg-white/70 p-1 shadow-sm backdrop-blur">
+              <div className="flex rounded-full border border-[color:var(--border)] bg-card/95 p-1 shadow-[var(--shadow-sm)] backdrop-blur">
                 <Button
                   type="button"
                   size="sm"
@@ -1124,7 +1124,7 @@ const proofWhatsAppLink = useMemo(() => {
           </div>
 
           <div>
-            <Accordion type="single" collapsible className="rounded-xl border border-(--neutral-200) bg-(--surface) shadow-sm">
+            <Accordion type="single" collapsible className="rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] shadow-[var(--shadow-sm)]">
               <AccordionItem value="filters" className="border-0">
                 <AccordionTrigger className="items-center px-3 py-2">
                   <div className="flex flex-col text-left">
@@ -1137,7 +1137,7 @@ const proofWhatsAppLink = useMemo(() => {
                 </AccordionTrigger>
                 <AccordionContent className="px-3 pb-3 pt-0">
                   <div className="space-y-3">
-                    <div className="rounded-xl border border-(--neutral-200) bg-white p-3 shadow-sm">
+                    <div className="rounded-xl border border-[color:var(--border)] bg-card/95 p-3 shadow-[var(--shadow-sm)]">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <p className="text-sm font-semibold">Filtrar por categoría</p>
@@ -1192,7 +1192,7 @@ const proofWhatsAppLink = useMemo(() => {
                       </div>
                     </div>
 
-                    <div className="rounded-xl border border-(--neutral-200) bg-white p-3 shadow-sm">
+                    <div className="rounded-xl border border-[color:var(--border)] bg-card/95 p-3 shadow-[var(--shadow-sm)]">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <p className="text-sm font-semibold">Filtrar por hashtag</p>
@@ -1246,7 +1246,7 @@ const proofWhatsAppLink = useMemo(() => {
                     </div>
 
                     {availableBrands.length ? (
-                      <div className="rounded-xl border border-(--neutral-200) bg-white p-3 shadow-sm">
+                      <div className="rounded-xl border border-[color:var(--border)] bg-card/95 p-3 shadow-[var(--shadow-sm)]">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div>
                             <p className="text-sm font-semibold">Filtrar por marca</p>
@@ -1304,11 +1304,11 @@ const proofWhatsAppLink = useMemo(() => {
           </div>
 
           {products.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-(--neutral-200) bg-(--surface) p-4 text-sm text-muted-foreground">
+            <div className="rounded-xl border border-dashed border-[color:var(--border)] bg-[color:var(--muted)] p-4 text-sm text-muted-foreground">
               Este proveedor aún no tiene productos activos.
             </div>
           ) : filteredProducts.length === 0 ? (
-            <div className="space-y-3 rounded-xl border border-dashed border-(--neutral-200) bg-(--surface) p-4 text-sm text-muted-foreground">
+            <div className="space-y-3 rounded-xl border border-dashed border-[color:var(--border)] bg-[color:var(--muted)] p-4 text-sm text-muted-foreground">
               <p>No hay productos que coincidan con los filtros aplicados.</p>
               <Button
                 type="button"
@@ -1325,11 +1325,11 @@ const proofWhatsAppLink = useMemo(() => {
               </Button>
             </div>
           ) : productView === "table" ? (
-            <div className="overflow-hidden rounded-xl border border-(--neutral-200) bg-white shadow-sm">
+            <div className="overflow-hidden rounded-xl border border-[color:var(--border)] bg-card/95 shadow-[var(--shadow-sm)]">
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-(--surface)">
+                    <TableRow className="bg-[color:var(--muted)]">
                       <TableHead className="min-w-[220px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         Producto
                       </TableHead>
@@ -1361,15 +1361,15 @@ const proofWhatsAppLink = useMemo(() => {
                           initial={{ opacity: 0, y: 6 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: index * 0.02 }}
-                          className={`transition-colors hover:bg-(--surface)/60 ${
+                          className={`transition-colors hover:bg-[color:var(--muted)]/60 ${
                             quantity > 0
                               ? "border border-primary/60 shadow-[0_0_0_2px_rgba(59,130,246,0.3)]"
-                              : "border-b border-(--neutral-200) last:border-0"
+                              : "border-b border-[color:var(--border)] last:border-0"
                           }`}
                         >
                           <TableCell className="align-middle">
                             <div className="flex items-start gap-3">
-                              <div className="h-12 w-12 overflow-hidden rounded-lg border border-(--neutral-200) bg-(--surface) shadow-sm">
+                              <div className="h-12 w-12 overflow-hidden rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] shadow-[var(--shadow-sm)]">
                                 {product.image_url ? (
                                   <img
                                     src={product.image_url}
@@ -1450,7 +1450,7 @@ const proofWhatsAppLink = useMemo(() => {
                             )}
                           </TableCell>
                           <TableCell className="text-right align-middle">
-                            <div className="ml-auto flex w-fit items-center gap-2 rounded-full border border-(--neutral-200) bg-secondary px-2 py-1">
+                            <div className="ml-auto flex w-fit items-center gap-2 rounded-full border border-[color:var(--border)] bg-[color:var(--muted)] px-2 py-1">
                               <Button
                                 type="button"
                                 size="icon"
@@ -1491,12 +1491,12 @@ const proofWhatsAppLink = useMemo(() => {
                 return (
                   <Card
                     key={product.id}
-                    className={`overflow-hidden border-(--neutral-200) bg-white shadow-sm transition-shadow ${
+                    className={`overflow-hidden border-[color:var(--border)] bg-card/95 shadow-[var(--shadow-sm)] transition-shadow ${
                       isSelected ? "border-primary/60 shadow-[0_0_0_2px_rgba(59,130,246,0.35)]" : ""
                     }`}
                   >
                     {product.image_url ? (
-                      <div className="h-40 w-full overflow-hidden bg-(--surface)">
+                      <div className="h-40 w-full overflow-hidden bg-[color:var(--muted)]">
                         <img
                           src={product.image_url}
                           alt={`Imagen de ${product.name}`}
@@ -1559,7 +1559,7 @@ const proofWhatsAppLink = useMemo(() => {
                           <p className="text-xs text-destructive">No disponible para agregar.</p>
                         ) : null}
                       </div>
-                      <div className="flex items-center gap-2 rounded-full border border-(--neutral-200) bg-secondary px-2 py-1">
+                      <div className="flex items-center gap-2 rounded-full border border-[color:var(--border)] bg-[color:var(--muted)] px-2 py-1">
                         <Button
                           type="button"
                           size="icon"
@@ -1600,7 +1600,7 @@ const proofWhatsAppLink = useMemo(() => {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 10, scale: 0.98 }}
                 transition={{ duration: 0.35, ease: "easeOut" }}
-                className="sticky top-4 h-fit space-y-4 rounded-2xl border border-(--neutral-200) bg-white p-4 shadow-sm backdrop-blur md:p-5"
+                className="sticky top-4 h-fit space-y-4 rounded-2xl border border-[color:var(--border)] bg-card/95 p-4 shadow-[var(--shadow-sm)] backdrop-blur md:p-5"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -1619,7 +1619,7 @@ const proofWhatsAppLink = useMemo(() => {
                   </Button>
                 </div>
                 <Separator />
-                <div className="space-y-1 rounded-xl border border-(--neutral-200) bg-(--surface) p-3">
+                <div className="space-y-1 rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Datos de la tienda
                   </p>
@@ -1641,7 +1641,7 @@ const proofWhatsAppLink = useMemo(() => {
                     summaryDetails.map((item) => (
                       <div
                         key={item.id}
-                        className="flex items-start justify-between gap-3 rounded-lg border border-(--neutral-200) bg-(--surface) p-3"
+                        className="flex items-start justify-between gap-3 rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] p-3"
                       >
                         <div className="space-y-2 text-sm">
                           <div className="space-y-1">
@@ -1651,7 +1651,7 @@ const proofWhatsAppLink = useMemo(() => {
                             {item.unit ? <p className="text-xs text-muted-foreground">{item.unit}</p> : null}
                           </div>
                           <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-2 rounded-full border border-(--neutral-200) bg-white/80 px-2 py-1 shadow-sm">
+                            <div className="flex items-center gap-2 rounded-full border border-[color:var(--border)] bg-card/95/80 px-2 py-1 shadow-[var(--shadow-sm)]">
                               <Button
                                 type="button"
                                 size="icon"
@@ -1701,7 +1701,7 @@ const proofWhatsAppLink = useMemo(() => {
                   )}
                 </div>
                 {shippingCost > 0 ? (
-                  <div className="rounded-lg border border-dashed border-(--neutral-200) bg-white p-3">
+                  <div className="rounded-xl border border-dashed border-[color:var(--border)] bg-card/95 p-3">
                     <div className="flex items-center justify-between">
                       <div className="space-y-1 text-sm">
                         <p className="font-semibold">Envío {selectedDeliveryZone?.name ? `· ${selectedDeliveryZone.name}` : ""}</p>
@@ -1712,7 +1712,7 @@ const proofWhatsAppLink = useMemo(() => {
                   </div>
                 ) : null}
                 {totalSavings > 0 ? (
-                  <div className="flex items-center justify-between rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200">
+                  <div className="flex items-center justify-between rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200">
                     <span className="font-semibold">Ahorro en descuentos</span>
                     <span className="font-semibold">-{formatCurrency(totalSavings)}</span>
                   </div>
@@ -1836,7 +1836,7 @@ const proofWhatsAppLink = useMemo(() => {
                     </Select>
                     {deliveryMethod === "envio" ? (
                       deliveryZones.length ? (
-                        <div className="space-y-2 rounded-lg border border-(--neutral-200) bg-(--surface) p-3">
+                        <div className="space-y-2 rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] p-3">
                           <Label htmlFor="deliveryZone" className="text-xs">
                             Selecciona la zona de envío
                           </Label>
@@ -1914,7 +1914,7 @@ const proofWhatsAppLink = useMemo(() => {
                       </p>
                     ) : null}
                     {paymentMethod === "transferencia" ? (
-                      <div className="space-y-3 rounded-lg border border-(--neutral-200) bg-(--surface) p-3">
+                      <div className="space-y-3 rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] p-3">
                         <div className="flex items-center justify-between">
                           <p className="text-xs font-semibold uppercase text-muted-foreground">Datos de transferencia</p>
                           <Badge variant="outline" className="flex items-center gap-1 text-[11px]">
@@ -1946,11 +1946,11 @@ const proofWhatsAppLink = useMemo(() => {
                             onChange={(event) => void handleProofFile(event.target.files?.[0])}
                           />
                           {paymentProofPreview ? (
-                            <div className="overflow-hidden rounded-lg border border-(--neutral-200) bg-white">
+                            <div className="overflow-hidden rounded-xl border border-[color:var(--border)] bg-card/95">
                               <img src={paymentProofPreview} alt="Comprobante de pago" className="w-full object-cover" />
                             </div>
                           ) : paymentProofData ? (
-                            <div className="flex items-center gap-2 rounded-md border border-(--neutral-200) bg-white px-2 py-1 text-xs">
+                            <div className="flex items-center gap-2 rounded-xl border border-[color:var(--border)] bg-card/95 px-2 py-1 text-xs">
                               <FileUp className="h-4 w-4 text-primary" />
                               <span className="truncate">{paymentProofData.filename}</span>
                             </div>
@@ -1976,7 +1976,7 @@ const proofWhatsAppLink = useMemo(() => {
                       rows={3}
                     />
                   </div>
-                  <div className="space-y-3 rounded-lg border border-(--neutral-200) bg-(--surface) p-3">
+                  <div className="space-y-3 rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] p-3">
                     <div className="flex items-center justify-between">
                       <p className="text-[11px] font-semibold uppercase text-muted-foreground">Entrega estimada</p>
                       <Badge variant="outline" className="text-[11px]">
@@ -2003,7 +2003,7 @@ const proofWhatsAppLink = useMemo(() => {
                       </p>
                     )}
                   </div>
-                  <div className="space-y-1 rounded-lg border border-(--neutral-200) bg-(--surface) p-3">
+                  <div className="space-y-1 rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] p-3">
                     <p className="text-[11px] font-semibold uppercase text-muted-foreground">Pago seleccionado</p>
                     <div className="mt-1 flex items-center gap-2 text-sm">
                       {paymentMethod === "transferencia" ? (
@@ -2032,7 +2032,7 @@ const proofWhatsAppLink = useMemo(() => {
                   </Button>
                 </form>
                 {formError ? (
-                  <div className="rounded-md border border-destructive/50 bg-destructive/10 p-2 text-xs text-destructive">
+                  <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-2 text-xs text-destructive">
                     {formError}
                   </div>
                 ) : null}
@@ -2082,7 +2082,7 @@ const proofWhatsAppLink = useMemo(() => {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, ease: "easeOut", delay: 0.1 }}
-          className="space-y-4 rounded-2xl border border-(--neutral-200) bg-white p-4 shadow-sm backdrop-blur"
+          className="space-y-4 rounded-2xl border border-[color:var(--border)] bg-card/95 p-4 shadow-[var(--shadow-sm)] backdrop-blur"
           ref={historySectionRef}
           id="historial-pedidos"
         >
@@ -2124,9 +2124,9 @@ const proofWhatsAppLink = useMemo(() => {
               <Accordion
                 type="multiple"
                 defaultValue={historyAccordionDefaults}
-                className="overflow-hidden rounded-xl border border-(--neutral-200) bg-white"
+                className="overflow-hidden rounded-xl border border-[color:var(--border)] bg-card/95"
               >
-              <AccordionItem value="pending" className="border-b border-(--neutral-200) last:border-0">
+              <AccordionItem value="pending" className="border-b border-[color:var(--border)] last:border-0">
                 <AccordionTrigger className="items-center px-3 py-3 sm:px-4">
                   <div className="flex w-full items-center justify-between gap-3">
                     <div className="space-y-1 text-left">
@@ -2176,7 +2176,7 @@ const proofWhatsAppLink = useMemo(() => {
                               initial={{ opacity: 0, y: 8 }}
                               animate={{ opacity: 1, y: 0 }}
                               transition={{ delay: index * 0.03 }}
-                              className="space-y-2 rounded-xl border border-(--neutral-200) bg-(--surface) px-3 py-3"
+                              className="space-y-2 rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] px-3 py-3"
                               ref={(node) => registerPendingProofRef(order.id, node)}
                             >
                               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -2258,7 +2258,7 @@ const proofWhatsAppLink = useMemo(() => {
                                 </div>
                               </div>
                               {order.items?.length ? (
-                                <div className="overflow-hidden rounded-lg border border-(--neutral-200) bg-white">
+                                <div className="overflow-hidden rounded-xl border border-[color:var(--border)] bg-card/95">
                                   <div className="grid grid-cols-[1fr_repeat(3,minmax(70px,auto))] gap-3 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-4">
                                     <span>Producto</span>
                                     <span className="text-right pr-1">Cant.</span>
@@ -2297,7 +2297,7 @@ const proofWhatsAppLink = useMemo(() => {
                                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                   <Label
                                     htmlFor={`proof-${order.id}`}
-                                    className="flex cursor-pointer items-center gap-2 rounded-md border border-amber-400/70 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 shadow-[0_4px_14px_rgba(251,191,36,0.15)] hover:bg-amber-100 dark:border-amber-300/50 dark:bg-amber-500/10 dark:text-amber-100"
+                                    className="flex cursor-pointer items-center gap-2 rounded-xl border border-amber-400/70 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 shadow-[0_4px_14px_rgba(251,191,36,0.15)] hover:bg-amber-100 dark:border-amber-300/50 dark:bg-amber-500/10 dark:text-amber-100"
                                   >
                                     <FileUp className="h-4 w-4 text-amber-600 dark:text-amber-100" />
                                     Cargar comprobante
@@ -2324,7 +2324,7 @@ const proofWhatsAppLink = useMemo(() => {
                   </AccordionContent>
                 </AccordionItem>
 
-                <AccordionItem value="completed" className="border-b border-(--neutral-200) last:border-0">
+                <AccordionItem value="completed" className="border-b border-[color:var(--border)] last:border-0">
                   <AccordionTrigger className="items-center px-3 py-3 sm:px-4">
                     <div className="flex w-full items-center justify-between gap-3">
                       <div className="space-y-1 text-left">
@@ -2363,7 +2363,7 @@ const proofWhatsAppLink = useMemo(() => {
                               initial={{ opacity: 0, y: 8 }}
                               animate={{ opacity: 1, y: 0 }}
                               transition={{ delay: index * 0.02 }}
-                              className="space-y-2 rounded-xl border border-(--neutral-200) bg-(--surface) px-3 py-3"
+                              className="space-y-2 rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] px-3 py-3"
                             >
                               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                 <div className="space-y-1">
@@ -2444,7 +2444,7 @@ const proofWhatsAppLink = useMemo(() => {
                                 </div>
                               </div>
                               {order.items?.length ? (
-                                <div className="overflow-hidden rounded-lg border border-(--neutral-200) bg-white">
+                                <div className="overflow-hidden rounded-xl border border-[color:var(--border)] bg-card/95">
                                   <div className="grid grid-cols-[1fr_repeat(3,minmax(70px,auto))] gap-3 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-4">
                                     <span>Producto</span>
                                     <span className="text-right pr-1">Cant.</span>
@@ -2489,8 +2489,8 @@ const proofWhatsAppLink = useMemo(() => {
               </Accordion>
             </div>
             <div className={historyView === "table" ? "space-y-4" : "hidden"}>
-              <div className="overflow-hidden rounded-xl border border-(--neutral-200) bg-white">
-                <div className="flex items-center justify-between border-b border-(--neutral-200) px-4 py-3">
+              <div className="overflow-hidden rounded-xl border border-[color:var(--border)] bg-card/95">
+                <div className="flex items-center justify-between border-b border-[color:var(--border)] px-4 py-3">
                   <div className="flex items-center gap-2 text-sm font-semibold">
                     <Truck className="h-4 w-4 text-amber-700" />
                     Cobros por confirmar
@@ -2517,8 +2517,8 @@ const proofWhatsAppLink = useMemo(() => {
                   </Table>
                 )}
               </div>
-              <div className="overflow-hidden rounded-xl border border-(--neutral-200) bg-white">
-                <div className="flex items-center justify-between border-b border-(--neutral-200) px-4 py-3">
+              <div className="overflow-hidden rounded-xl border border-[color:var(--border)] bg-card/95">
+                <div className="flex items-center justify-between border-b border-[color:var(--border)] px-4 py-3">
                   <div className="flex items-center gap-2 text-sm font-semibold">
                     <CheckCircle2 className="h-4 w-4 text-emerald-700" />
                     Completados
@@ -2565,14 +2565,14 @@ const proofWhatsAppLink = useMemo(() => {
               <Button
                 type="button"
                 variant="outline"
-                className="h-12 rounded-full border-primary/50 bg-white/95 px-3 text-primary shadow-lg shadow-primary/20 backdrop-blur"
+                className="h-12 rounded-full border-primary/50 bg-card/95/95 px-3 text-primary shadow-[var(--shadow-md)] shadow-primary/20 backdrop-blur"
                 aria-label="Buscar artículo"
               >
                 <Search className="h-5 w-5" />
                 <span className="pl-2 text-sm font-medium">Buscar artículo</span>
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-72 space-y-2 rounded-xl border-(--neutral-200) bg-white p-3 shadow-lg">
+            <PopoverContent className="w-72 space-y-2 rounded-xl border-[color:var(--border)] bg-card/95 p-3 shadow-[var(--shadow-md)]">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-semibold">Buscar producto</p>
                   <Badge variant="outline">3+ letras</Badge>
@@ -2602,7 +2602,7 @@ const proofWhatsAppLink = useMemo(() => {
 
             <Button
               type="button"
-              className={`relative h-12 rounded-full border-2 px-3 text-primary-foreground shadow-lg shadow-primary/30 transition-none ${
+              className={`relative h-12 rounded-full border-2 px-3 text-primary-foreground shadow-[var(--shadow-md)] shadow-primary/30 transition-none ${
                 totalItems > 0
                   ? "cart-glow border-transparent bg-primary"
                   : "border-primary/50 bg-primary"
@@ -2647,7 +2647,7 @@ const proofWhatsAppLink = useMemo(() => {
                   return (
                     <div
                       key={draft.id}
-                      className="rounded-md border border-(--neutral-200) bg-(--surface) p-3 shadow-sm"
+                      className="rounded-xl border border-[color:var(--border)] bg-[color:var(--muted)] p-3 shadow-[var(--shadow-sm)]"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="space-y-1 text-sm">
@@ -2708,7 +2708,7 @@ const proofWhatsAppLink = useMemo(() => {
                             transition={{ duration: 0.18, ease: "easeOut" }}
                             className="overflow-hidden"
                           >
-                            <div className="mt-3 space-y-2 rounded-lg border border-dashed border-(--neutral-200) bg-white/70 p-3 text-sm shadow-inner dark:bg-muted/50">
+                            <div className="mt-3 space-y-2 rounded-xl border border-dashed border-[color:var(--border)] bg-card/95 p-3 text-sm shadow-inner dark:bg-muted/50">
                               <div className="flex items-center justify-between text-xs text-muted-foreground">
                                 <span>{draftItems.length} ítem(s)</span>
                                 <span>{total > 0 ? `Total aprox. ${formatCurrency(total)}` : "Total no disponible"}</span>
@@ -2717,7 +2717,7 @@ const proofWhatsAppLink = useMemo(() => {
                                 {draftItems.map((item) => (
                                   <div
                                     key={`${draft.id}-${item.id}`}
-                                    className="flex items-start justify-between gap-2 rounded-md bg-(--surface) px-2 py-1.5"
+                                    className="flex items-start justify-between gap-2 rounded-xl bg-[color:var(--muted)] px-2 py-1.5"
                                   >
                                     <div className="space-y-0.5">
                                       <p className="text-sm font-medium leading-tight">{item.name}</p>
@@ -2764,7 +2764,7 @@ const proofWhatsAppLink = useMemo(() => {
             <p className="text-sm text-muted-foreground">
               Avísale a {provider.name} para que avance con tu pedido. Te dejamos un mensaje listo para enviar por WhatsApp.
             </p>
-            <div className="rounded-lg border border-amber-200/80 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-300/50 dark:bg-amber-500/10 dark:text-amber-100">
+            <div className="rounded-xl border border-amber-200/80 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-300/50 dark:bg-amber-500/10 dark:text-amber-100">
               Hola, ya he cargado el comprobante correspondiente al pedido #{proofShortId ?? proofSuccess?.orderId} de monto total{" "}
               {formatCurrency(proofSuccess?.total ?? 0)}.
             </div>
