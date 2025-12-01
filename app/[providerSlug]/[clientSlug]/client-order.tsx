@@ -15,6 +15,7 @@ import {
   Rows,
   Search,
   ShoppingCart,
+  ShoppingBag,
   Trash2,
   Wallet,
 } from "lucide-react";
@@ -34,6 +35,7 @@ import { ORDER_STATUS_LABEL } from "@/lib/order-status";
 import { buildWhatsAppLink, formatCurrency } from "@/lib/whatsapp";
 import { WEEKDAYS, pickNextDelivery, type DeliveryRule } from "@/lib/delivery-windows";
 import { createOrder, saveDraft, updatePaymentProof, type OrderSummaryItem } from "./actions";
+import { ThemeToggle } from "@/components/app/theme-toggle";
 
 const MotionTableRow = motion(TableRow);
 
@@ -209,6 +211,7 @@ export function ClientOrder({
   const [activeCategories, setActiveCategories] = useState<string[]>([]);
   const [activeTags, setActiveTags] = useState<string[]>([]);
   const [historyItems, setHistoryItems] = useState<PublicOrderHistory[]>(history);
+  const [activePage, setActivePage] = useState<"catalogo" | "historial">("catalogo");
   const [showSummary, setShowSummary] = useState(true);
   const [productView, setProductView] = useState<"cards" | "table">("cards");
   const [historyView, setHistoryView] = useState<"cards" | "table">("cards");
@@ -970,27 +973,30 @@ const proofWhatsAppLink = useMemo(() => {
   })?.href;
 
   const handleJumpToPendingProof = useCallback(() => {
-    const section = historySectionRef.current;
-    if (section) {
-      section.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-    const targetId = nextPendingProof?.id;
-    if (targetId) {
-      const target = pendingProofRefs.current.get(targetId);
-      if (target) {
-        const highlightClasses = [
-          "ring-2",
-          "ring-primary/60",
-          "shadow-[0_0_0_6px_rgba(59,130,246,0.12)]",
-          "bg-primary/5",
-        ];
-        setTimeout(() => {
-          target.scrollIntoView({ behavior: "smooth", block: "center" });
-          target.classList.add(...highlightClasses);
-          setTimeout(() => target.classList.remove(...highlightClasses), 1400);
-        }, 160);
+    setActivePage("historial");
+    setTimeout(() => {
+      const section = historySectionRef.current;
+      if (section) {
+        section.scrollIntoView({ behavior: "smooth", block: "start" });
       }
-    }
+      setTimeout(() => {
+        const targetId = nextPendingProof?.id;
+        if (targetId) {
+          const target = pendingProofRefs.current.get(targetId);
+          if (target) {
+            const highlightClasses = [
+              "ring-2",
+              "ring-primary/60",
+              "shadow-[0_0_0_6px_rgba(59,130,246,0.12)]",
+              "bg-primary/5",
+            ];
+            target.scrollIntoView({ behavior: "smooth", block: "center" });
+            target.classList.add(...highlightClasses);
+            setTimeout(() => target.classList.remove(...highlightClasses), 1400);
+          }
+        }
+      }, 80);
+    }, 60);
   }, [nextPendingProof]);
 
   const registerPendingProofRef = useCallback((orderId: string, node: HTMLDivElement | null) => {
@@ -1002,15 +1008,57 @@ const proofWhatsAppLink = useMemo(() => {
   }, []);
 
   const handleJumpToHistory = useCallback(() => {
-    const section = historySectionRef.current;
-    if (section) {
-      section.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
+    setActivePage("historial");
+    setTimeout(() => {
+      const section = historySectionRef.current;
+      if (section) {
+        section.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 60);
   }, []);
 
   return (
-    <div className="w-full bg-[color:var(--muted)]">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+    <div className="min-h-screen bg-[var(--surface-bg)] text-[var(--text-primary)]">
+      <div className="border-b border-[var(--surface-border)] bg-white/90 backdrop-blur dark:border-[var(--surface-border)] dark:bg-[var(--surface-200)]">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3 md:px-8">
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={() => setActivePage("catalogo")}
+              className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all ${
+                activePage === "catalogo"
+                  ? "bg-[var(--surface-subtle)] text-[var(--brand-teal-deep)] shadow-[var(--shadow-sm)]"
+                  : "text-muted-foreground hover:bg-[var(--surface-subtle)]"
+              }`}
+              aria-pressed={activePage === "catalogo"}
+            >
+              <ShoppingBag className="h-4 w-4" />
+              Catálogo
+            </button>
+            <button
+              type="button"
+              onClick={() => setActivePage("historial")}
+              className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all ${
+                activePage === "historial"
+                  ? "bg-[var(--surface-subtle)] text-[var(--brand-teal-deep)] shadow-[var(--shadow-sm)]"
+                  : "text-muted-foreground hover:bg-[var(--surface-subtle)]"
+              }`}
+              aria-pressed={activePage === "historial"}
+            >
+              <History className="h-4 w-4" />
+              Historial
+            </button>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="hidden text-xs text-muted-foreground sm:block">
+              {provider.name} · {client.name}
+            </div>
+            <ThemeToggle />
+          </div>
+        </div>
+      </div>
+      <div className="relative w-full bg-[color:var(--muted)]">
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <motion.div
           className="absolute -left-10 top-10 h-48 w-48 rounded-full bg-primary/10 blur-3xl"
           initial={{ opacity: 0, scale: 0.8 }}
@@ -1038,38 +1086,67 @@ const proofWhatsAppLink = useMemo(() => {
             <Badge variant="secondary">{client.slug}</Badge>
           </div>
           <h1 className="text-balance text-2xl font-semibold md:text-3xl">
-            {provider.name} · Pedido de {client.name}
+            {activePage === "catalogo"
+              ? `${provider.name} · Pedido de ${client.name}`
+              : `Historial de pedidos · ${client.name}`}
           </h1>
           <p className="text-pretty text-sm text-muted-foreground md:text-base">
-            Selecciona cantidades, completa tus datos y envía el pedido. Luego podrás notificar al proveedor por WhatsApp con un resumen listo.
+            {activePage === "catalogo"
+              ? "Selecciona cantidades, completa tus datos y envía el pedido. Luego podrás notificar al proveedor por WhatsApp con un resumen listo."
+              : "Revisa pedidos previos, estados y comprobantes asociados."}
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="secondary" onClick={handleSaveDraft}>
-              Guardar borrador
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setShowDraftsModal(true)}>
-              Ver borradores
-            </Button>
-            <Button size="sm" variant="outline" onClick={handleJumpToHistory} className="gap-2">
-              <History className="h-4 w-4" />
-              Historial de pedidos
-            </Button>
-            <Button
-              size="sm"
-              variant={pendingProofUploads > 0 ? "default" : "outline"}
-              onClick={handleJumpToPendingProof}
-              disabled={pendingProofUploads === 0}
-              className="gap-2"
-            >
-              <FileUp className="h-4 w-4" />
-              Cargar comprobante
-              {pendingProofUploads > 0 ? <Badge className="ml-1" variant="secondary">{pendingProofUploads}</Badge> : null}
-            </Button>
-            {draftMessage ? <span className="text-xs text-muted-foreground">{draftMessage}</span> : null}
+            {activePage === "catalogo" ? (
+              <>
+                <Button size="sm" variant="secondary" onClick={handleSaveDraft}>
+                  Guardar borrador
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setShowDraftsModal(true)}>
+                  Ver borradores
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleJumpToHistory} className="gap-2">
+                  <History className="h-4 w-4" />
+                  Historial de pedidos
+                </Button>
+                <Button
+                  size="sm"
+                  variant={pendingProofUploads > 0 ? "default" : "outline"}
+                  onClick={handleJumpToPendingProof}
+                  disabled={pendingProofUploads === 0}
+                  className="gap-2"
+                >
+                  <FileUp className="h-4 w-4" />
+                  Cargar comprobante
+                  {pendingProofUploads > 0 ? <Badge className="ml-1" variant="secondary">{pendingProofUploads}</Badge> : null}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button size="sm" variant="outline" onClick={() => setActivePage("catalogo")} className="gap-2">
+                  <ShoppingBag className="h-4 w-4" />
+                  Volver al catálogo
+                </Button>
+                <Button
+                  size="sm"
+                  variant={pendingProofUploads > 0 ? "default" : "outline"}
+                  onClick={handleJumpToPendingProof}
+                  disabled={pendingProofUploads === 0}
+                  className="gap-2"
+                >
+                  <FileUp className="h-4 w-4" />
+                  Cargar comprobante
+                  {pendingProofUploads > 0 ? <Badge className="ml-1" variant="secondary">{pendingProofUploads}</Badge> : null}
+                </Button>
+              </>
+            )}
+            {draftMessage && activePage === "catalogo" ? (
+              <span className="text-xs text-muted-foreground">{draftMessage}</span>
+            ) : null}
           </div>
         </motion.header>
 
-        <section className={`grid gap-5 ${showSummary ? "md:grid-cols-[2fr_1fr]" : "md:grid-cols-1"}`}>
+        {activePage === "catalogo" ? (
+          <section className={`grid gap-5 ${showSummary ? "md:grid-cols-[2fr_1fr]" : "md:grid-cols-1"}`}>
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -2077,7 +2154,7 @@ const proofWhatsAppLink = useMemo(() => {
             ) : null}
           </AnimatePresence>
         </section>
-
+        ) : (
         <motion.section
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -2549,6 +2626,7 @@ const proofWhatsAppLink = useMemo(() => {
           </div>
         )}
         </motion.section>
+        )}
       </main>
       <AnimatePresence>
         <motion.div
@@ -2809,6 +2887,7 @@ const proofWhatsAppLink = useMemo(() => {
           }
         }
       `}</style>
+    </div>
     </div>
   );
 }
