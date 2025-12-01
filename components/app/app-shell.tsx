@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
 import {
-  Bell,
   CreditCard,
   HelpCircle,
   LayoutDashboard,
@@ -27,6 +26,7 @@ import { ThemeToggle } from "@/components/app/theme-toggle";
 import { cn } from "@/lib/utils";
 import { ProviderContextProvider, useProviderContext } from "./provider-context";
 import { listProviders, type ProviderRow } from "@/app/app/orders/actions";
+import { NotificationBell } from "./notification-bell";
 
 type NavItem = {
   label: string;
@@ -95,7 +95,7 @@ function NavLinks({
 }
 
 function AdminProviderSelect() {
-  const { role, providerSlug, setProviderSlug, isLocked } = useProviderContext();
+  const { role, providerSlug, setProviderSlug, setProviderId, isLocked } = useProviderContext();
   const [providers, setProviders] = useState<ProviderRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,6 +113,13 @@ function AdminProviderSelect() {
               response.providers.find((provider) => provider.is_active !== false) ?? response.providers[0];
             if (firstActive?.slug) {
               void setProviderSlug(firstActive.slug);
+              setProviderId(firstActive.id);
+            }
+          }
+          if (providerSlug) {
+            const current = response.providers.find((item) => item.slug === providerSlug);
+            if (current?.id) {
+              setProviderId(current.id);
             }
           }
         } else {
@@ -126,7 +133,15 @@ function AdminProviderSelect() {
 
   return (
     <div className="flex items-center gap-2">
-      <Select value={providerSlug} onValueChange={(value) => void setProviderSlug(value)} disabled={loading || isLocked}>
+      <Select
+        value={providerSlug}
+        onValueChange={(value) => {
+          const found = providers.find((item) => item.slug === value);
+          setProviderId(found?.id);
+          void setProviderSlug(value);
+        }}
+        disabled={loading || isLocked}
+      >
         <SelectTrigger className="w-[220px]">
           <SelectValue placeholder="Selecciona proveedor" />
         </SelectTrigger>
@@ -229,10 +244,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
               <Button variant="ghost" size="icon-sm" aria-label="Ayuda">
                 <HelpCircle className="h-4 w-4 text-[color:var(--muted-foreground)]" />
               </Button>
-              <Button variant="ghost" size="icon-sm" aria-label="Notificaciones" className="relative">
-                <Bell className="h-4 w-4 text-[color:var(--muted-foreground)]" />
-                <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[color:var(--error)] shadow-[0_0_0_6px_rgba(214,69,69,0.18)]" />
-              </Button>
+              <NotificationBell />
               <div className="relative ml-2 h-9 w-9 overflow-hidden rounded-full border border-[color:var(--border)] bg-[color:var(--muted)]">
                 <Image
                   src="/MiProveedor.png"
@@ -259,14 +271,21 @@ function AppShellContent({ children }: { children: ReactNode }) {
 export function AppShell({
   children,
   providerSlug,
+  providerId,
   role,
 }: {
   children: ReactNode;
   providerSlug?: string;
+  providerId?: string;
   role: "admin" | "provider";
 }) {
   return (
-    <ProviderContextProvider role={role} initialProviderSlug={providerSlug} locked={role === "provider"}>
+    <ProviderContextProvider
+      role={role}
+      initialProviderSlug={providerSlug}
+      initialProviderId={providerId}
+      locked={role === "provider"}
+    >
       <AppShellContent>{children}</AppShellContent>
     </ProviderContextProvider>
   );

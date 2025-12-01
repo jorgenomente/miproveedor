@@ -1,14 +1,6 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { persistAdminSelectedProviderSlug } from "@/app/app/actions/admin-provider";
 
@@ -19,6 +11,8 @@ type ProviderContextValue = {
   providerSlug?: string;
   setProviderSlug: (slug: string, options?: { lock?: boolean }) => Promise<void>;
   isLocked: boolean;
+  providerId?: string;
+  setProviderId: (id?: string | null) => void;
 };
 
 const ProviderContext = createContext<ProviderContextValue | null>(null);
@@ -27,14 +21,17 @@ export function ProviderContextProvider({
   children,
   role,
   initialProviderSlug,
+  initialProviderId,
   locked: lockedProp,
 }: {
   children: ReactNode;
   role: ProviderRole;
   initialProviderSlug?: string;
+  initialProviderId?: string;
   locked?: boolean;
 }) {
   const [providerSlug, setProviderSlugState] = useState<string>(initialProviderSlug ?? "");
+  const [providerId, setProviderIdState] = useState<string | undefined>(initialProviderId);
   const [isLocked, setIsLocked] = useState<boolean>(lockedProp ?? role === "provider");
 
   useEffect(() => {
@@ -42,6 +39,12 @@ export function ProviderContextProvider({
       setProviderSlugState(initialProviderSlug);
     }
   }, [initialProviderSlug, providerSlug]);
+
+  useEffect(() => {
+    if (initialProviderId && initialProviderId !== providerId) {
+      setProviderIdState(initialProviderId);
+    }
+  }, [initialProviderId, providerId]);
 
   const setProviderSlug = useCallback(
     async (slug: string, options?: { lock?: boolean }) => {
@@ -66,8 +69,10 @@ export function ProviderContextProvider({
       providerSlug,
       setProviderSlug,
       isLocked,
+      providerId,
+      setProviderId: (id?: string | null) => setProviderIdState(id ?? undefined),
     }),
-    [role, providerSlug, setProviderSlug, isLocked],
+    [role, providerSlug, setProviderSlug, isLocked, providerId],
   );
 
   return <ProviderContext.Provider value={value}>{children}</ProviderContext.Provider>;

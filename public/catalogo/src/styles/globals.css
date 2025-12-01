@@ -1,0 +1,135 @@
+@import "tailwindcss";
+
+/* MiProveedor Design System - Tokens */
+:root {
+  /* Brand Colors - MiProveedor Teal/Aqua */
+  --brand-teal-deep: #0f7a82;
+  --brand-teal-medium: #1f8a92;
+  --brand-teal-light: #36aab4;
+  --brand-teal-aqua: #4fd4e4;
+  --brand-soft-bg: #cdece7;
+  
+  /* Alias para compatibilidad con código antiguo */
+  --brand-teal-600: #1f8a92;
+  --brand-teal-700: #0f7a82;
+  --brand-teal-800: #0f7a82;
+  --brand-teal-100: #cdece7;
+  --brand-teal-200: #4fd4e4;
+  --brand-aqua-600: #1f8a92;
+  --brand-aqua-700: #0f7a82;
+  --brand-aqua-100: #cdece7;
+  --brand-aqua-200: #4fd4e4;
+
+  /* Surface Tokens - Light Mode */
+  --surface-bg: #fafafa;
+  --surface-subtle: #f5f5f5;
+  --surface-ui: #e5e5e5;
+  --surface-border: #d4d4d4;
+  --surface-border-hover: #a3a3a3;
+  --surface-muted: #737373;
+  
+  /* Alias antiguo para compatibilidad */
+  --surface-50: #fafafa;
+  --surface-100: #f5f5f5;
+  --surface-200: #e5e5e5;
+  --surface-300: #d4d4d4;
+  --surface-400: #a3a3a3;
+
+  /* Text Colors - Light Mode */
+  --text-primary: #171717;
+  --text-secondary: #525252;
+  --text-tertiary: #737373;
+  --text-muted: #a3a3a3;
+
+  /* Status Colors */
+  --status-success: #12b272;
+  --status-warning: #e5a100;
+  --status-error: #d64545;
+  --status-info: #2596d4;
+
+  /* Border Radius */
+  --radius-s: 8px;
+  --radius-m: 12px;
+  --radius-l: 16px;
+  --radius-xl: 20px;
+
+  /* Shadows - Light */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+}
+
+/* Dark Mode - Design System MiProveedor Dark */
+.dark {
+  /* Surface Tokens - Dark Mode (del DS oficial) */
+  --surface-bg: #0c0f11;
+  --surface-subtle: #13181b;
+  --surface-ui: #1a2125;
+  --surface-border: #243035;
+  --surface-border-hover: #2f3d43;
+  --surface-muted: #52585a;
+  
+  /* Alias antiguo mapeado a tokens correctos del DS Dark */
+  --surface-50: #0c0f11;
+  --surface-100: #13181b;
+  --surface-200: #243035;
+  --surface-300: #243035;
+  --surface-400: #2f3d43;
+
+  /* Text Colors - Dark Mode (del DS oficial) */
+  --text-primary: #ffffff;
+  --text-secondary: #d4d8d9;
+  --text-tertiary: #a0a7a9;
+  --text-muted: #a0a7a9;
+
+  /* Shadows - Dark Mode (más sutiles y profundas) */
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.5);
+  --shadow-md: 0 4px 8px -2px rgb(0 0 0 / 0.6), 0 2px 4px -2px rgb(0 0 0 / 0.5);
+  --shadow-lg: 0 10px 20px -5px rgb(0 0 0 / 0.7), 0 4px 6px -4px rgb(0 0 0 / 0.6);
+}
+
+/* Dark Mode - Global Element Overrides */
+.dark .bg-white {
+  background-color: var(--surface-subtle) !important;
+}
+
+.dark [class*="border-white"] {
+  border-color: var(--surface-border) !important;
+}
+
+/* Typography System */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color: var(--text-primary);
+  background-color: var(--surface-bg);
+}
+
+h1 {
+  font-size: 48px;
+  line-height: 1.1;
+}
+
+h2 {
+  font-size: 36px;
+  line-height: 1.2;
+}
+
+h3 {
+  font-size: 24px;
+  line-height: 1.3;
+}
+
+h4 {
+  font-size: 20px;
+  line-height: 1.4;
+}
+
+p {
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+small {
+  font-size: 14px;
+  line-height: 1.4;
+}
