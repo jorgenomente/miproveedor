@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from "@supabase/supabase-js";
-import { Bell, Inbox, Loader2, ShoppingBag, UploadCloud } from "lucide-react";
+import { Bell, Inbox, Loader2, RefreshCw, ShoppingBag, UploadCloud } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -23,9 +23,10 @@ import { useProviderContext } from "./provider-context";
 type NotificationItem = {
   id: string;
   orderId?: string;
-  type: "order" | "payment_proof";
+  type: "order" | "payment_proof" | "order_status";
   createdAt?: string | null;
   clientName?: string | null;
+  status?: string | null;
 };
 
 function formatTime(value?: string | null) {
@@ -35,7 +36,19 @@ function formatTime(value?: string | null) {
   return date.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  nuevo: "nuevo",
+  preparando: "en preparación",
+  enviado: "enviado",
+  entregado: "entregado",
+  cancelado: "cancelado",
+};
+
 function eventLabel(item: NotificationItem) {
+  if (item.type === "order_status") {
+    const label = item.status ? STATUS_LABELS[item.status] ?? item.status : null;
+    return label ? `Pedido ${label}` : "Pedido actualizado";
+  }
   if (item.type === "payment_proof") return "Comprobante recibido";
   return "Nuevo pedido";
 }
@@ -120,6 +133,29 @@ export function NotificationBell() {
     [clientMap, pushEvent],
   );
 
+  const handleOrderStatusUpdate = useCallback(
+    (payload: RealtimePostgresChangesPayload<Record<string, any>>) => {
+      const next = payload.new ?? {};
+      const prev = payload.old ?? {};
+      const statusNow = (next.status as string | undefined) ?? null;
+      const statusPrev = (prev.status as string | undefined) ?? null;
+      if (!statusNow || statusNow === statusPrev) return;
+
+      const orderId = (next.id as string | undefined) ?? `order-${Date.now()}`;
+      const clientId = (next.client_id as string | undefined) ?? undefined;
+      const clientName = clientId ? clientMap[clientId]?.name ?? null : null;
+      pushEvent({
+        id: `order-status-${orderId}-${statusNow}`,
+        orderId,
+        status: statusNow,
+        type: "order_status",
+        createdAt: (next.updated_at as string | undefined) ?? new Date().toISOString(),
+        clientName,
+      });
+    },
+    [clientMap, pushEvent],
+  );
+
   const hydrateRecent = useCallback(async () => {
     if (!providerSlug) return;
     setHydrating(true);
@@ -149,7 +185,11 @@ export function NotificationBell() {
           });
         setEvents((prev) => {
           const prevIds = new Set(prev.map((e) => e.id));
-          const merged = [...deduped.filter((i) => !prevIds.has(i.id)), ...prev];
+          const fresh = deduped.filter((i) => !prevIds.has(i.id));
+          const merged = [...fresh, ...prev];
+          if (fresh.length > 0 && !menuOpenRef.current) {
+            setHasUnread(true);
+          }
           return merged.slice(0, 6);
         });
       }
@@ -225,6 +265,7 @@ export function NotificationBell() {
       .channel(channelName)
       .on("postgres_changes", insertConfig, handleOrderInsert)
       .on("postgres_changes", updateConfig, handleProofUpdate)
+      .on("postgres_changes", updateConfig, handleOrderStatusUpdate)
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
           setConnecting(false);
@@ -249,7 +290,22 @@ export function NotificationBell() {
       }
       channelRef.current = null;
     };
-  }, [handleOrderInsert, handleProofUpdate, providerId, providerSlug]);
+  }, [handleOrderInsert, handleOrderStatusUpdate, handleProofUpdate, providerId, providerSlug]);
+
+  useEffect(() => {
+    if (!providerSlug) return;
+    void hydrateRecent();
+  }, [hydrateRecent, providerSlug]);
+
+  useEffect(() => {
+    if (!providerSlug) return undefined;
+    const interval = window.setInterval(() => {
+      if (!hydrating && !connecting) {
+        void hydrateRecent();
+      }
+    }, 25000);
+    return () => clearInterval(interval);
+  }, [connecting, hydrateRecent, hydrating, providerSlug]);
 
   useEffect(() => {
     if (menuOpenRef.current && events.length === 0 && !hydrating) {
@@ -287,9 +343,9 @@ export function NotificationBell() {
               <motion.span
                 key="bell-dot"
                 initial={{ scale: 0, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
+                animate={{ scale: [0.9, 1, 1.12, 1], opacity: [0.8, 1, 0.7, 1] }}
                 exit={{ scale: 0, opacity: 0 }}
-                transition={{ type: "spring", stiffness: 320, damping: 28 }}
+                transition={{ duration: 1.4, repeat: Infinity, repeatType: "mirror" }}
                 className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-[color:var(--error)] shadow-[0_0_0_8px_rgba(214,69,69,0.15)]"
               />
             ) : null}
@@ -311,50 +367,58 @@ export function NotificationBell() {
             {connecting || hydrating ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
           </DropdownMenuLabel>
           <DropdownMenuSeparator className="my-0" />
-        {connectionError ? (
-          <div className="px-3 py-2 text-xs text-destructive">{connectionError}</div>
-        ) : (
-          <div className="max-h-80 overflow-y-auto">
-            <ScrollArea className="max-h-80">
-              {events.length === 0 ? (
-                <div className="flex items-center gap-3 px-3 py-4 text-sm text-muted-foreground">
-                  <Inbox className="h-4 w-4" />
-                  <span>Acá verás nuevos pedidos y comprobantes.</span>
-                </div>
-              ) : (
-                events.map((item) => (
-                  <DropdownMenuItem key={item.id} asChild className="focus:bg-accent/40">
-                    <Link href={detailHref(item.orderId ?? undefined)} className="flex items-start gap-3 px-2 py-3">
-                      <div
-                        className={cn(
-                          "flex h-9 w-9 items-center justify-center rounded-full border",
-                          item.type === "order"
-                            ? "border-[color:var(--accent)]/50 bg-[color:var(--accent)]/20 text-[color:var(--brand-deep)]"
-                            : "border-[color:var(--info)]/40 bg-[color:var(--info-light)] text-[color:var(--info)]",
-                        )}
-                      >
-                        {item.type === "order" ? (
-                          <ShoppingBag className="h-4 w-4" />
-                        ) : (
-                          <UploadCloud className="h-4 w-4" />
-                        )}
-                      </div>
-                      <div className="flex flex-1 flex-col gap-0.5">
-                        <p className="text-sm font-medium leading-tight">
-                          {item.clientName ? `${eventLabel(item)} de ${item.clientName}` : eventLabel(item)}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {item.orderId ? `Pedido #${item.orderId.slice(0, 8)}` : "Revisa el panel de pedidos"}
-                        </p>
-                        <span className="text-[11px] text-muted-foreground">{formatTime(item.createdAt)}</span>
-                      </div>
-                    </Link>
-                  </DropdownMenuItem>
-                ))
-              )}
-            </ScrollArea>
-          </div>
-        )}
+          {connectionError ? (
+            <div className="px-3 py-2 text-xs text-destructive">{connectionError}</div>
+          ) : (
+            <div className="max-h-80 overflow-y-auto">
+              <ScrollArea className="max-h-80">
+                {events.length === 0 ? (
+                  <div className="flex items-center gap-3 px-3 py-4 text-sm text-muted-foreground">
+                    <Inbox className="h-4 w-4" />
+                    <span>Acá verás nuevos pedidos y comprobantes.</span>
+                  </div>
+                ) : (
+                  events.map((item) => (
+                    <DropdownMenuItem key={item.id} asChild className="focus:bg-accent/40">
+                      <Link href={detailHref(item.orderId ?? undefined)} className="flex items-start gap-3 px-2 py-3">
+                        <div
+                          className={cn(
+                            "flex h-9 w-9 items-center justify-center rounded-full border",
+                            item.type === "order"
+                              ? "border-[color:var(--accent)]/50 bg-[color:var(--accent)]/20 text-[color:var(--brand-deep)]"
+                              : item.type === "payment_proof"
+                                ? "border-[color:var(--info)]/40 bg-[color:var(--info-light)] text-[color:var(--info)]"
+                                : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-100",
+                          )}
+                        >
+                          {item.type === "order" ? (
+                            <ShoppingBag className="h-4 w-4" />
+                          ) : item.type === "payment_proof" ? (
+                            <UploadCloud className="h-4 w-4" />
+                          ) : (
+                            <RefreshCw className="h-4 w-4" />
+                          )}
+                        </div>
+                        <div className="flex flex-1 flex-col gap-0.5">
+                          <p className="text-sm font-medium leading-tight">
+                            {item.clientName ? `${eventLabel(item)} de ${item.clientName}` : eventLabel(item)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {item.orderId
+                              ? `Pedido #${item.orderId.slice(0, 8)}${
+                                  item.status ? ` · ${STATUS_LABELS[item.status] ?? item.status}` : ""
+                                }`
+                              : "Revisa el panel de pedidos"}
+                          </p>
+                          <span className="text-[11px] text-muted-foreground">{formatTime(item.createdAt)}</span>
+                        </div>
+                      </Link>
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </ScrollArea>
+            </div>
+          )}
           <DropdownMenuSeparator className="my-0" />
           <div className="px-3 pb-3 pt-2">
             <Link

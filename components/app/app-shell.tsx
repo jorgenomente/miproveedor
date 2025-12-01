@@ -245,16 +245,6 @@ function AppShellContent({ children }: { children: ReactNode }) {
                 <HelpCircle className="h-4 w-4 text-[color:var(--muted-foreground)]" />
               </Button>
               <NotificationBell />
-              <div className="relative ml-2 h-9 w-9 overflow-hidden rounded-full border border-[color:var(--border)] bg-[color:var(--muted)]">
-                <Image
-                  src="/MiProveedor.png"
-                  alt="Logo de MiProveedor"
-                  fill
-                  className="object-contain p-1.5"
-                  sizes="36px"
-                  priority
-                />
-              </div>
             </div>
           </div>
           <Separator className="bg-[color:var(--border)]" />
